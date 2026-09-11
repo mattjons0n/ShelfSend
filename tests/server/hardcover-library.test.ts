@@ -49,6 +49,127 @@ function page(books = [volume()]): HardcoverSeriesPage {
   return { id: 5, name: "A series", books, offset: 0, limit: 40, hasMore: false };
 }
 
+const trilogyAuthor = "Nicholas Sansbury Smith";
+function trilogyVolume(id: number, title: string, position: number, overrides: Partial<HardcoverSeriesBook> = {}) {
+  return volume(id, { title, authors: [trilogyAuthor], position, series: [{ id: 5, name: "E-Day", position }], ...overrides });
+}
+
+function trilogyPage(books: HardcoverSeriesBook[]): HardcoverSeriesPage {
+  return { ...page(books), name: "E-Day" };
+}
+
+describe("decorated-title Hardcover library ownership", () => {
+  it("uses complete source or edited identities and does not mutate catalog metadata", () => {
+    const { database, profileId, rootId } = fixture();
+    const source = addBook(database, rootId, {
+      title: "E-Day III: Dark Moon (E-Day Trilogy Book 3)", authors: [trilogyAuthor],
+      identifiers: ["ASIN:B09KS6PMGF", "urn:uuid:58fe58d6-7705-40e9-a143-f14053e46623"],
+    });
+    database.patchBookMetadata(profileId, source.bookId, {
+      expectedRevision: 0, expectedContentHash: source.contentHash,
+      changes: { title: "My third E-Day book", authors: ["Personal author label"] },
+    });
+    const edited = addBook(database, rootId, { title: "Unusable imported title", authors: ["Unknown"] });
+    database.patchBookMetadata(profileId, edited.bookId, {
+      expectedRevision: 0, expectedContentHash: edited.contentHash,
+      changes: { title: "E-Day II: Burning Earth (E-Day Trilogy Book 2)", authors: [trilogyAuthor] },
+    });
+    const before = [source, edited].map(({ bookId }) => database.getBook(profileId, bookId));
+    const changes = database.database.prepare("SELECT total_changes() AS total").get();
+    database.database.exec("PRAGMA query_only = ON");
+
+    const result = enrichHardcoverSeries(database, profileId, trilogyPage([
+      trilogyVolume(1098688, "Burning Earth", 2), trilogyVolume(1098689, "Dark Moon", 3),
+    ]));
+
+    expect(result.books.map((book) => [book.id, book.library.status, book.library.books.map((local) => local.id)]))
+      .toEqual([[1098688, "in-library", [edited.bookId]], [1098689, "in-library", [source.bookId]]]);
+    expect(result.books[1]!.library.books[0]!.title).toBe("My third E-Day book");
+    expect([source, edited].map(({ bookId }) => database.getBook(profileId, bookId))).toEqual(before);
+    expect(database.database.prepare("SELECT total_changes() AS total").get()).toEqual(changes);
+  });
+
+  it.each([
+    ["author", { authors: ["A Different Writer"] }],
+    ["series", { series: [{ id: 5, name: "A Different Series", position: 3 }] }],
+    ["volume", { position: 2, series: [{ id: 5, name: "E-Day", position: 2 }] }],
+  ] satisfies Array<[string, Partial<HardcoverSeriesBook>]>) ("does not confirm a cleaned title with a conflicting %s", (_field, overrides) => {
+    const { database, profileId, rootId } = fixture();
+    addBook(database, rootId, { title: "E-Day III: Dark Moon (E-Day Trilogy Book 3)", authors: [trilogyAuthor] });
+    const result = enrichHardcoverSeries(database, profileId, trilogyPage([trilogyVolume(1098689, "Dark Moon", 3, overrides)]));
+    expect(result.books[0]!.library.status).not.toBe("in-library");
+  });
+
+  it("keeps competing provider identities for one cleaned local title possible", () => {
+    const { database, profileId, rootId } = fixture();
+    const { bookId } = addBook(database, rootId, {
+      title: "E-Day III: Dark Moon (E-Day Trilogy Book 3)", authors: [trilogyAuthor],
+    });
+    const result = enrichHardcoverSeries(database, profileId, trilogyPage([
+      trilogyVolume(1098689, "Dark Moon", 3), trilogyVolume(1098690, "Dark Moon", 3),
+    ]));
+    expect(result.books.map((book) => book.library)).toEqual([
+      { status: "possible", books: [expect.objectContaining({ id: bookId })] },
+      { status: "possible", books: [expect.objectContaining({ id: bookId })] },
+    ]);
+  });
+
+  it("preserves disjoint ISBN versus cleaned-title claims as possible", () => {
+    const { database, profileId, rootId } = fixture();
+    addBook(database, rootId, {
+      title: "E-Day III: Dark Moon (E-Day Trilogy Book 3)", authors: [trilogyAuthor], identifiers: ["9780140328721"],
+    });
+    const result = enrichHardcoverSeries(database, profileId, trilogyPage([
+      trilogyVolume(1098688, "Burning Earth", 2, { identifiers: ["9780140328721"] }),
+      trilogyVolume(1098689, "Dark Moon", 3),
+    ]));
+    expect(result.books.map((book) => book.library.status)).toEqual(["possible", "possible"]);
+  });
+
+  it("preserves an author conflict even when the cleaned title and ISBN agree", () => {
+    const { database, profileId, rootId } = fixture();
+    addBook(database, rootId, {
+      title: "E-Day III: Dark Moon (E-Day Trilogy Book 3)", authors: ["A Different Writer"], identifiers: ["9780140328721"],
+    });
+    expect(enrichHardcoverSeries(database, profileId, trilogyPage([
+      trilogyVolume(1098689, "Dark Moon", 3, { identifiers: ["9780140328721"] }),
+    ])).books[0]!.library.status).toBe("possible");
+  });
+
+  it("does not borrow corroboration from another series membership or roster position", () => {
+    const { database, profileId, rootId } = fixture();
+    const { bookId } = addBook(database, rootId, {
+      title: "E-Day III: Dark Moon (E-Day Trilogy Book 3)", authors: [trilogyAuthor],
+    });
+    const memberships = [{ id: 5, name: "E-Day", position: 2 }, { id: 6, name: "E-Day", position: 3 }];
+    const unrelatedMembership = enrichHardcoverSeries(database, profileId, trilogyPage([
+      trilogyVolume(1098689, "Dark Moon", 2, { series: memberships }),
+    ]));
+    expect(unrelatedMembership.books[0]!.library.status).not.toBe("in-library");
+
+    const repeatedWork = enrichHardcoverSeries(database, profileId, trilogyPage([
+      trilogyVolume(1098689, "Dark Moon", 2, { series: [{ id: 5, name: "E-Day", position: 3 }] }),
+      trilogyVolume(1098689, "Dark Moon", 3),
+    ]));
+    expect(repeatedWork.books[0]!.library.status).not.toBe("in-library");
+    expect(repeatedWork.books[1]!.library).toMatchObject({ status: "in-library", books: [{ id: bookId }] });
+  });
+
+  it("does not combine a source title with an unrelated edited author", () => {
+    const { database, profileId, rootId } = fixture();
+    const { bookId, contentHash } = addBook(database, rootId, {
+      title: "E-Day III: Dark Moon (E-Day Trilogy Book 3)", authors: ["A Different Writer"],
+    });
+    database.patchBookMetadata(profileId, bookId, {
+      expectedRevision: 0, expectedContentHash: contentHash,
+      changes: { title: "A different edited title", authors: [trilogyAuthor] },
+    });
+    expect(enrichHardcoverSeries(database, profileId, trilogyPage([
+      trilogyVolume(1098689, "Dark Moon", 3),
+    ])).books[0]!.library.status).not.toBe("in-library");
+  });
+});
+
 describe("read-only Hardcover selected-library presence", () => {
   it("matches exact normalized title/author without any local series metadata", () => {
     const { database, profileId, rootId } = fixture();

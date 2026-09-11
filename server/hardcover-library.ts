@@ -5,6 +5,7 @@ import type {
 } from "../shared/hardcover-contracts.js";
 import { normalizeKindleMetadataWords } from "../shared/kindle-metadata-normalization.js";
 import { CatalogDatabaseError, type CatalogDatabase, type LibraryPresenceCandidate } from "./catalog-database.js";
+import { hardcoverMatchEvidence, hardcoverTitleVariants } from "./hardcover-search.js";
 
 export const MAX_HARDCOVER_LIBRARY_MATCHES_PER_BOOK = 100;
 const MAX_LIBRARY_MATCH_BYTES = 2 * 1024 * 1024;
@@ -75,6 +76,23 @@ export function enrichHardcoverSeries(
     const isbn = hits(byIsbn, [...candidate.identifiers, ...candidate.sourceIdentifiers].map(isbnKey));
     const titleAuthor = hits(byTitleAuthor, identities.flatMap((identity) => titleAuthorKeys(identity.title, identity.authors)));
     const title = hits(byTitle, identities.map((identity) => normalizeKindleMetadataWords(identity.title)));
+    for (const identity of identities) {
+      const variants = hardcoverTitleVariants({ title: identity.title, author: identity.authors.find((author) => author.trim()) });
+      const cleaned = hits(byTitle, variants.filter((variant) => variant.kind !== "original")
+        .map((variant) => normalizeKindleMetadataWords(variant.title)));
+      for (const index of cleaned) {
+        title.add(index);
+        const providerBook = page.books[index]!;
+        // Corroborate this roster row, not another series membership belonging
+        // to the same provider book. Keep source/effective title-author pairs
+        // together and feed the result through existing ISBN/ambiguity checks.
+        const evidence = { ...providerBook, series: providerBook.series.filter((membership) =>
+          membership.id === page.id && membership.position === providerBook.position
+          && normalizeKindleMetadataWords(membership.name) === normalizeKindleMetadataWords(page.name)) };
+        if (identity.authors.some((author) => hardcoverMatchEvidence({ title: identity.title, author }, evidence, variants)
+          .kind === "cleaned-title-author-series")) titleAuthor.add(index);
+      }
+    }
     const candidates = new Set([...isbn, ...title]);
     if (!candidates.size) return;
     const localAuthors = new Set(identities.flatMap((identity) => identity.authors.map(normalizeKindleMetadataWords)).filter(Boolean));

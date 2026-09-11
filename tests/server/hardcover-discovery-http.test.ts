@@ -56,10 +56,53 @@ async function setup(configured = true, readOnly = false) {
   const address = await server.listen();
   cleanup.push(() => server.close());
   const prefix = `http://127.0.0.1:${address.port}/api/profiles/${profile.id}`;
-  return { database, profile, other, bookId, otherBookId, add, prefix, filename, original };
+  return { database, profile, other, root, otherRoot, bookId, otherBookId, add, prefix, filename, original };
 }
 
 describe("Hardcover book and series discovery HTTP", () => {
+  it.each(["source", "edited"] as const)("recognizes all E-Day volumes through the series API using %s metadata", async (identity) => {
+    const app = await setup(true, true);
+    const author = "Nicholas Sansbury Smith";
+    const titles = ["E-Day", "E-Day II: Burning Earth (E-Day Trilogy Book 2)", "E-Day III: Dark Moon (E-Day Trilogy Book 3)"];
+    const localIds = titles.map((title, index) => {
+      const contentHash = (index + 10).toString(16).repeat(64);
+      const result = app.database.upsertCatalogFile({
+        rootId: app.root.id, relativePath: `eday-${index + 1}.epub`, format: "epub", size: app.original.length,
+        mtimeMs: 1, contentHash, scanToken: "eday-series-test",
+        metadata: { title: identity === "source" ? title : `Imported book ${index + 1}`, authors: [author],
+          authorSort: null, publisher: null, publishedAt: null,
+          language: "en", identifiers: [`ASIN:B09KS6PMG${index}`, `uuid:local-${index}`], subjects: [],
+          series: null, seriesIndex: null, metadataComplete: true, coverKey: null, coverMediaType: null },
+      });
+      if (identity === "edited") app.database.patchBookMetadata(app.profile.id, result.bookId,
+        { expectedRevision: 0, expectedContentHash: contentHash, changes: { title } });
+      return result.bookId;
+    });
+    const roster: HardcoverSeriesPage = { id: 88, name: "E-Day", offset: 0, limit: 50, hasMore: false,
+      books: ["E-Day", "Burning Earth", "Dark Moon"].map((title, index) => ({
+        ...providerBook([101, 1098688, 1098689][index]!), title, authors: [author], identifiers: [], position: index + 1,
+        series: [{ id: 88, name: "E-Day", position: index + 1 }],
+      })) };
+    const series = vi.spyOn(CoverProviderClient.prototype, "getHardcoverSeries").mockResolvedValue(roster);
+    const endpoint = `${app.prefix}/hardcover/series/88`;
+    const response = await fetch(endpoint);
+    expect(response.status).toBe(200);
+    const body = await response.json() as { books: Array<{ id: number; library: { status: string; books: Array<{ id: string }> } }> };
+    expect(body.books.map((book) => ({ id: book.id, status: book.library.status, localIds: book.library.books.map((local) => local.id) })))
+      .toEqual([101, 1098688, 1098689].map((id, index) => ({ id, status: "in-library", localIds: [localIds[index]] })));
+    const otherEndpoint = endpoint.replace(app.profile.id, app.other.id);
+    expect(await (await fetch(otherEndpoint)).json()).toMatchObject({ books: [
+      { library: { status: "missing", books: [] } }, { library: { status: "missing", books: [] } }, { library: { status: "missing", books: [] } },
+    ] });
+    // Cached provider data still gets fresh, read-only per-profile ownership.
+    expect(series).toHaveBeenCalledOnce();
+    for (const [index, bookId] of localIds.entries()) {
+      expect(app.database.getBookMetadataState(app.profile.id, bookId)?.revision).toBe(identity === "edited" ? 1 : 0);
+      expect(app.database.getBook(app.profile.id, bookId)?.title).toBe(titles[index]);
+    }
+    expect(await readFile(app.filename)).toEqual(app.original);
+  });
+
   it("looks up current metadata, caches by book version, and rejects books outside this profile", async () => {
     const app = await setup();
     const result: HardcoverBookLookup = { books: [providerBook(1)], matchedBookId: 1 };

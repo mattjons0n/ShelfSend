@@ -10,7 +10,7 @@
 
 ## Scope
 
-This affects Hardcover lookup only. No EPUB/source metadata changes, Kindle matching or mutation changes, new providers, or deployment are included. The original query and successful ISBN/exact-title paths stay first; no book or author is hard-coded.
+This affects Hardcover lookup and read-only series-library ownership. No EPUB/source metadata changes, Kindle matching or mutation changes, new providers, or deployment are included. The original query and successful ISBN/exact-title paths stay first; no book or author is hard-coded.
 
 ## Implemented behavior
 
@@ -26,3 +26,20 @@ Both lookup paths share one search loop. Original queries and ISBN success remai
 - Final `npm run check` passed: 1,158 tests in 109 files, client/server TypeScript validation, and production build. The existing bundle-size advisory remains. The exact reported ID, title, author and series are a mocked regression fixture from the supplied live investigation, not a fresh live-account verification.
 
 All requested cases are covered: original and ISBN-first success, empty or irrelevant nonempty results, conservative variants, author/series/volume conflicts, ambiguity, deduplicated/bounded requests, and provider failures/cancellation. No Kindle matching files or metadata-write paths were changed.
+
+## Follow-up: series ownership (2026-09-11)
+
+The lookup fix did not update the separate series-library ownership path. Its exact-title checks still missed local books with series-decorated titles and no ISBN.
+
+Plan and implementation:
+
+1. Reproduce the entire E-Day trilogy through `GET /api/profiles/:profileId/hardcover/series/:seriesId`, including Hardcover IDs 1098688 and 1098689. Test both source and edited metadata before changing the matcher.
+2. Reuse `hardcoverTitleVariants()` and `hardcoverMatchEvidence()` in `enrichHardcoverSeries()`. Index the bounded cleaned variants by provider title. Keep source and edited title/author pairs intact, and corroborate only memberships agreeing with the current roster's ID, name and row position.
+3. Feed qualified cleaned matches into the existing ownership checks. Preserve ISBN preference, disjoint-claim and competing-identity ambiguity, author conflicts, selected-profile boundaries, response limits and read-only operation. No new requests, persistence or metadata edits are needed.
+4. Verify the actual series endpoint's badges and exact local-book IDs, profile isolation with cached provider data, and unchanged metadata. Run one final test/build gate.
+
+Tests-first evidence: both API regressions failed with volumes 2 and 3 missing while volume 1 was owned. The focused ownership tests had 4 failures and 5 passes before the fix. After implementation, all six series/discovery HTTP tests passed; all nine new ownership safeguards passed, including conflicting series/volume membership, wrong authors, competing provider IDs, disjoint ISBN claims and source/edited identity isolation.
+
+Acceptance coverage: all three E-Day volumes map to their correct local IDs; source and edited metadata both work; the same cached roster has no matches in the unrelated profile; existing exact-title and ISBN handling remains intact; conflicting evidence stays uncertain; originals and Kindle matching are untouched. Provider responses are mocked, but the regression uses the real HTTP route and SQLite ownership matcher. This is automated regression evidence, not a fresh live-server verification.
+
+Final `npm run check` passed: 1,169 tests in 109 files, client/server TypeScript checks, and production build. Existing test-browser `scrollTo` notices and the bundle-size advisory remain. No push or deployment was performed for this follow-up.
