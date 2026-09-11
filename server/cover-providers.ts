@@ -7,8 +7,9 @@ import type {
   MetadataCandidateSearchTerms,
   MetadataProvider,
 } from "../shared/catalog-contracts.js";
-import { HARDCOVER_BOOKS_QUERY, HARDCOVER_DISCOVERY_BOOKS_QUERY, HARDCOVER_DISCOVERY_ISBN_QUERY, HARDCOVER_ISBN_QUERY, HARDCOVER_SEARCH_QUERY, HARDCOVER_SERIES_QUERY, hardcoverBookIds, hardcoverDiscoveryBook, hardcoverDiscoveryLookup, hardcoverDiscoverySeries, hardcoverIsbn, hardcoverMetadataCandidates } from "./hardcover-provider.js";
-import { hardcoverMatchEvidence, hardcoverTitleVariants } from "./hardcover-search.js";
+import { HARDCOVER_ASIN_QUERY, HARDCOVER_BOOKS_QUERY, HARDCOVER_DISCOVERY_BOOKS_QUERY, HARDCOVER_DISCOVERY_ISBN_QUERY, HARDCOVER_ISBN_QUERY, HARDCOVER_SEARCH_QUERY, HARDCOVER_SERIES_QUERY, hardcoverBookIds, hardcoverDiscoveryBook, hardcoverDiscoveryLookup, hardcoverDiscoverySeries, hardcoverIsbn, hardcoverMetadataCandidates } from "./hardcover-provider.js";
+import { HARDCOVER_EDITION_IDENTIFIERS_QUERY, MAX_HARDCOVER_ASIN_LOOKUP_IDENTIFIERS, MAX_HARDCOVER_EDITION_IDENTITY_ROWS, hardcoverEditionIdentifiers } from "./hardcover-provider.js";
+import { hardcoverAsin, hardcoverExplicitAsin, hardcoverMatchEvidence, hardcoverSearchAsin, hardcoverTitleVariants } from "./hardcover-search.js";
 import type { HardcoverBookLookup, HardcoverSeriesPage } from "../shared/hardcover-contracts.js";
 import { normalizeKindleMetadataIdentifier, normalizeKindleMetadataWords } from "../shared/kindle-metadata-normalization.js";
 import {
@@ -101,8 +102,16 @@ export class CoverProviderClient {
     limit: number,
     signal?: AbortSignal,
   ): Promise<CatalogMetadataCandidate[]> {
+    const asin = hardcoverSearchAsin(terms);
+    if (asin) {
+      const exact = await this.lookupHardcoverAsin(terms, asin, limit, false, signal);
+      if (exact.rows.length) {
+        const candidates = hardcoverMetadataCandidates(exact.rows, terms, limit, true);
+        return exact.ambiguous ? candidates.map((candidate) => ({ ...candidate, confidence: candidate.confidence === "high" ? "medium" : candidate.confidence })) : candidates;
+      }
+    }
     const isbn = hardcoverIsbn(terms.identifier);
-    if (isbn) {
+    if (isbn && !asin) {
       const data = await this.hardcoverRequest(HARDCOVER_ISBN_QUERY, { isbn, limit }, signal);
       if (!Array.isArray(data.editions)) throw hardcoverMalformedResponse();
       if (data.editions.length) return hardcoverMetadataCandidates(data.editions, terms, limit, true);
@@ -114,8 +123,17 @@ export class CoverProviderClient {
   async lookupHardcoverBook(terms: MetadataCandidateSearchTerms, signal?: AbortSignal): Promise<HardcoverBookLookup> {
     const normalized = normalizedMetadataTerms(terms);
     const limit = MAX_PROVIDER_RESULTS;
+    const asin = hardcoverSearchAsin(normalized);
+    if (asin) {
+      const exact = await this.lookupHardcoverAsin(normalized, asin, limit, true, signal);
+      if (exact.rows.length) {
+        const lookup = hardcoverDiscoveryLookup(exact.rows, normalized, limit, true, exact.ambiguous);
+        if (!lookup) throw hardcoverMalformedResponse();
+        return lookup;
+      }
+    }
     const isbn = hardcoverIsbn(normalized.identifier);
-    if (isbn) {
+    if (isbn && !asin) {
       const data = await this.hardcoverRequest(HARDCOVER_DISCOVERY_ISBN_QUERY, { isbn, limit: limit + 1 }, signal);
       if (!Array.isArray(data.editions) || data.editions.length > limit + 1) throw hardcoverMalformedResponse();
       if (data.editions.length) {
@@ -130,8 +148,35 @@ export class CoverProviderClient {
     return lookup;
   }
 
+  /** One exact ASIN request, plus one ISBN request when supplied. Conflicting
+   * exact identities remain review choices, never replaced by a title guess. */
+  private async lookupHardcoverAsin(
+    terms: MetadataCandidateSearchTerms, asin: string, limit: number, discovery: boolean, signal?: AbortSignal,
+  ): Promise<{ rows: unknown[]; ambiguous: boolean }> {
+    const data = await this.hardcoverRequest(HARDCOVER_ASIN_QUERY, { asin, limit: limit + 1 }, signal);
+    if (!Array.isArray(data.editions) || data.editions.length > limit + 1) throw hardcoverMalformedResponse();
+    const asinRows = data.editions;
+    if (asinRows.some((row) => !isRecord(row) || typeof row.asin !== "string" || hardcoverAsin(`ASIN:${row.asin}`) !== asin)) throw hardcoverMalformedResponse();
+    const rows: unknown[] = [...asinRows];
+    const isbn = hardcoverIsbn(terms.identifier);
+    let ambiguous = asinRows.length > limit;
+    if (isbn) {
+      const other = await this.hardcoverRequest(discovery ? HARDCOVER_DISCOVERY_ISBN_QUERY : HARDCOVER_ISBN_QUERY,
+        { isbn, limit: limit + 1 }, signal);
+      if (!Array.isArray(other.editions) || other.editions.length > limit + 1) throw hardcoverMalformedResponse();
+      rows.push(...other.editions);
+      ambiguous ||= other.editions.length > limit;
+    }
+    // Validate identity-bearing responses in both consumers. Edition ISBNs
+    // belong only to the matched edition; never borrow sibling print ISBNs.
+    const parsed = hardcoverDiscoveryLookup(rows, terms, limit, true, ambiguous);
+    if (!parsed) throw hardcoverMalformedResponse();
+    ambiguous ||= parsed.matchedBookId === null && rows.length > 0;
+    return { rows, ambiguous };
+  }
+
   /** Shared, bounded fallback: at most three searches and three detail reads,
-   * plus the caller's optional ISBN request. Every call keeps the existing
+   * plus the caller's optional ASIN and ISBN requests. Every call keeps the existing
    * paced/abortable provider lane; failures never become successful no-matches. */
   private async searchHardcoverTitles(
     terms: MetadataCandidateSearchTerms, limit: number, discovery: boolean, signal?: AbortSignal,
@@ -178,6 +223,39 @@ export class CoverProviderClient {
     const page = hardcoverDiscoverySeries(data.series_by_pk, seriesId, limit, offset);
     if (!page) throw hardcoverMalformedResponse();
     return page;
+  }
+
+  /** Resolve the selected profile's identifiers only against the displayed
+   * roster's works. One bounded page avoids per-book calls and also finds ASINs
+   * beyond a work's first twenty editions. Overflow is not a partial success. */
+  async lookupHardcoverEditionIdentifiers(
+    asins: string[], bookIds: number[], signal?: AbortSignal,
+  ): Promise<Array<{ id: number; identifiers: string[] }>> {
+    if (asins.length > MAX_HARDCOVER_ASIN_LOOKUP_IDENTIFIERS || bookIds.length > 50
+      || asins.some((value) => !hardcoverExplicitAsin(value))
+      || bookIds.some((id) => !hardcoverBookIds([id], 1).length)) {
+      throw new CoverProviderError("invalid_candidate", "Choose a bounded set of valid Hardcover edition identifiers.");
+    }
+    if (!asins.length || !bookIds.length) return [];
+    const uniqueAsins = [...new Set(asins.map((value) => hardcoverExplicitAsin(value)!))];
+    const uniqueIds = [...new Set(bookIds)];
+    const data = await this.hardcoverRequest(HARDCOVER_EDITION_IDENTIFIERS_QUERY,
+      { asins: uniqueAsins, bookIds: uniqueIds, limit: MAX_HARDCOVER_EDITION_IDENTITY_ROWS + 1 }, signal);
+    if (!Array.isArray(data.editions)) throw hardcoverMalformedResponse();
+    if (data.editions.length > MAX_HARDCOVER_EDITION_IDENTITY_ROWS) {
+      throw new CoverProviderError("provider_response_too_large", "Hardcover returned too many edition matches. Narrow the library before trying again.");
+    }
+    const requestedAsins = new Set(uniqueAsins);
+    const requestedIds = new Set(uniqueIds);
+    const byId = new Map<number, Set<string>>();
+    for (const row of data.editions) {
+      if (!isRecord(row) || typeof row.book_id !== "number" || !requestedIds.has(row.book_id)
+        || typeof row.asin !== "string" || !requestedAsins.has(hardcoverAsin(`ASIN:${row.asin}`) ?? "")) throw hardcoverMalformedResponse();
+      const identifiers = byId.get(row.book_id) ?? new Set<string>();
+      for (const identifier of hardcoverEditionIdentifiers([row])) identifiers.add(identifier);
+      byId.set(row.book_id, identifiers);
+    }
+    return [...byId].map(([id, identifiers]) => ({ id, identifiers: [...identifiers] }));
   }
 
   async testHardcoverCredential(apiKey?: string, signal?: AbortSignal): Promise<CoverProviderCredentialErrorCode | null> {
@@ -831,8 +909,9 @@ function normalizedMetadataTerms(terms: MetadataCandidateSearchTerms): MetadataC
     title: normalize(terms.title, 500),
     author: normalize(terms.author, 500),
     identifier: normalize(terms.identifier, 128),
+    asin: normalize(terms.asin, 128),
   };
-  if (!normalized.title && !normalized.author && !normalized.identifier) {
+  if (!normalized.title && !normalized.author && !normalized.identifier && !normalized.asin) {
     throw new CoverProviderError("invalid_candidate", "At least one metadata search term is required.");
   }
   return normalized;

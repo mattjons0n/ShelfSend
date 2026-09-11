@@ -36,6 +36,8 @@ function fixture(options: {
     requests.push(request);
     const intercepted = options.intercept?.(request, searches.length);
     if (intercepted) return intercepted;
+    // This suite exercises the fallback when Hardcover has no matching ASIN.
+    if (request.query.includes("ByAsin")) return dataResponse({ editions: [] });
     if (request.query.includes("ByIsbn")) return dataResponse({ editions: (options.isbnBooks ?? []).map((item) => ({ isbn_13: ISBN, book: item })) });
     if (request.query.includes("SeriesSearch")) {
       const query = String(request.variables.query);
@@ -183,6 +185,6 @@ describe.each<Mode>(["discovery", "metadata"])("Hardcover conservative title fal
     const controller = new AbortController();
     const { client, requests } = fixture({ ids: () => { controller.abort(); return []; } });
     await expect(lookup(mode, client, TERMS, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(2); // Exact ASIN miss, then cancelled text search.
   });
 });

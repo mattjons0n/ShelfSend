@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
+import { hardcoverLookupIdentifiers } from "../shared/hardcover-identifiers.js";
 
 import {
   MAX_CATALOG_FILTER_VALUE_BYTES,
@@ -3942,6 +3943,9 @@ export class CatalogDatabase {
           )
           .run(timestamp, jobId, bookId);
         const identifier = book.identifiers.find((value) => /isbn/iu.test(value)) ?? book.identifiers[0];
+        const lookupIdentifiers = job.provider === "hardcover"
+          ? hardcoverLookupIdentifiers([...book.identifiers, ...(this.getBookMetadataState(profileId, bookId)?.sourceMetadata.identifiers ?? [])])
+          : identifier ? { identifier: identifier.replace(/^isbn(?:_1[03])?\s*[:=-]?\s*/iu, "") } : {};
         claims.push({
           jobId,
           profileId,
@@ -3950,7 +3954,7 @@ export class CatalogDatabase {
           terms: {
             title: book.title,
             ...(book.authors[0] ? { author: book.authors[0] } : {}),
-            ...(identifier ? { identifier: identifier.replace(/^isbn(?:_1[03])?\s*[:=-]?\s*/iu, "") } : {}),
+            ...lookupIdentifiers,
           },
         });
         changed = true;

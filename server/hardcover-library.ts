@@ -4,10 +4,11 @@ import type {
   HardcoverSeriesPage,
 } from "../shared/hardcover-contracts.js";
 import { normalizeKindleMetadataWords } from "../shared/kindle-metadata-normalization.js";
-import { CatalogDatabaseError, type CatalogDatabase, type LibraryPresenceCandidate } from "./catalog-database.js";
-import { hardcoverMatchEvidence, hardcoverTitleVariants } from "./hardcover-search.js";
+import { CatalogDatabaseError, MAX_LIBRARY_PRESENCE_ENTRIES, type CatalogDatabase, type LibraryPresenceCandidate } from "./catalog-database.js";
+import { hardcoverAsin, hardcoverMatchEvidence, hardcoverTitleVariants } from "./hardcover-search.js";
 
 export const MAX_HARDCOVER_LIBRARY_MATCHES_PER_BOOK = 100;
+export const MAX_HARDCOVER_LIBRARY_ASINS = MAX_LIBRARY_PRESENCE_ENTRIES;
 const MAX_LIBRARY_MATCH_BYTES = 2 * 1024 * 1024;
 type Index = Map<string, Set<number>>;
 type LocalBook = HardcoverLibraryMatch["books"][number];
@@ -54,6 +55,28 @@ function localIdentities(book: LibraryPresenceCandidate): Array<{ title: string;
   return [{ title: book.title, authors: book.authors }, { title: book.sourceTitle, authors: book.sourceAuthors }];
 }
 
+/** Exact provider lookups only; this collection is never Kindle identity evidence. */
+export function collectHardcoverLibraryAsins(
+  database: CatalogDatabase,
+  profileId: string,
+  maxAsins = MAX_HARDCOVER_LIBRARY_ASINS,
+): string[] {
+  if (!Number.isSafeInteger(maxAsins) || maxAsins < 1 || maxAsins > MAX_HARDCOVER_LIBRARY_ASINS) {
+    throw new CatalogDatabaseError("invalid_state", "Invalid Hardcover library ASIN limit.");
+  }
+  const asins = new Set<string>();
+  database.visitLibraryPresenceCandidates(profileId, (candidate) => {
+    for (const identifier of [...candidate.identifiers, ...candidate.sourceIdentifiers]) {
+      const asin = hardcoverAsin(identifier);
+      if (asin) asins.add(asin);
+      if (asins.size > maxAsins) {
+        throw new CatalogDatabaseError("too_large", "The library exceeds the Hardcover ASIN lookup limit.");
+      }
+    }
+  });
+  return [...asins].sort();
+}
+
 /** This is read-only selected-library ownership, never Kindle transfer or deletion evidence. */
 export function enrichHardcoverSeries(
   database: CatalogDatabase,
@@ -61,12 +84,16 @@ export function enrichHardcoverSeries(
   page: HardcoverSeriesPage,
 ): HardcoverLibrarySeriesPage {
   const byIsbn: Index = new Map();
+  const byAsin: Index = new Map();
   const byTitleAuthor: Index = new Map();
   const byTitle: Index = new Map();
   const matches = page.books.map(() => ({ strong: [] as LocalBook[], possible: [] as LocalBook[] }));
   const authors = page.books.map((book) => new Set(book.authors.map(normalizeKindleMetadataWords).filter(Boolean)));
   for (const [index, book] of page.books.entries()) {
-    for (const identifier of book.identifiers) add(byIsbn, isbnKey(identifier) ?? "", index);
+    for (const identifier of book.identifiers) {
+      add(byIsbn, isbnKey(identifier) ?? "", index);
+      add(byAsin, hardcoverAsin(identifier) ?? "", index);
+    }
     for (const key of titleAuthorKeys(book.title, book.authors)) add(byTitleAuthor, key, index);
     add(byTitle, normalizeKindleMetadataWords(book.title), index);
   }
@@ -74,6 +101,7 @@ export function enrichHardcoverSeries(
   database.visitLibraryPresenceCandidates(profileId, (candidate) => {
     const identities = localIdentities(candidate);
     const isbn = hits(byIsbn, [...candidate.identifiers, ...candidate.sourceIdentifiers].map(isbnKey));
+    const asin = hits(byAsin, [...candidate.identifiers, ...candidate.sourceIdentifiers].map(hardcoverAsin));
     const titleAuthor = hits(byTitleAuthor, identities.flatMap((identity) => titleAuthorKeys(identity.title, identity.authors)));
     const title = hits(byTitle, identities.map((identity) => normalizeKindleMetadataWords(identity.title)));
     for (const identity of identities) {
@@ -93,16 +121,22 @@ export function enrichHardcoverSeries(
           .kind === "cleaned-title-author-series")) titleAuthor.add(index);
       }
     }
-    const candidates = new Set([...isbn, ...title]);
+    const candidates = new Set([...asin, ...isbn, ...title]);
     if (!candidates.size) return;
     const localAuthors = new Set(identities.flatMap((identity) => identity.authors.map(normalizeKindleMetadataWords)).filter(Boolean));
     // A unique edition ISBN can distinguish books with identical title/author
     // labels. When ISBN and title/author point to disjoint books, neither wins.
     const isbnIdentities = new Set([...isbn].map((index) => page.books[index]!.id));
+    const asinIdentities = new Set([...asin].map((index) => page.books[index]!.id));
     const titleIdentities = new Set([...titleAuthor].map((index) => page.books[index]!.id));
     const disjoint = isbn.size > 0 && titleAuthor.size > 0 && ![...isbn].some((index) => titleAuthor.has(index));
-    const preferred = isbn.size ? isbn : titleAuthor;
-    const ambiguous = disjoint || (isbn.size ? isbnIdentities.size > 1 : titleIdentities.size > 1);
+    // A unique ASIN resolves a provider work without depending on the EPUB's
+    // title. Competing exact identifiers cannot be resolved by weaker labels.
+    // Preserve the older ISBN/title conflict rule when no ASIN is available.
+    const identifierIdentities = new Set([...asinIdentities, ...isbnIdentities]);
+    const preferred = asin.size ? asin : isbn.size ? isbn : titleAuthor;
+    const ambiguous = asin.size ? identifierIdentities.size > 1
+      : disjoint || (isbn.size ? isbnIdentities.size > 1 : titleIdentities.size > 1);
     const book: LocalBook = { id: candidate.id, title: candidate.title, available: candidate.available, coverUrl: candidate.coverUrl };
     for (const index of candidates) {
       const match = matches[index]!;
@@ -115,7 +149,7 @@ export function enrichHardcoverSeries(
       if (matchBytes > MAX_LIBRARY_MATCH_BYTES) {
         throw new CatalogDatabaseError("too_large", "Hardcover library matches exceed the response byte limit.");
       }
-      const authorConflict = isbn.has(index) && authors[index]!.size > 0 && localAuthors.size > 0
+      const authorConflict = (asin.has(index) || isbn.has(index)) && authors[index]!.size > 0 && localAuthors.size > 0
         && ![...authors[index]!].some((author) => localAuthors.has(author));
       const strong = preferred.has(index) && !ambiguous && !authorConflict;
       (strong ? match.strong : match.possible).push(book);

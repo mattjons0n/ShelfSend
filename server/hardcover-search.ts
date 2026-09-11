@@ -1,5 +1,17 @@
 import type { MetadataCandidateSearchTerms } from "../shared/catalog-contracts.js";
-import { normalizeKindleMetadataIdentifier, normalizeKindleMetadataWords } from "../shared/kindle-metadata-normalization.js";
+import { normalizeKindleMetadataWords } from "../shared/kindle-metadata-normalization.js";
+import { hardcoverAsin, hardcoverIsbn } from "../shared/hardcover-identifiers.js";
+export { hardcoverAsin, hardcoverIsbn, hardcoverLookupIdentifiers } from "../shared/hardcover-identifiers.js";
+
+/** A dedicated ASIN field already supplies the type provenance that an
+ * untyped identifier lacks; numeric and non-B ASINs are valid here. */
+export function hardcoverExplicitAsin(value: string | undefined): string | null {
+  return hardcoverAsin(value) ?? hardcoverAsin(value === undefined ? undefined : `ASIN:${value}`);
+}
+
+export function hardcoverSearchAsin(terms: MetadataCandidateSearchTerms): string | null {
+  return hardcoverExplicitAsin(terms.asin) ?? hardcoverAsin(terms.identifier);
+}
 
 export interface HardcoverTitleVariant {
   title: string;
@@ -16,15 +28,10 @@ interface BookEvidence {
 }
 
 export interface HardcoverMatchEvidence {
-  kind: "isbn" | "title-author" | "cleaned-title-author-series" | "title" | "cleaned-title" | "author" | "none";
+  kind: "asin" | "isbn" | "title-author" | "cleaned-title-author-series" | "title" | "cleaned-title" | "author" | "none";
   rank: number;
   strong: boolean;
   variant?: HardcoverTitleVariant;
-}
-
-export function hardcoverIsbn(value: string | undefined): string | null {
-  const normalized = normalizeKindleMetadataIdentifier(value ?? "");
-  return /^(?:\d{9}[\dX]|\d{13})$/u.test(normalized) ? normalized : null;
 }
 
 function seriesKey(value: string): string {
@@ -81,11 +88,15 @@ export function hardcoverMatchEvidence(
   book: BookEvidence,
   variants = hardcoverTitleVariants(terms),
 ): HardcoverMatchEvidence {
-  const isbn = hardcoverIsbn(terms.identifier);
-  if (isbn && book.identifiers.some((value) => hardcoverIsbn(value) === isbn)) return { kind: "isbn", rank: 100, strong: true };
   const title = normalizeKindleMetadataWords(book.title);
   const author = normalizeKindleMetadataWords(terms.author ?? "");
   const authorMatches = Boolean(author && book.authors.some((value) => normalizeKindleMetadataWords(value) === author));
+  const asin = hardcoverSearchAsin(terms);
+  if (asin && book.identifiers.some((value) => hardcoverAsin(value) === asin)) {
+    return { kind: "asin", rank: 110, strong: !author || !book.authors.length || authorMatches };
+  }
+  const isbn = hardcoverIsbn(terms.identifier);
+  if (isbn && book.identifiers.some((value) => hardcoverIsbn(value) === isbn)) return { kind: "isbn", rank: 100, strong: true };
   const originalMatches = Boolean(title && title === normalizeKindleMetadataWords(terms.title ?? ""));
   if (originalMatches && authorMatches) return { kind: "title-author", rank: 90, strong: true };
   const cleaned = variants.find((variant) => variant.kind !== "original" && title && title === normalizeKindleMetadataWords(variant.title));

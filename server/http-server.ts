@@ -56,8 +56,9 @@ import {
 import { normalizeSmartShelfQuery, SmartShelfQueryError } from "../shared/shelf-query.js";
 import { canonicalSeriesKey } from "../shared/series.js";
 import type { HardcoverBookLookup, HardcoverSeriesPage } from "../shared/hardcover-contracts.js";
-import { hardcoverIsbn } from "./hardcover-provider.js";
-import { enrichHardcoverSeries } from "./hardcover-library.js";
+import { hardcoverLookupIdentifiers } from "../shared/hardcover-identifiers.js";
+import { hardcoverExplicitAsin } from "./hardcover-search.js";
+import { collectHardcoverLibraryAsins, enrichHardcoverSeries } from "./hardcover-library.js";
 import { DEFAULT_METADATA_LIMITS, inspectRasterImage } from "./book-metadata.js";
 import { CatalogDatabase, CatalogDatabaseError } from "./catalog-database.js";
 import { CatalogIndexer } from "./catalog-indexer.js";
@@ -196,6 +197,8 @@ const METADATA_CANDIDATE_CACHE_TTL_MS = 15 * 60_000;
 const MAX_CACHED_METADATA_CANDIDATES = 1_000;
 const HARDCOVER_DISCOVERY_CACHE_TTL_MS = 5 * 60_000;
 const MAX_HARDCOVER_DISCOVERY_CACHE_BYTES = 8 * 1024 * 1024;
+type HardcoverEditionIdentities = Array<{ id: number; identifiers: string[] }>;
+type HardcoverCachedValue = HardcoverBookLookup | HardcoverSeriesPage | HardcoverEditionIdentities;
 
 export class CatalogHttpServer {
   private readonly options: CatalogHttpOptions;
@@ -220,7 +223,7 @@ export class CatalogHttpServer {
   private readonly metadataLookupWorker: MetadataLookupWorker;
   private readonly metadataCandidates = new Map<string, CachedMetadataCandidate>();
   private readonly hardcoverDiscovery = new Map<string, {
-    value: HardcoverBookLookup | HardcoverSeriesPage; expiresAt: number; bytes: number;
+    value: HardcoverCachedValue; expiresAt: number; bytes: number;
   }>();
 
   constructor(
@@ -1397,7 +1400,7 @@ export class CatalogHttpServer {
     return state.revision;
   }
 
-  private cachedHardcover<T extends HardcoverBookLookup | HardcoverSeriesPage>(key: string): T | undefined {
+  private cachedHardcover<T extends HardcoverCachedValue>(key: string): T | undefined {
     const entry = this.hardcoverDiscovery.get(key);
     if (!entry || entry.expiresAt <= Date.now()) {
       this.hardcoverDiscovery.delete(key);
@@ -1406,7 +1409,7 @@ export class CatalogHttpServer {
     return entry.value as T;
   }
 
-  private cacheHardcover(key: string, value: HardcoverBookLookup | HardcoverSeriesPage): void {
+  private cacheHardcover(key: string, value: HardcoverCachedValue): void {
     const bytes = Buffer.byteLength(JSON.stringify(value));
     if (bytes > MAX_HARDCOVER_DISCOVERY_CACHE_BYTES) return;
     this.hardcoverDiscovery.delete(key);
@@ -1434,10 +1437,10 @@ export class CatalogHttpServer {
     const key = JSON.stringify(["book", revision, profileId, bookId, book.contentHash, book.presentationVersion]);
     let lookup = this.cachedHardcover<HardcoverBookLookup>(key);
     if (!lookup) {
-      const isbn = book.identifiers.map((identifier) => hardcoverIsbn(identifier)).find((value) => value !== null);
+      const metadata = this.database.getBookMetadataState(profileId, bookId);
       const terms: MetadataCandidateSearchTerms = {
         title: book.title, ...(book.authors.length ? { author: book.authors[0] } : {}),
-        ...(isbn ? { identifier: isbn } : {}),
+        ...hardcoverLookupIdentifiers([...book.identifiers, ...(metadata?.sourceMetadata.identifiers ?? [])]),
       };
       lookup = await this.withProviderRequest(request, response,
         (signal) => this.coverProviders.lookupHardcoverBook(terms, signal));
@@ -1474,8 +1477,32 @@ export class CatalogHttpServer {
         (signal) => this.coverProviders.getHardcoverSeries(id, limit, offset, signal));
       this.cacheHardcover(key, page);
     }
-    // Only provider data is cached; ownership always reflects this profile's current catalog.
-    const result = enrichHardcoverSeries(this.database, profileId, page);
+    // Roster edition samples are not exhaustive. Resolve this library's ASINs
+    // against the current page's works in one bounded provider request, rather
+    // than one lookup per book. Cache provider identities, never local ownership.
+    let matchingPage = page;
+    if (page.books.length) {
+      const asins = collectHardcoverLibraryAsins(this.database, profileId);
+      if (asins.length) {
+        const bookIds = [...new Set(page.books.map((book) => book.id))].sort((a, b) => a - b);
+        const fingerprint = createHash("sha256").update(JSON.stringify([asins, bookIds])).digest("hex");
+        const identityKey = JSON.stringify(["edition-identities", revision, fingerprint]);
+        let identities = this.cachedHardcover<HardcoverEditionIdentities>(identityKey);
+        if (!identities) {
+          identities = await this.withProviderRequest(request, response,
+            (signal) => this.coverProviders.lookupHardcoverEditionIdentifiers(asins, bookIds, signal));
+          this.cacheHardcover(identityKey, identities);
+        }
+        const byId = new Map(identities.map((book) => [book.id, book.identifiers]));
+        matchingPage = { ...page, books: page.books.map((book) => ({ ...book,
+          identifiers: [...new Set([...book.identifiers, ...(byId.get(book.id) ?? [])])],
+        })) };
+      }
+    }
+    const result = enrichHardcoverSeries(this.database, profileId, matchingPage);
+    // The additional identifiers are matching evidence, not an unbounded public
+    // metadata expansion. Keep the normal roster payload and attach ownership.
+    result.books = result.books.map((book, index) => ({ ...page.books[index]!, library: book.library }));
     sendJson(response, 200, result, this.options.maxCatalogJsonResponseBytes);
   }
 
@@ -1487,7 +1514,7 @@ export class CatalogHttpServer {
     bookId: string,
   ): Promise<void> {
     if (!this.database.getBook(profileId, bookId)) throw new HttpError(404, "not_found", "Book not found.");
-    const allowed = new Set(["provider", "title", "author", "identifier", "limit"]);
+    const allowed = new Set(["provider", "title", "author", "identifier", "asin", "limit"]);
     for (const key of url.searchParams.keys()) {
       if (!allowed.has(key) || url.searchParams.getAll(key).length !== 1) {
         throw new HttpError(400, "invalid_query", `Unsupported or repeated metadata search field: ${key}.`);
@@ -1500,7 +1527,14 @@ export class CatalogHttpServer {
     if (url.searchParams.has("identifier")) {
       terms.identifier = normalizedMetadataSearchTerm(url.searchParams.get("identifier"), "identifier", 128);
     }
-    if (!terms.title && !terms.author && !terms.identifier) {
+    if (url.searchParams.has("asin")) {
+      const asin = hardcoverExplicitAsin(normalizedMetadataSearchTerm(url.searchParams.get("asin"), "asin", 128));
+      if (provider !== "hardcover" || !asin) {
+        throw new HttpError(400, "invalid_query", "ASIN must be a valid Amazon edition identifier for Hardcover lookup.");
+      }
+      terms.asin = asin;
+    }
+    if (!terms.title && !terms.author && !terms.identifier && !terms.asin) {
       throw new HttpError(400, "invalid_query", "At least one normalized metadata search term is required.");
     }
     const limit = url.searchParams.has("limit")

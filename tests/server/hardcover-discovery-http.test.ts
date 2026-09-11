@@ -84,6 +84,7 @@ describe("Hardcover book and series discovery HTTP", () => {
         series: [{ id: 88, name: "E-Day", position: index + 1 }],
       })) };
     const series = vi.spyOn(CoverProviderClient.prototype, "getHardcoverSeries").mockResolvedValue(roster);
+    vi.spyOn(CoverProviderClient.prototype, "lookupHardcoverEditionIdentifiers").mockResolvedValue([]);
     const endpoint = `${app.prefix}/hardcover/series/88`;
     const response = await fetch(endpoint);
     expect(response.status).toBe(200);

@@ -1,6 +1,6 @@
 import type { CatalogMetadataCandidate, EditableBookMetadata, MetadataCandidateSearchTerms } from "../shared/catalog-contracts.js";
 import type { HardcoverBook, HardcoverBookLookup, HardcoverSeriesBook, HardcoverSeriesMembership, HardcoverSeriesPage } from "../shared/hardcover-contracts.js";
-import { hardcoverIsbn, hardcoverMatchEvidence } from "./hardcover-search.js";
+import { hardcoverAsin, hardcoverIsbn, hardcoverMatchEvidence, hardcoverSearchAsin } from "./hardcover-search.js";
 export { hardcoverIsbn } from "./hardcover-search.js";
 
 // Fixed queries verified against Hardcover's official schema and Searching guide.
@@ -11,7 +11,7 @@ const BOOK_FIELDS = `id title
 
 export const HARDCOVER_ISBN_QUERY = `query ShelfSendSeriesByIsbn($isbn: String!, $limit: Int!) {
   editions(limit: $limit, order_by: {id: asc}, where: {_or: [{isbn_13: {_eq: $isbn}}, {isbn_10: {_eq: $isbn}}]}) {
-    isbn_10 isbn_13 book { ${BOOK_FIELDS} }
+    asin isbn_10 isbn_13 book { ${BOOK_FIELDS} }
   }
 }`;
 
@@ -22,7 +22,7 @@ export const HARDCOVER_SEARCH_QUERY = `query ShelfSendSeriesSearch($query: Strin
 export const HARDCOVER_BOOKS_QUERY = `query ShelfSendSeriesBooks($ids: [Int!]!, $limit: Int!) {
   books(where: {id: {_in: $ids}}, limit: $limit) {
     ${BOOK_FIELDS}
-    editions(limit: 20, order_by: {id: asc}) { isbn_10 isbn_13 }
+    editions(limit: 20, order_by: {id: asc}) { isbn_10 isbn_13 asin }
   }
 }`;
 
@@ -32,11 +32,25 @@ export const HARDCOVER_BOOKS_QUERY = `query ShelfSendSeriesBooks($ids: [Int!]!, 
 // uses Hardcover's recommended single main book per volume (not a language guess).
 const DISCOVERY_BOOK_FIELDS = `${BOOK_FIELDS}
   slug release_year image { url }
-  editions(limit: 20, order_by: {id: asc}) { isbn_10 isbn_13 }`;
+  editions(limit: 20, order_by: {id: asc}) { isbn_10 isbn_13 asin }`;
+
+export const HARDCOVER_ASIN_QUERY = `query ShelfSendBookByAsin($asin: String!, $limit: Int!) {
+  editions(limit: $limit, order_by: {id: asc}, where: {asin: {_eq: $asin}}) {
+    asin isbn_10 isbn_13 book { ${BOOK_FIELDS} slug release_year image { url } }
+  }
+}`;
+
+export const MAX_HARDCOVER_ASIN_LOOKUP_IDENTIFIERS = 20_000;
+export const MAX_HARDCOVER_EDITION_IDENTITY_ROWS = 2_000;
+export const HARDCOVER_EDITION_IDENTIFIERS_QUERY = `query ShelfSendSeriesEditionIdentifiers($asins: [String!]!, $bookIds: [Int!]!, $limit: Int!) {
+  editions(limit: $limit, order_by: {id: asc}, where: {asin: {_in: $asins}, book_id: {_in: $bookIds}}) {
+    book_id asin isbn_10 isbn_13
+  }
+}`;
 
 export const HARDCOVER_DISCOVERY_ISBN_QUERY = `query ShelfSendBookByIsbn($isbn: String!, $limit: Int!) {
   editions(limit: $limit, order_by: {id: asc}, where: {_or: [{isbn_13: {_eq: $isbn}}, {isbn_10: {_eq: $isbn}}]}) {
-    isbn_10 isbn_13 book { ${DISCOVERY_BOOK_FIELDS} }
+    asin isbn_10 isbn_13 book { ${DISCOVERY_BOOK_FIELDS} }
   }
 }`;
 
@@ -97,7 +111,7 @@ export function hardcoverDiscoveryBook(value: unknown): HardcoverBook | null {
     const name = text(item.author.name, 300);
     return name && (!role || role === "author") ? [name] : [];
   }))];
-  const identifiers = discoveryIdentifiers(value.editions);
+  const identifiers = hardcoverEditionIdentifiers(value.editions);
   const series: HardcoverSeriesMembership[] = [];
   const seenMemberships = new Set<string>();
   for (const membership of value.book_series.slice(0, 20)) {
@@ -119,23 +133,30 @@ export function hardcoverDiscoveryBook(value: unknown): HardcoverBook | null {
   };
 }
 
-function discoveryIdentifiers(editions: unknown[]): string[] {
+export function hardcoverEditionIdentifiers(editions: unknown[]): string[] {
   return [...new Set(editions.slice(0, 20).flatMap((edition) => {
     if (!record(edition)) return [];
-    return [edition.isbn_10, edition.isbn_13].flatMap((value) => {
+    const isbns = [edition.isbn_10, edition.isbn_13].flatMap((value) => {
       const isbn = typeof value === "string" ? hardcoverIsbn(value) : null;
       return isbn ? [`ISBN:${isbn}`] : [];
     });
+    const asin = typeof edition.asin === "string" ? hardcoverAsin(`ASIN:${edition.asin}`) : null;
+    return [...isbns, ...(asin ? [`ASIN:${asin}`] : [])];
   }))].slice(0, 20);
 }
 
 /** Duplicate ISBN editions merge by book identity before ambiguity is assessed. */
 export function hardcoverDiscoveryLookup(rows: unknown[], terms: MetadataCandidateSearchTerms, limit: number, editionRows = false, truncated = false): HardcoverBookLookup | null {
   const byId = new Map<number, HardcoverBook>();
-  for (const row of rows.slice(0, limit + 1)) {
-    const book = hardcoverDiscoveryBook(editionRows && record(row) ? row.book : row);
+  const asin = hardcoverSearchAsin(terms);
+  // The ASIN lane may combine one bounded ASIN page with one ISBN page. Match
+  // every returned identity before clipping the visible list, never hiding a
+  // conflict merely because it appeared after the first page's display limit.
+  for (const row of rows.slice(0, 2 * (limit + 1))) {
+    const value = editionRows && record(row) ? row.book : row;
+    const book = hardcoverDiscoveryBook(asin && editionRows && record(value) ? { ...value, editions: [row] } : value);
     if (!book) return null;
-    if (editionRows) book.identifiers = [...new Set([...discoveryIdentifiers([row]), ...book.identifiers])].slice(0, 20);
+    if (editionRows) book.identifiers = [...new Set([...hardcoverEditionIdentifiers([row]), ...book.identifiers])].slice(0, 20);
     const existing = byId.get(book.id);
     if (existing) existing.identifiers = [...new Set([...existing.identifiers, ...book.identifiers])].slice(0, 20);
     else byId.set(book.id, book);
@@ -143,9 +164,12 @@ export function hardcoverDiscoveryLookup(rows: unknown[], terms: MetadataCandida
   const ranked = [...byId.values()].map((book) => ({ book, evidence: hardcoverMatchEvidence(terms, book) }))
     .sort((left, right) => right.evidence.rank - left.evidence.rank);
   const books = ranked.slice(0, limit).map((item) => item.book);
-  const isbnMatches = ranked.filter((item) => item.evidence.kind === "isbn");
-  const strong = (isbnMatches.length ? isbnMatches : ranked.filter((item) => item.evidence.strong)).map((item) => item.book);
-  return { books, matchedBookId: !truncated && rows.length <= limit && strong.length === 1 ? strong[0]!.id : null };
+  const identifierMatches = ranked.filter((item) => item.evidence.kind === "isbn" || (asin && item.evidence.kind === "asin"));
+  const strong = (identifierMatches.length ? identifierMatches : ranked.filter((item) => item.evidence.strong))
+    .filter((item) => item.evidence.strong).map((item) => item.book);
+  if (asin && identifierMatches.length > 1) return { books, matchedBookId: null };
+  const complete = asin && editionRows ? rows.length <= 2 * (limit + 1) : rows.length <= limit;
+  return { books, matchedBookId: !truncated && complete && strong.length === 1 ? strong[0]!.id : null };
 }
 
 /** Pagination consumes provider memberships, including duplicate rows. */
@@ -187,7 +211,7 @@ export function hardcoverMetadataCandidates(
 ): CatalogMetadataCandidate[] {
   const results: CatalogMetadataCandidate[] = [];
   const seen = new Set<string>();
-  for (const row of rows.slice(0, 20)) {
+  for (const row of rows.slice(0, hardcoverSearchAsin(terms) && editionRows ? 2 * (limit + 1) : 20)) {
     if (!record(row)) continue;
     const book = editionRows ? row.book : row;
     if (!record(book)) continue;
@@ -201,13 +225,7 @@ export function hardcoverMetadataCandidates(
       return name && (!role || role === "author") ? [name] : [];
     }))] : [];
     const editions = editionRows ? [row] : Array.isArray(book.editions) ? book.editions : [];
-    const identifiers = [...new Set(editions.slice(0, 20).flatMap((edition) => {
-      if (!record(edition)) return [];
-      return [edition.isbn_10, edition.isbn_13].flatMap((value) => {
-        const isbn = typeof value === "string" ? hardcoverIsbn(value) : null;
-        return isbn ? [`ISBN:${isbn}`] : [];
-      });
-    }))].slice(0, 20);
+    const identifiers = hardcoverEditionIdentifiers(editions);
     const metadata: Partial<EditableBookMetadata> = {
       title,
       ...(authors.length ? { authors } : {}),

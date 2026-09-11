@@ -1,4 +1,5 @@
 import { AppError, toAppError } from "./app-error";
+import { hardcoverLookupIdentifiers } from "../../shared/hardcover-identifiers.js";
 import {
   CatalogApiError,
   type CatalogApi,
@@ -602,6 +603,30 @@ function safeStorageSet(storage: Pick<Storage, "setItem"> | undefined, key: stri
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function initialMetadataSearchTerms(book: CatalogBook): MetadataCandidateSearchTerms {
+  const identifiers = hardcoverLookupIdentifiers(book.identifiers);
+  const visibleAsin = identifiers.asin && (/^B/u.test(identifiers.asin) ? identifiers.asin : `ASIN:${identifiers.asin}`);
+  const identifier = identifiers.identifier ?? visibleAsin ?? book.identifiers[0];
+  return {
+    title: book.title,
+    ...(book.authors[0] ? { author: book.authors[0] } : {}),
+    ...(identifier ? { identifier } : {}),
+  };
+}
+
+function hardcoverEditorSearchTerms(editor: CatalogMetadataEditorState, terms: MetadataCandidateSearchTerms): MetadataCandidateSearchTerms {
+  const book = editor.data?.book;
+  if (!book) return terms;
+  const initial = initialMetadataSearchTerms(book);
+  // The form has one visible identifier input. Only accompany its original
+  // query with the local ASIN; editing any search field means a new query.
+  // Do not retain this derived ASIN in form state or override explicit edits.
+  const fields = ["title", "author", "identifier"] as const;
+  if (!fields.every((field) => (terms[field] ?? "").trim() === (initial[field] ?? "").trim())) return terms;
+  const identifiers = hardcoverLookupIdentifiers([...book.identifiers, ...(editor.data?.sourceMetadata.identifiers ?? [])]);
+  return identifiers.asin && !terms.asin ? { ...terms, ...identifiers } : terms;
 }
 
 function rootsMapWith(
@@ -3340,11 +3365,7 @@ export class CatalogBrowser {
         },
         metadataSearch: {
           provider: "open-library",
-          terms: {
-            title: book.title,
-            ...(book.authors[0] ? { author: book.authors[0] } : {}),
-            ...(book.identifiers[0] ? { identifier: book.identifiers[0] } : {}),
-          },
+          terms: initialMetadataSearchTerms(book),
           loadState: "idle",
           items: [],
           selectedFields: new Set(),
@@ -3724,7 +3745,7 @@ export class CatalogBrowser {
 
   async searchBookMetadata(provider: MetadataProvider, terms: MetadataCandidateSearchTerms): Promise<void> {
     const editor = this.#snapshot.metadataEditor;
-    const hasTerm = Boolean(terms.title?.trim() || terms.author?.trim() || terms.identifier?.trim());
+    const hasTerm = Boolean(terms.title?.trim() || terms.author?.trim() || terms.identifier?.trim() || (provider === "hardcover" && terms.asin?.trim()));
     if (!editor || editor.busy || !hasTerm || !this.#api.searchBookMetadata) return;
     if (provider !== "open-library" && !(await this.#metadataProviderConfigured(provider))) {
       const current = this.#snapshot.metadataEditor;
@@ -3774,7 +3795,7 @@ export class CatalogBrowser {
         editor.profileId,
         editor.bookId,
         provider,
-        terms,
+        provider === "hardcover" ? hardcoverEditorSearchTerms(currentEditor, terms) : terms,
         operation.signal,
       ));
       const current = this.#snapshot.metadataEditor;

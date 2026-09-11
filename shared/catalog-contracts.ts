@@ -311,6 +311,8 @@ export interface MetadataCandidateSearchTerms {
   title?: string;
   author?: string;
   identifier?: string;
+  /** An Amazon edition identifier, independent of any ISBN supplied above. */
+  asin?: string;
 }
 
 export interface MetadataCandidateSearchResult {

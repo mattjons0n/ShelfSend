@@ -2306,6 +2306,7 @@ export class HttpCatalogClient implements CatalogApi {
     if (terms.title) params.set("title", terms.title);
     if (terms.author) params.set("author", terms.author);
     if (terms.identifier) params.set("identifier", terms.identifier);
+    if (provider === "hardcover" && terms.asin) params.set("asin", terms.asin);
     return parseMetadataCandidateSearchResult(await this.#json(
       `/profiles/${encodePath(profileId)}/books/${encodePath(bookId)}/metadata-search?${params.toString()}`,
       { signal },
