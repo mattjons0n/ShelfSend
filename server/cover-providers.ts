@@ -7,7 +7,8 @@ import type {
   MetadataCandidateSearchTerms,
   MetadataProvider,
 } from "../shared/catalog-contracts.js";
-import { HARDCOVER_BOOKS_QUERY, HARDCOVER_ISBN_QUERY, HARDCOVER_SEARCH_QUERY, hardcoverBookIds, hardcoverIsbn, hardcoverMetadataCandidates } from "./hardcover-provider.js";
+import { HARDCOVER_BOOKS_QUERY, HARDCOVER_DISCOVERY_BOOKS_QUERY, HARDCOVER_DISCOVERY_ISBN_QUERY, HARDCOVER_ISBN_QUERY, HARDCOVER_SEARCH_QUERY, HARDCOVER_SERIES_QUERY, hardcoverBookIds, hardcoverDiscoveryLookup, hardcoverDiscoverySeries, hardcoverIsbn, hardcoverMetadataCandidates } from "./hardcover-provider.js";
+import type { HardcoverBookLookup, HardcoverSeriesPage } from "../shared/hardcover-contracts.js";
 import { normalizeKindleMetadataIdentifier, normalizeKindleMetadataWords } from "../shared/kindle-metadata-normalization.js";
 import {
   MAX_METADATA_COVER_BYTES,
@@ -116,6 +117,48 @@ export class CoverProviderClient {
     // Restore relevance order after the relational query and discard unrequested IDs.
     const books = ids.flatMap((id) => data.books instanceof Array ? data.books.filter((book) => isRecord(book) && book.id === id) : []);
     return hardcoverMetadataCandidates(books, terms, limit);
+  }
+
+  async lookupHardcoverBook(terms: MetadataCandidateSearchTerms, signal?: AbortSignal): Promise<HardcoverBookLookup> {
+    const normalized = normalizedMetadataTerms(terms);
+    const limit = MAX_PROVIDER_RESULTS;
+    const isbn = hardcoverIsbn(normalized.identifier);
+    if (isbn) {
+      const data = await this.hardcoverRequest(HARDCOVER_DISCOVERY_ISBN_QUERY, { isbn, limit: limit + 1 }, signal);
+      if (!Array.isArray(data.editions) || data.editions.length > limit + 1) throw hardcoverMalformedResponse();
+      if (data.editions.length) {
+        const lookup = hardcoverDiscoveryLookup(data.editions, normalized, limit, true);
+        if (!lookup) throw hardcoverMalformedResponse();
+        return lookup;
+      }
+    }
+    const query = [normalized.title, normalized.author].filter(Boolean).join(" ");
+    if (!query) return { books: [], matchedBookId: null };
+    const search = await this.hardcoverRequest(HARDCOVER_SEARCH_QUERY, { query, limit: limit + 1 }, signal);
+    if (!isRecord(search.search) || search.search.error || !Array.isArray(search.search.ids)) throw hardcoverMalformedResponse();
+    const ids = hardcoverBookIds(search.search.ids, limit + 1);
+    if (!ids.length) {
+      if (search.search.ids.length) throw hardcoverMalformedResponse();
+      return { books: [], matchedBookId: null };
+    }
+    const data = await this.hardcoverRequest(HARDCOVER_DISCOVERY_BOOKS_QUERY, { ids, limit: limit + 1 }, signal);
+    if (!Array.isArray(data.books) || data.books.length > limit + 1) throw hardcoverMalformedResponse();
+    const rows = data.books;
+    const books = ids.flatMap((id) => rows.filter((book) => isRecord(book) && book.id === id));
+    const lookup = hardcoverDiscoveryLookup(books, normalized, limit, false, search.search.ids.length > limit);
+    if (!lookup || ids.some((id) => !books.some((book) => isRecord(book) && book.id === id))) throw hardcoverMalformedResponse();
+    return lookup;
+  }
+
+  async getHardcoverSeries(seriesId: number, limit = 50, offset = 0, signal?: AbortSignal): Promise<HardcoverSeriesPage> {
+    if (!hardcoverBookIds([seriesId], 1).length || !Number.isInteger(limit) || limit < 1 || limit > 50 || !Number.isInteger(offset) || offset < 0 || offset > 10_000) {
+      throw new CoverProviderError("invalid_candidate", "Choose a valid Hardcover series and page (up to 50 books).");
+    }
+    const data = await this.hardcoverRequest(HARDCOVER_SERIES_QUERY, { seriesId, limit: limit + 1, offset }, signal);
+    if (data.series_by_pk === null) throw new CoverProviderError("invalid_candidate", "This series is no longer available on Hardcover.");
+    const page = hardcoverDiscoverySeries(data.series_by_pk, seriesId, limit, offset);
+    if (!page) throw hardcoverMalformedResponse();
+    return page;
   }
 
   async testHardcoverCredential(apiKey?: string, signal?: AbortSignal): Promise<CoverProviderCredentialErrorCode | null> {

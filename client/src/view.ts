@@ -450,6 +450,9 @@ export class AppView {
   render(state: AppState): void {
     this.#state = state;
     const active = document.activeElement;
+    const discoveryFocus = active instanceof HTMLElement && this.#root.contains(active)
+      && active.closest(".hardcover-series-sheet, .hardcover-discovery")
+      ? { action: active.dataset.uiAction, bookId: active.dataset.bookId, href: active.getAttribute("href") } : undefined;
     const transferFocusBookId = active instanceof HTMLButtonElement && this.#root.contains(active)
       && active.matches('[data-ui-action="send-book"], [data-ui-action="cancel-book-send"], [data-ui-action="retry-book-send"]')
       ? active.dataset.bookId : undefined;
@@ -506,6 +509,11 @@ export class AppView {
     });
     this.#renderAdvancedPartialObjectProbe();
     this.#bindEvents();
+    if (discoveryFocus) {
+      [...this.#root.querySelectorAll<HTMLElement>(".hardcover-series-sheet [data-ui-action], .hardcover-discovery [data-ui-action], .hardcover-series-sheet a, .hardcover-discovery a")]
+        .find((element) => element.dataset.uiAction === discoveryFocus.action && element.dataset.bookId === discoveryFocus.bookId
+          && element.getAttribute("href") === discoveryFocus.href && !element.hasAttribute("disabled"))?.focus({ preventScroll: true });
+    }
     this.#renderLog();
     if (transferFocusBookId) {
       [...this.#root.querySelectorAll<HTMLButtonElement>('.library-card-actions button[data-book-id], .library-off-card-send button[data-book-id]')]
@@ -1088,10 +1096,13 @@ export class AppView {
     scope.querySelectorAll<HTMLButtonElement>('button[data-ui-action="open-book-details"]').forEach((button) => button.addEventListener("click", () => {
       const bookId = button.dataset.bookId;
       if (!bookId) return;
-      this.#catalogDetailsReturnBookId = bookId;
-      this.#catalogDetailsScrollY = window.scrollY;
-      this.#catalog.setScrollPosition(window.scrollY);
-      this.#writeCatalogRoute({ bookId, seriesKey: null }, "push", { kindleBridgeBook: bookId });
+      const fromSeries = Boolean(button.closest(".hardcover-series-sheet"));
+      if (!fromSeries) {
+        this.#catalogDetailsReturnBookId = bookId;
+        this.#catalogDetailsScrollY = window.scrollY;
+        this.#catalog.setScrollPosition(window.scrollY);
+      }
+      this.#writeCatalogRoute({ bookId, seriesKey: null }, fromSeries ? "replace" : "push", { kindleBridgeBook: bookId });
       void this.#catalog.openBookDetails(bookId);
     }));
     scope.querySelectorAll<HTMLButtonElement>('button[data-ui-action="set-library-layout"]').forEach((button) => button.addEventListener("click", () => {
@@ -1208,6 +1219,27 @@ export class AppView {
     scope.querySelector<HTMLButtonElement>('button[data-ui-action="confirm-catalog-send"]')?.addEventListener("click", () => { void this.#catalog.confirmSend(); });
     scope.querySelector<HTMLButtonElement>('button[data-ui-action="dismiss-announcement"]')?.addEventListener("click", () => this.#catalog.dismissAnnouncement());
     scope.querySelectorAll<HTMLElement>('[data-ui-action="close-book-details"]').forEach((element) => element.addEventListener("click", () => this.#closeBookDetails()));
+    scope.querySelectorAll<HTMLImageElement>("[data-hardcover-cover-image]").forEach((image) => image.addEventListener("error", () => image.remove(), { once: true }));
+    scope.querySelector<HTMLButtonElement>('[data-ui-action="retry-hardcover-book"]')?.addEventListener("click", () => { void this.#catalog.loadHardcoverBook(); });
+    scope.querySelector<HTMLButtonElement>('[data-ui-action="hardcover-discovery-settings"]')?.addEventListener("click", () => {
+      this.#closeBookDetails(true, false);
+      void this.#catalog.setView("settings").then(() => this.#writeCatalogRoute({ bookId: null, seriesKey: null }, "replace"));
+    });
+    scope.querySelector<HTMLSelectElement>('[data-ui-action="select-hardcover-book"]')?.addEventListener("change", (event) => {
+      this.#catalog.selectHardcoverBook(Number((event.currentTarget as HTMLSelectElement).value));
+      if (this.#catalog.snapshot.bookDetails?.hardcover?.seriesOpen) void this.#catalog.openHardcoverSeries();
+    });
+    scope.querySelector<HTMLButtonElement>('[data-ui-action="open-hardcover-series"]')?.addEventListener("click", () => { void this.#catalog.openHardcoverSeries(); });
+    scope.querySelectorAll<HTMLElement>('[data-ui-action="close-hardcover-series"]').forEach((element) => element.addEventListener("click", () => this.#closeHardcoverSeries()));
+    scope.querySelector<HTMLSelectElement>('[data-ui-action="select-hardcover-series"]')?.addEventListener("change", (event) => {
+      void this.#catalog.loadHardcoverSeries(Number((event.currentTarget as HTMLSelectElement).value));
+    });
+    const loadHardcoverSeries = (more: boolean): void => {
+      const discovery = this.#catalog.snapshot.bookDetails?.hardcover;
+      if (discovery?.selectedSeriesId) void this.#catalog.loadHardcoverSeries(discovery.selectedSeriesId, more);
+    };
+    scope.querySelector<HTMLButtonElement>('[data-ui-action="load-more-hardcover-series"]')?.addEventListener("click", () => loadHardcoverSeries(true));
+    scope.querySelector<HTMLButtonElement>('[data-ui-action="retry-hardcover-series"]')?.addEventListener("click", () => loadHardcoverSeries(Boolean(this.#catalog.snapshot.bookDetails?.hardcover?.seriesPage)));
     scope.querySelectorAll<HTMLButtonElement>('button[data-ui-action="book-details-filter"]').forEach((button) => button.addEventListener("click", () => {
       const key = button.dataset.filterKey as keyof LibraryFilters | undefined;
       const value = button.dataset.filterValue;
@@ -1484,11 +1516,12 @@ export class AppView {
     dialog.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        this.#closeBookDetails();
+        if (this.#catalog.snapshot.bookDetails?.hardcover?.seriesOpen) this.#closeHardcoverSeries();
+        else this.#closeBookDetails();
         return;
       }
       if (event.key !== "Tab") return;
-      const focusable = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
+      const focusable = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
         .filter((element) => !element.hasAttribute("hidden"));
       if (focusable.length === 0) {
         event.preventDefault();
@@ -1505,7 +1538,12 @@ export class AppView {
         first.focus();
       }
     });
-    (dialog.querySelector<HTMLElement>('button[data-ui-action="close-book-details"]') ?? dialog).focus({ preventScroll: true });
+    (dialog.querySelector<HTMLElement>('button[data-ui-action="close-hardcover-series"], button[data-ui-action="close-book-details"]') ?? dialog).focus({ preventScroll: true });
+  }
+
+  #closeHardcoverSeries(): void {
+    this.#catalog.closeHardcoverSeries();
+    this.#root.querySelector<HTMLElement>('[data-ui-action="open-hardcover-series"]')?.focus({ preventScroll: true });
   }
 
   #activateMetadataEditorDialog(): void {

@@ -80,7 +80,12 @@
 .library-topbar-status[data-status="warning"] .library-source-dot { background: light-dark(#96620c, #e6b65b); }
 .library-topbar-status[data-status="error"] .library-source-dot { background: light-dark(#b52f3c, #f29199); }
 .library-breadcrumb { flex: 0 1 auto; }
-.library-sidebar-bottom { padding-top: 24px; }
+.library-sidebar-bottom {
+  grid-column: 1 / -1;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
 .library-stat-row { gap: 8px; align-self: center; }
 .library-stat-row > button {
   display: flex;

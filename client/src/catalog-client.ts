@@ -1,4 +1,6 @@
 import { MAX_BOOK_SOURCE_BYTES } from "./book-limits";
+import type { HardcoverBook, HardcoverBookLookup, HardcoverLibrarySeriesPage } from "../../shared/hardcover-contracts.js";
+export type { HardcoverBook, HardcoverBookLookup, HardcoverLibrarySeriesPage } from "../../shared/hardcover-contracts.js";
 import {
   MAX_CATALOG_JSON_RESPONSE_BYTES,
   MAX_MATCH_INDEX_RESPONSE_BYTES,
@@ -578,6 +580,8 @@ export interface CatalogApi {
   runMetadataLookupJobStep?(profileId: string, jobId: string, signal?: AbortSignal): Promise<MetadataLookupJob>;
   getBook(profileId: string, bookId: string, signal?: AbortSignal): Promise<CatalogBook>;
   getBookDetails?(profileId: string, bookId: string, signal?: AbortSignal): Promise<CatalogBookDetailsData>;
+  getHardcoverBook?(profileId: string, bookId: string, signal?: AbortSignal): Promise<HardcoverBookLookup>;
+  getHardcoverSeries?(profileId: string, seriesId: number, limit?: number, offset?: number, signal?: AbortSignal): Promise<HardcoverLibrarySeriesPage>;
   getBookMetadata?(profileId: string, bookId: string, signal?: AbortSignal): Promise<CatalogBookMetadataState>;
   updateBookMetadata?(
     profileId: string,
@@ -858,6 +862,68 @@ function nullableText(value: unknown): string | null {
 
 function nullableNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** Discovery links are supplied by the provider; never invent a slug from a title. */
+export function safeHardcoverBookUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "hardcover.app" && !url.port
+      && !url.username && !url.password && /^(?:\/books\/[^/]+|\/id\/book\/[1-9]\d*)\/?$/u.test(url.pathname)
+      && !url.search && !url.hash ? url.href : null;
+  } catch { return null; }
+}
+
+function parseHardcoverBook(value: unknown): HardcoverBook {
+  const item = record(value);
+  if (!Number.isSafeInteger(item.id) || Number(item.id) <= 0 || !textValue(item.title)) {
+    throw new Error("Hardcover returned an invalid book.");
+  }
+  return {
+    id: Number(item.id), title: textValue(item.title), authors: [...stringArray(item.authors)],
+    identifiers: [...stringArray(item.identifiers)], url: safeHardcoverBookUrl(item.url),
+    coverUrl: nullableText(item.coverUrl), releaseYear: nullableNumber(item.releaseYear),
+    series: (Array.isArray(item.series) ? item.series : []).map((value) => {
+      const series = record(value);
+      return { id: numberValue(series.id), name: textValue(series.name), position: nullableNumber(series.position) };
+    }).filter((series) => Number.isSafeInteger(series.id) && series.id > 0 && series.name.length > 0),
+  };
+}
+
+function parseHardcoverLookup(value: unknown): HardcoverBookLookup {
+  const item = record(value);
+  if (!Array.isArray(item.books)) throw new Error("Hardcover returned an invalid book lookup.");
+  const books = (Array.isArray(item.books) ? item.books : []).map(parseHardcoverBook);
+  const matchedBookId = nullableNumber(item.matchedBookId);
+  return { books, matchedBookId: books.some((book) => book.id === matchedBookId) ? matchedBookId : null };
+}
+
+function parseHardcoverSeries(value: unknown): HardcoverLibrarySeriesPage {
+  const item = record(value);
+  if (!Number.isSafeInteger(item.id) || Number(item.id) <= 0 || !Array.isArray(item.books)
+    || !Number.isSafeInteger(item.offset) || Number(item.offset) < 0
+    || !Number.isSafeInteger(item.limit) || Number(item.limit) < 1 || typeof item.hasMore !== "boolean") {
+    throw new Error("Hardcover returned an invalid series page.");
+  }
+  return {
+    id: numberValue(item.id), name: textValue(item.name), offset: numberValue(item.offset),
+    limit: numberValue(item.limit), hasMore: booleanValue(item.hasMore),
+    books: (Array.isArray(item.books) ? item.books : []).map((value) => {
+      const row = record(value);
+      const library = record(row.library);
+      return {
+        ...parseHardcoverBook(value), position: nullableNumber(row.position),
+        library: {
+          status: library.status === "in-library" || library.status === "missing" ? library.status : "possible",
+          books: (Array.isArray(library.books) ? library.books : []).map((value) => {
+            const local = record(value);
+            return { id: textValue(local.id), title: textValue(local.title), available: booleanValue(local.available), coverUrl: nullableText(local.coverUrl) };
+          }).filter((book) => book.id.length > 0),
+        },
+      };
+    }),
+  };
 }
 
 function rootStatus(value: unknown): CatalogRootStatus {
@@ -2188,6 +2254,14 @@ export class HttpCatalogClient implements CatalogApi {
       `/profiles/${encodePath(profileId)}/books/${encodePath(bookId)}/details`,
       { signal },
     ));
+  }
+
+  async getHardcoverBook(profileId: string, bookId: string, signal?: AbortSignal): Promise<HardcoverBookLookup> {
+    return parseHardcoverLookup(await this.#json(`/profiles/${encodePath(profileId)}/books/${encodePath(bookId)}/hardcover`, { signal }));
+  }
+
+  async getHardcoverSeries(profileId: string, seriesId: number, limit = 50, offset = 0, signal?: AbortSignal): Promise<HardcoverLibrarySeriesPage> {
+    return parseHardcoverSeries(await this.#json(`/profiles/${encodePath(profileId)}/hardcover/series/${seriesId}?limit=${limit}&offset=${offset}`, { signal }));
   }
 
   async getBookMetadata(profileId: string, bookId: string, signal?: AbortSignal): Promise<CatalogBookMetadataState> {

@@ -55,6 +55,9 @@ import {
 } from "../shared/catalog-issues.js";
 import { normalizeSmartShelfQuery, SmartShelfQueryError } from "../shared/shelf-query.js";
 import { canonicalSeriesKey } from "../shared/series.js";
+import type { HardcoverBookLookup, HardcoverSeriesPage } from "../shared/hardcover-contracts.js";
+import { hardcoverIsbn } from "./hardcover-provider.js";
+import { enrichHardcoverSeries } from "./hardcover-library.js";
 import { DEFAULT_METADATA_LIMITS, inspectRasterImage } from "./book-metadata.js";
 import { CatalogDatabase, CatalogDatabaseError } from "./catalog-database.js";
 import { CatalogIndexer } from "./catalog-indexer.js";
@@ -191,6 +194,8 @@ interface CachedMetadataCandidate {
 
 const METADATA_CANDIDATE_CACHE_TTL_MS = 15 * 60_000;
 const MAX_CACHED_METADATA_CANDIDATES = 1_000;
+const HARDCOVER_DISCOVERY_CACHE_TTL_MS = 5 * 60_000;
+const MAX_HARDCOVER_DISCOVERY_CACHE_BYTES = 8 * 1024 * 1024;
 
 export class CatalogHttpServer {
   private readonly options: CatalogHttpOptions;
@@ -214,6 +219,9 @@ export class CatalogHttpServer {
   private readonly coverProviders: CoverProviderClient;
   private readonly metadataLookupWorker: MetadataLookupWorker;
   private readonly metadataCandidates = new Map<string, CachedMetadataCandidate>();
+  private readonly hardcoverDiscovery = new Map<string, {
+    value: HardcoverBookLookup | HardcoverSeriesPage; expiresAt: number; bytes: number;
+  }>();
 
   constructor(
     private readonly database: CatalogDatabase,
@@ -654,6 +662,10 @@ export class CatalogHttpServer {
     }
     if (segments[2] === "series") {
       this.routeSeries(response, url, profileId, segments.slice(3), method);
+      return;
+    }
+    if (segments[2] === "hardcover") {
+      await this.routeHardcover(request, response, url, profileId, segments.slice(3));
       return;
     }
     if (segments[2] === "send-queue") {
@@ -1187,6 +1199,10 @@ export class CatalogHttpServer {
         await this.searchBookMetadata(request, response, url, profileId, bookId);
         return;
       }
+      if (segments.length === 2 && segments[1] === "hardcover" && method === "GET") {
+        await this.lookupHardcoverBook(request, response, url, profileId, bookId);
+        return;
+      }
       if (segments.length === 2 && segments[1] === "metadata-import" && method === "POST") {
         await this.importBookMetadata(request, response, profileId, bookId);
         return;
@@ -1371,6 +1387,96 @@ export class CatalogHttpServer {
         thumbnailUrl: `${prefix}?provider=${encodeURIComponent(provider)}&candidateId=${encodeURIComponent(candidate.candidateId)}`,
       })),
     }, this.options.maxCatalogJsonResponseBytes);
+  }
+
+  private requireHardcoverRevision(): number {
+    const state = this.database.getCoverProviderCredentialState("hardcover");
+    if (!state.configured) {
+      throw new CoverProviderError("provider_not_configured", "Add a Hardcover API token in Settings to view book and series details.");
+    }
+    return state.revision;
+  }
+
+  private cachedHardcover<T extends HardcoverBookLookup | HardcoverSeriesPage>(key: string): T | undefined {
+    const entry = this.hardcoverDiscovery.get(key);
+    if (!entry || entry.expiresAt <= Date.now()) {
+      this.hardcoverDiscovery.delete(key);
+      return undefined;
+    }
+    return entry.value as T;
+  }
+
+  private cacheHardcover(key: string, value: HardcoverBookLookup | HardcoverSeriesPage): void {
+    const bytes = Buffer.byteLength(JSON.stringify(value));
+    if (bytes > MAX_HARDCOVER_DISCOVERY_CACHE_BYTES) return;
+    this.hardcoverDiscovery.delete(key);
+    let totalBytes = 0;
+    for (const [entryKey, entry] of this.hardcoverDiscovery) {
+      if (entry.expiresAt <= Date.now()) this.hardcoverDiscovery.delete(entryKey);
+      else totalBytes += entry.bytes;
+    }
+    while (this.hardcoverDiscovery.size >= 128 || totalBytes + bytes > MAX_HARDCOVER_DISCOVERY_CACHE_BYTES) {
+      const oldest = this.hardcoverDiscovery.entries().next().value;
+      if (!oldest) break;
+      this.hardcoverDiscovery.delete(oldest[0]);
+      totalBytes -= oldest[1].bytes;
+    }
+    this.hardcoverDiscovery.set(key, { value, bytes, expiresAt: Date.now() + HARDCOVER_DISCOVERY_CACHE_TTL_MS });
+  }
+
+  private async lookupHardcoverBook(
+    request: IncomingMessage, response: ServerResponse, url: URL, profileId: string, bookId: string,
+  ): Promise<void> {
+    if (url.searchParams.size) throw new HttpError(400, "invalid_query", "This lookup uses the selected book's metadata.");
+    const book = this.database.getBook(profileId, bookId);
+    if (!book) throw new HttpError(404, "not_found", "Book not found.");
+    const revision = this.requireHardcoverRevision();
+    const key = JSON.stringify(["book", revision, profileId, bookId, book.contentHash, book.presentationVersion]);
+    let lookup = this.cachedHardcover<HardcoverBookLookup>(key);
+    if (!lookup) {
+      const isbn = book.identifiers.map((identifier) => hardcoverIsbn(identifier)).find((value) => value !== null);
+      const terms: MetadataCandidateSearchTerms = {
+        title: book.title, ...(book.authors.length ? { author: book.authors[0] } : {}),
+        ...(isbn ? { identifier: isbn } : {}),
+      };
+      lookup = await this.withProviderRequest(request, response,
+        (signal) => this.coverProviders.lookupHardcoverBook(terms, signal));
+      this.cacheHardcover(key, lookup);
+    }
+    const current = this.database.getBook(profileId, bookId);
+    if (!current) throw new HttpError(404, "not_found", "Book not found.");
+    if (current.contentHash !== book.contentHash || current.presentationVersion !== book.presentationVersion) {
+      throw new HttpError(409, "book_changed", "This book changed during lookup. Open its details again to refresh.");
+    }
+    sendJson(response, 200, lookup, this.options.maxCatalogJsonResponseBytes);
+  }
+
+  private async routeHardcover(
+    request: IncomingMessage, response: ServerResponse, url: URL, profileId: string, segments: string[],
+  ): Promise<void> {
+    this.requireProfile(profileId);
+    if (request.method !== "GET" || segments.length !== 2 || segments[0] !== "series") {
+      throw new HttpError(404, "not_found", "Route not found.");
+    }
+    for (const key of url.searchParams.keys()) {
+      if (!["limit", "offset"].includes(key) || url.searchParams.getAll(key).length !== 1) {
+        throw new HttpError(400, "invalid_query", `Unsupported or repeated series field: ${key}.`);
+      }
+    }
+    const id = boundedInteger(segments[1], "seriesId", 1, 2_147_483_647);
+    const limit = url.searchParams.has("limit") ? boundedInteger(url.searchParams.get("limit"), "limit", 1, 50) : 50;
+    const offset = url.searchParams.has("offset") ? boundedInteger(url.searchParams.get("offset"), "offset", 0, 10_000) : 0;
+    const revision = this.requireHardcoverRevision();
+    const key = JSON.stringify(["series", revision, id, limit, offset]);
+    let page = this.cachedHardcover<HardcoverSeriesPage>(key);
+    if (!page) {
+      page = await this.withProviderRequest(request, response,
+        (signal) => this.coverProviders.getHardcoverSeries(id, limit, offset, signal));
+      this.cacheHardcover(key, page);
+    }
+    // Only provider data is cached; ownership always reflects this profile's current catalog.
+    const result = enrichHardcoverSeries(this.database, profileId, page);
+    sendJson(response, 200, result, this.options.maxCatalogJsonResponseBytes);
   }
 
   private async searchBookMetadata(
@@ -2131,7 +2237,7 @@ export class CatalogHttpServer {
     response.setHeader("X-Frame-Options", "DENY");
     response.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
+      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://assets.hardcover.app https://production-img.hardcover.app; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
     );
     response.setHeader("Permissions-Policy", "usb=(self)");
   }

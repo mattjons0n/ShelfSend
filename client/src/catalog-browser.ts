@@ -27,6 +27,8 @@ import {
   type ConfigurableCoverProvider,
   type CoverProviderCredentialState,
   type CoverSearchCandidate,
+  type HardcoverBook,
+  type HardcoverLibrarySeriesPage,
   type CatalogMetadataCandidate,
   type MetadataCandidateSearchTerms,
   type MetadataLookupJob,
@@ -250,6 +252,18 @@ export interface CatalogCoverProviderSettingsState {
   readonly error?: string;
 }
 
+export interface CatalogHardcoverDiscoveryState {
+  readonly loadState: CatalogLoadState | "unconfigured";
+  readonly books: readonly HardcoverBook[];
+  readonly selectedBookId?: number;
+  readonly error?: string;
+  readonly seriesOpen: boolean;
+  readonly selectedSeriesId?: number;
+  readonly seriesState: CatalogLoadState;
+  readonly seriesPage?: HardcoverLibrarySeriesPage;
+  readonly seriesError?: string;
+}
+
 export interface CatalogBookDetailsState {
   readonly profileId: string;
   readonly bookId: string;
@@ -257,6 +271,7 @@ export interface CatalogBookDetailsState {
   readonly book?: CatalogBook;
   readonly data?: CatalogBookDetailsData | CatalogBookMetadataState;
   readonly error?: string;
+  readonly hardcover?: CatalogHardcoverDiscoveryState;
 }
 
 export interface CatalogMetadataEditorState {
@@ -679,6 +694,8 @@ export class CatalogBrowser {
   #metadataEditorOperation?: CatalogOperationLease;
   #bookDetailsEpoch = 0;
   #bookDetailsOperation?: CatalogOperationLease;
+  #hardcoverDiscoveryOperation?: CatalogOperationLease;
+  #hardcoverSeriesOperation?: CatalogOperationLease;
   #coverProviderEpoch = 0;
   #coverProviderOperation?: CatalogOperationLease;
   #matchReviewEpoch = 0;
@@ -883,6 +900,7 @@ export class CatalogBrowser {
     this.#metadataEditorEpoch += 1;
     this.#bookDetailsEpoch += 1;
     this.#coverProviderEpoch += 1;
+    this.#cancelHardcoverDiscovery();
     this.#matchReviewEpoch += 1;
     this.#extrasEpoch += 1;
     this.#metadataLookupRunEpoch += 1;
@@ -956,6 +974,9 @@ export class CatalogBrowser {
     if (this.#snapshot.settingsSaving || this.#snapshot.settingsRefreshing) return;
     if (this.#snapshot.filters.view === "settings" && !this.#confirmDiscardSettingsChanges()) return;
     this.#persistBrowsingContext();
+    this.#cancelHardcoverDiscovery();
+    this.#bookDetailsEpoch += 1;
+    this.#bookDetailsOperation?.abort();
     this.#hardcoverBulkEpoch += 1;
     this.#hardcoverBulkOperation?.abort();
     const epoch = ++this.#profileEpoch;
@@ -3367,6 +3388,7 @@ export class CatalogBrowser {
     const profileId = this.#snapshot.filters.profileId;
     if (!profileId) return;
     const visibleBook = this.#snapshot.page?.items.find((candidate) => candidate.id === bookId);
+    this.#cancelHardcoverDiscovery();
     this.#bookDetailsOperation?.abort();
     const operation = createCatalogOperation("Book details load", this.#requestTimeoutMs);
     this.#bookDetailsOperation = operation;
@@ -3411,13 +3433,137 @@ export class CatalogBrowser {
         this.#bookDetailsOperation = undefined;
       }
     }
+    if (epoch === this.#bookDetailsEpoch && this.#snapshot.bookDetails?.profileId === profileId
+      && this.#snapshot.bookDetails.bookId === bookId && this.#snapshot.bookDetails.loadState === "ready") {
+      await this.loadHardcoverBook();
+    }
   }
 
   closeBookDetails(): void {
+    this.#cancelHardcoverDiscovery();
     this.#bookDetailsEpoch += 1;
     this.#bookDetailsOperation?.abort();
     this.#bookDetailsOperation = undefined;
     this.#set({ bookDetails: undefined }, "all");
+  }
+
+  #cancelHardcoverDiscovery(): void {
+    this.#hardcoverDiscoveryOperation?.abort();
+    this.#hardcoverSeriesOperation?.abort();
+    this.#hardcoverDiscoveryOperation = undefined;
+    this.#hardcoverSeriesOperation = undefined;
+  }
+
+  #setHardcoverDiscovery(hardcover: CatalogHardcoverDiscoveryState): void {
+    const details = this.#snapshot.bookDetails;
+    if (details) this.#set({ bookDetails: { ...details, hardcover } }, "all");
+  }
+
+  async loadHardcoverBook(): Promise<void> {
+    const details = this.#snapshot.bookDetails;
+    if (!details || details.loadState !== "ready" || details.hardcover?.loadState === "loading") return;
+    this.#cancelHardcoverDiscovery();
+    const epoch = this.#bookDetailsEpoch;
+    const current = (): boolean => epoch === this.#bookDetailsEpoch
+      && this.#snapshot.filters.profileId === details.profileId
+      && this.#snapshot.bookDetails?.profileId === details.profileId
+      && this.#snapshot.bookDetails?.bookId === details.bookId;
+    const initial: CatalogHardcoverDiscoveryState = { loadState: "loading", books: [], seriesOpen: false, seriesState: "idle" };
+    this.#setHardcoverDiscovery(initial);
+    const operation = createCatalogOperation("Hardcover book discovery", this.#requestTimeoutMs);
+    this.#hardcoverDiscoveryOperation = operation;
+    try {
+      const configured = await operation.wait(this.#metadataProviderConfigured("hardcover"));
+      if (!current()) return;
+      if (this.#snapshot.coverProviderSettings?.loadState === "error") {
+        throw new Error(this.#snapshot.coverProviderSettings.error ?? "Hardcover settings could not be loaded.");
+      }
+      if (!configured) {
+        this.#setHardcoverDiscovery({ ...initial, loadState: "unconfigured" });
+        return;
+      }
+      if (!this.#api.getHardcoverBook) throw new Error("Hardcover discovery is unavailable on this server.");
+      const result = await operation.wait(this.#api.getHardcoverBook(details.profileId, details.bookId, operation.signal));
+      if (!current()) return;
+      this.#setHardcoverDiscovery({ ...initial, loadState: "ready", books: result.books,
+        ...(result.matchedBookId !== null && result.books.some((book) => book.id === result.matchedBookId)
+          ? { selectedBookId: result.matchedBookId } : {}) });
+    } catch (error) {
+      if (current() && this.#hardcoverDiscoveryOperation === operation) {
+        this.#setHardcoverDiscovery({ ...initial, loadState: "error", error: errorMessage(error, "Hardcover could not be reached. Try again.") });
+      }
+    } finally {
+      operation.dispose();
+      if (this.#hardcoverDiscoveryOperation === operation) this.#hardcoverDiscoveryOperation = undefined;
+    }
+  }
+
+  selectHardcoverBook(bookId: number): void {
+    const discovery = this.#snapshot.bookDetails?.hardcover;
+    if (!discovery || discovery.loadState !== "ready" || (bookId !== 0 && !discovery.books.some((book) => book.id === bookId))) return;
+    this.#hardcoverSeriesOperation?.abort();
+    this.#hardcoverSeriesOperation = undefined;
+    this.#setHardcoverDiscovery({ ...discovery, selectedBookId: bookId === 0 ? undefined : bookId, selectedSeriesId: undefined,
+      seriesPage: undefined, seriesState: "idle", seriesError: undefined });
+  }
+
+  async openHardcoverSeries(): Promise<void> {
+    const discovery = this.#snapshot.bookDetails?.hardcover;
+    if (!discovery || discovery.loadState !== "ready") return;
+    this.#setHardcoverDiscovery({ ...discovery, seriesOpen: true });
+    const book = discovery.books.find((book) => book.id === discovery.selectedBookId);
+    const seriesId = book?.series.find((series) => series.id === discovery.selectedSeriesId)?.id
+      ?? (book?.series.length === 1 ? book.series[0]!.id : undefined);
+    if (seriesId && !discovery.seriesPage) await this.loadHardcoverSeries(seriesId);
+  }
+
+  closeHardcoverSeries(): void {
+    const discovery = this.#snapshot.bookDetails?.hardcover;
+    if (!discovery) return;
+    this.#hardcoverSeriesOperation?.abort();
+    this.#hardcoverSeriesOperation = undefined;
+    this.#setHardcoverDiscovery({ ...discovery, seriesOpen: false,
+      seriesState: discovery.seriesState === "loading" ? discovery.seriesPage ? "ready" : "idle" : discovery.seriesState });
+  }
+
+  async loadHardcoverSeries(seriesId: number, more = false): Promise<void> {
+    const details = this.#snapshot.bookDetails;
+    const discovery = details?.hardcover;
+    const book = discovery?.books.find((book) => book.id === discovery.selectedBookId);
+    if (discovery?.seriesOpen && seriesId === 0) {
+      this.#hardcoverSeriesOperation?.abort();
+      this.#hardcoverSeriesOperation = undefined;
+      this.#setHardcoverDiscovery({ ...discovery, selectedSeriesId: undefined, seriesPage: undefined, seriesState: "idle", seriesError: undefined });
+      return;
+    }
+    if (!details || !discovery?.seriesOpen || !book?.series.some((series) => series.id === seriesId)) return;
+    if (more && (!discovery.seriesPage?.hasMore || discovery.seriesState === "loading")) return;
+    const previous = more && discovery.selectedSeriesId === seriesId ? discovery.seriesPage : undefined;
+    const offset = previous ? previous.offset + previous.limit : 0;
+    this.#hardcoverSeriesOperation?.abort();
+    const operation = createCatalogOperation("Hardcover series discovery", this.#requestTimeoutMs);
+    this.#hardcoverSeriesOperation = operation;
+    const epoch = this.#bookDetailsEpoch;
+    const current = (): boolean => this.#hardcoverSeriesOperation === operation && epoch === this.#bookDetailsEpoch
+      && this.#snapshot.filters.profileId === details.profileId
+      && this.#snapshot.bookDetails?.profileId === details.profileId && this.#snapshot.bookDetails.bookId === details.bookId
+      && this.#snapshot.bookDetails.hardcover?.seriesOpen === true;
+    this.#setHardcoverDiscovery({ ...discovery, selectedSeriesId: seriesId, seriesState: "loading", seriesPage: previous, seriesError: undefined });
+    try {
+      if (!this.#api.getHardcoverSeries) throw new Error("Hardcover series discovery is unavailable on this server.");
+      const page = await operation.wait(this.#api.getHardcoverSeries(details.profileId, seriesId, 50, offset, operation.signal));
+      if (!current()) return;
+      if (page.id !== seriesId || page.offset !== offset || page.limit <= 0) throw new Error("Hardcover returned an invalid series page.");
+      const books = [...(previous?.books ?? [])];
+      for (const item of page.books) if (!books.some((known) => known.id === item.id && known.position === item.position)) books.push(item);
+      this.#setHardcoverDiscovery({ ...this.#snapshot.bookDetails!.hardcover!, seriesState: "ready", seriesPage: { ...page, books } });
+    } catch (error) {
+      if (current()) this.#setHardcoverDiscovery({ ...this.#snapshot.bookDetails!.hardcover!, seriesState: "error",
+        seriesError: errorMessage(error, "This series could not be loaded. Try again.") });
+    } finally {
+      operation.dispose();
+      if (this.#hardcoverSeriesOperation === operation) this.#hardcoverSeriesOperation = undefined;
+    }
   }
 
   async openMatchReview(itemId: string, requestedBookId?: string): Promise<void> {
@@ -4830,6 +4976,7 @@ export class CatalogBrowser {
   }
 
   #set(update: Partial<CatalogBrowserSnapshot>, scope: CatalogRenderScope): void {
+    if (Object.hasOwn(update, "bookDetails") && !update.bookDetails) this.#cancelHardcoverDiscovery();
     this.#snapshot = { ...this.#snapshot, ...update };
     this.#render(scope);
   }

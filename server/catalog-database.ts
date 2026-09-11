@@ -276,6 +276,26 @@ interface MatchIndexLimits {
   maxResponseBytes?: number;
 }
 
+export interface LibraryPresenceCandidate {
+  id: string;
+  title: string;
+  authors: string[];
+  identifiers: string[];
+  sourceTitle: string;
+  sourceAuthors: string[];
+  sourceIdentifiers: string[];
+  available: boolean;
+  coverUrl: string | null;
+}
+
+export interface LibraryPresenceLimits {
+  maxEntries?: number;
+  maxMetadataBytes?: number;
+}
+
+export const MAX_LIBRARY_PRESENCE_ENTRIES = 20_000;
+export const MAX_LIBRARY_PRESENCE_METADATA_BYTES = 16 * 1024 * 1024;
+
 interface MatchBookRow extends Row {
   id: string;
   preferred_presentation: number;
@@ -4952,6 +4972,93 @@ export class CatalogDatabase {
       formats: plain(formats),
       roots: roots.map((row) => ({ value: String(row.value), label: String(row.label), count: Number(row.count) })),
     };
+  }
+
+  /** Read only library ownership, including retained rows from offline mounts.
+   * A single snapshot is preflighted before any metadata enters JavaScript;
+   * the visitor avoids materializing full catalog books or delivery history. */
+  visitLibraryPresenceCandidates(
+    profileId: string,
+    visit: (candidate: LibraryPresenceCandidate) => void,
+    limits: LibraryPresenceLimits = {},
+  ): void {
+    this.readTransaction(() => {
+      const profile = this.database.prepare("SELECT enabled FROM profiles WHERE id = ?").get(profileId) as Row | undefined;
+      if (!profile || !bool(profile.enabled)) throw new CatalogDatabaseError("not_found", "Profile not found.");
+      const maximumEntries = Math.min(limits.maxEntries ?? MAX_LIBRARY_PRESENCE_ENTRIES, MAX_LIBRARY_PRESENCE_ENTRIES);
+      const maximumBytes = Math.min(
+        limits.maxMetadataBytes ?? MAX_LIBRARY_PRESENCE_METADATA_BYTES,
+        MAX_LIBRARY_PRESENCE_METADATA_BYTES,
+      );
+      if (!Number.isSafeInteger(maximumEntries) || maximumEntries < 0
+        || !Number.isSafeInteger(maximumBytes) || maximumBytes < 0) {
+        throw new CatalogDatabaseError("invalid_state", "Library presence limits must be non-negative integers.");
+      }
+      const fields = [
+        "id", "title", "authors_json", "identifiers_json", "source_title", "source_authors_json",
+        "source_identifiers_json", "cover_cache_key",
+      ];
+      const selection = `SELECT b.id, b.title, b.authors_json, b.identifiers_json,
+          coalesce(sm.title, b.title) AS source_title,
+          coalesce(sm.authors_json, b.authors_json) AS source_authors_json,
+          coalesce(sm.identifiers_json, b.identifiers_json) AS source_identifiers_json,
+          b.cover_cache_key, (b.cover_media_type IS NOT NULL) AS cover_media_present,
+          (b.available = 1 AND sf.available = 1
+            AND r.status NOT IN ('unavailable', 'permission_denied', 'error')) AS available
+        FROM books b
+        JOIN source_files sf ON sf.id = b.source_file_id
+        JOIN library_roots r ON r.id = b.root_id
+        JOIN profile_roots pr ON pr.root_id = b.root_id AND pr.enabled = 1
+        JOIN profiles p ON p.id = pr.profile_id AND p.enabled = 1
+        LEFT JOIN book_source_metadata sm ON sm.book_id = b.id
+        WHERE pr.profile_id = ?`;
+      const preflight = this.database.prepare(`SELECT count(*) AS entry_count,
+          coalesce(sum(${fields.map((field) => `coalesce(length(CAST(${field} AS BLOB)), 0)`).join(" + ")}), 0) AS raw_bytes
+        FROM (${selection} LIMIT ?)`)
+        .get(profileId, maximumEntries + 1) as Row;
+      if (Number(preflight.entry_count) > maximumEntries) {
+        throw new CatalogDatabaseError("too_large", `Library presence exceeds the ${maximumEntries.toLocaleString("en-US")} book limit.`);
+      }
+      const rawBytes = Number(preflight.raw_bytes) + Buffer.byteLength(profileId);
+      if (!Number.isSafeInteger(rawBytes) || rawBytes > maximumBytes) {
+        throw new CatalogDatabaseError("too_large", "Library presence exceeds its metadata byte limit.");
+      }
+      // Bound per-row fan-out before parsing arrays or constructing normalized
+      // title/author keys. A small raw JSON payload can contain millions of
+      // empty entries, and one long title must not multiply across that list.
+      const fanout = this.database.prepare(`SELECT count(*) AS excessive_rows FROM (${selection}) WHERE
+          length(CAST(title AS BLOB)) > 16384 OR length(CAST(source_title AS BLOB)) > 16384
+          OR json_array_length(authors_json) > 128 OR json_array_length(source_authors_json) > 128
+          OR json_array_length(identifiers_json) > 256 OR json_array_length(source_identifiers_json) > 256`)
+        .get(profileId) as Row;
+      if (Number(fanout.excessive_rows) > 0) {
+        throw new CatalogDatabaseError("too_large", "Library presence exceeds its per-book identity limits.");
+      }
+      const array = (value: unknown): string[] => {
+        const parsed: unknown = typeof value === "string" ? JSON.parse(value) : null;
+        if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
+          throw new CatalogDatabaseError("invalid_state", "Library presence metadata arrays contain invalid values.");
+        }
+        return parsed as string[];
+      };
+      for (const row of this.database.prepare(`${selection} ORDER BY b.id`).iterate(profileId) as IterableIterator<Row>) {
+        const id = String(row.id);
+        const coverKey = stringOrNull(row.cover_cache_key);
+        visit({
+          id,
+          title: String(row.title),
+          authors: array(row.authors_json),
+          identifiers: array(row.identifiers_json),
+          sourceTitle: String(row.source_title),
+          sourceAuthors: array(row.source_authors_json),
+          sourceIdentifiers: array(row.source_identifiers_json),
+          available: bool(row.available),
+          coverUrl: coverKey && bool(row.cover_media_present)
+            ? `/api/profiles/${encodeURIComponent(profileId)}/books/${encodeURIComponent(id)}/cover?v=${encodeURIComponent(coverKey)}`
+            : null,
+        });
+      }
+    });
   }
 
   getMatchIndex(profileId: string, limits: MatchIndexLimits = {}): ProfileMatchIndex {

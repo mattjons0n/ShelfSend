@@ -336,6 +336,26 @@ describe("catalog-backed library model", () => {
     expect(root.querySelector<HTMLSelectElement>("#library-kindle-filter")?.value).toBe("not-on-kindle");
   });
 
+  it("keeps Settings directly after Manage shelves with a theme-neutral sidebar divider", async () => {
+    const { root } = await loadedView();
+    const sidebar = root.querySelector<HTMLElement>(".library-sidebar")!;
+    const shelves = sidebar.querySelector<HTMLElement>(".library-shelf-list")!;
+    const settingsSection = sidebar.querySelector<HTMLElement>(".library-sidebar-bottom")!;
+    const settingsButton = settingsSection.querySelector('[data-ui-view="settings"]');
+    expect(shelves.lastElementChild?.getAttribute("data-ui-action")).toBe("manage-smart-shelves");
+    expect(shelves.nextElementSibling).toBe(settingsSection);
+    expect(sidebar.lastElementChild).toBe(settingsSection);
+    expect([...sidebar.querySelectorAll("button")].at(-1)).toBe(settingsButton);
+
+    const stylesheet = await readFile(path.resolve(process.cwd(), "client/src/library-ux-polish.css"), "utf8");
+    const settingsRule = stylesheet.match(/\.library-sidebar-bottom\s*\{([^}]+)\}/u)?.[1];
+    expect(settingsRule).toMatch(/margin-top:\s*16px;/u);
+    expect(settingsRule).not.toMatch(/margin-top:\s*auto/u);
+    expect(settingsRule).toMatch(/padding-top:\s*12px;/u);
+    expect(settingsRule).toMatch(/border-top:\s*1px solid var\(--border\);/u);
+    expect(settingsRule).toMatch(/grid-column:\s*1\s*\/\s*-1;/u);
+  });
+
   it("integrates the modern shell, compact filters and quick tabs without losing catalog actions", async () => {
     const { root } = await loadedView();
     document.body.append(root);

@@ -1,0 +1,49 @@
+.library-app-shell .hardcover-discovery { padding-block: 20px; }
+.hardcover-discovery > p, .hardcover-choice small { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.hardcover-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+.library-app-shell .hardcover-actions a, .library-app-shell .hardcover-series-book-actions a {
+  display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border);
+  border-radius: 8px; padding: 9px 12px; color: var(--text); text-decoration: none; font-size: 12px;
+}
+.hardcover-actions a:hover, .hardcover-series-book-actions a:hover { background: var(--surface-raised); }
+.hardcover-actions a:focus-visible, .hardcover-series-book-actions a:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+.hardcover-choice { display: grid; gap: 8px; margin-block: 16px; font-size: 13px; }
+.hardcover-choice select { width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--surface); color: var(--text); }
+.library-app-shell .hardcover-series-sheet {
+  width: min(1080px, calc(100vw - 32px)); max-height: calc(100dvh - 48px);
+  top: 50%; left: 50%; right: auto; bottom: auto; transform: translate(-50%, -50%);
+  border: 1px solid var(--border); border-radius: 18px; overflow-y: auto; padding: 30px;
+  box-shadow: 0 24px 90px rgba(0, 0, 0, .28);
+}
+.hardcover-series-sheet > header { padding-right: 36px; }
+.library-app-shell .hardcover-series-sheet > header h2 { margin: 10px 0; font-size: clamp(23px, 4vw, 31px); overflow-wrap: anywhere; }
+.hardcover-series-sheet > header p { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.hardcover-series-notice { padding-block: 18px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.hardcover-series-roster { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 22px 0; padding: 0; list-style: none; }
+.hardcover-series-book { display: grid; grid-template-columns: 74px minmax(0, 1fr); align-items: start; gap: 18px; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.hardcover-series-cover { position: relative; width: 74px; height: 110px; overflow: hidden; border-radius: 5px; background: var(--surface-raised); border: 1px solid var(--border); }
+.hardcover-series-cover > span { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
+.hardcover-series-cover svg { width: 26px; height: 26px; }
+.hardcover-series-cover img { position: relative; width: 100%; height: 100%; object-fit: cover; background: var(--surface); }
+.hardcover-volume { font-size: 11px; color: var(--muted); letter-spacing: .07em; text-transform: uppercase; }
+.library-app-shell .hardcover-series-book-info h3 { margin: 5px 0; font-size: 18px; line-height: 1.35; overflow-wrap: anywhere; }
+.hardcover-series-book-info > p { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.hardcover-library-status { display: inline-block; padding: 5px 9px; border-radius: 6px; background: var(--surface-raised); color: var(--muted); font-size: 11px; font-weight: 600; }
+.hardcover-library-status[data-library-status="in-library"] { background: var(--green-soft); color: var(--green); }
+.hardcover-library-status[data-library-status="possible"] { background: var(--amber-soft, var(--surface-raised)); color: var(--amber, var(--text)); }
+.hardcover-match-note { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.hardcover-series-book-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.hardcover-series-book-actions > * { max-width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.hardcover-load-more { width: 100%; margin-bottom: 20px; }
+.hardcover-series-sheet > footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--border); padding-top: 20px; }
+.hardcover-series-sheet > footer span { max-width: 390px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+@media (max-width: 760px) {
+  .hardcover-series-roster { grid-template-columns: minmax(0, 1fr); }
+  .library-app-shell .hardcover-series-sheet { padding: 24px; }
+}
+@media (max-width: 480px) {
+  .library-app-shell .hardcover-series-sheet { width: calc(100vw - 20px); max-height: calc(100dvh - 24px); padding: 20px 16px; border-radius: 12px; }
+  .hardcover-series-book { grid-template-columns: 58px minmax(0, 1fr); gap: 14px; }
+  .hardcover-series-cover { width: 58px; height: 86px; }
+  .hardcover-series-book-actions > * { width: 100%; }
+}

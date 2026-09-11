@@ -12,6 +12,7 @@ import type {
   CatalogProfile,
   EditableBookMetadata,
 } from "./catalog-client";
+import { safeHardcoverBookUrl } from "./catalog-client";
 import {
   bookAuthor,
   bookPublishedYear,
@@ -1035,9 +1036,62 @@ function detailsFilterButton(key: keyof LibraryFilters, value: string | undefine
   return `<button type="button" data-ui-action="book-details-filter" data-filter-key="${escapeHtml(key)}" data-filter-value="${escapeHtml(value)}">${escapeHtml(label)}</button>`;
 }
 
+function hardcoverBookChoice(snapshot: CatalogBrowserSnapshot): string {
+  const discovery = snapshot.bookDetails?.hardcover;
+  if (!discovery || (discovery.books.length <= 1 && discovery.selectedBookId !== undefined)) return "";
+  return `<label class="hardcover-choice"><span>Choose the matching Hardcover book</span><select data-ui-action="select-hardcover-book"><option value="">Choose a book…</option>${discovery.books.map((book) => `<option value="${book.id}"${book.id === discovery.selectedBookId ? " selected" : ""}>${escapeHtml(book.title)}${book.authors.length ? ` — ${escapeHtml(book.authors.join(", "))}` : ""}${book.releaseYear === null ? "" : ` (${book.releaseYear})`} · #${book.id}</option>`).join("")}</select><small>Confirm the edition or title before exploring. This choice does not change your metadata.</small></label>`;
+}
+
+function renderHardcoverDiscovery(snapshot: CatalogBrowserSnapshot): string {
+  const discovery = snapshot.bookDetails?.hardcover;
+  const selected = discovery?.books.find((book) => book.id === discovery.selectedBookId);
+  const url = safeHardcoverBookUrl(selected?.url);
+  const actions = `<div class="hardcover-actions">${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">View on Hardcover <span aria-hidden="true">↗</span></a>` : '<button type="button" disabled>View on Hardcover</button>'}<button type="button" data-ui-action="open-hardcover-series"${selected ? "" : " disabled"}>View series</button></div>`;
+  let content: string;
+  if (!discovery || discovery.loadState === "loading" || discovery.loadState === "idle") content = '<p role="status">Finding this book on Hardcover…</p>';
+  else if (discovery.loadState === "unconfigured") content = '<p>Add your Hardcover token in Settings to explore this book and its series.</p><button type="button" data-ui-action="hardcover-discovery-settings">Open Settings</button>';
+  else if (discovery.loadState === "error") content = `<p role="alert">${escapeHtml(discovery.error)}</p><button type="button" data-ui-action="retry-hardcover-book">Try again</button><button type="button" data-ui-action="hardcover-discovery-settings">Open Settings</button>`;
+  else if (!discovery.books.length) content = '<p>No matching book was found on Hardcover.</p><button type="button" data-ui-action="retry-hardcover-book">Try again</button>';
+  else content = `${hardcoverBookChoice(snapshot)}${selected && !url ? '<p>Hardcover did not provide a book link.</p>' : ""}`;
+  return `<section class="book-details-section hardcover-discovery" aria-labelledby="book-details-hardcover"><h3 id="book-details-hardcover">Explore on Hardcover</h3>${content}${actions}</section>`;
+}
+
+function safeHardcoverCoverUrl(value: string | null): string | undefined {
+  if (!value || value.length > 2048) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && ["assets.hardcover.app", "production-img.hardcover.app"].includes(url.hostname)
+      && !url.username && !url.password && !url.port ? url.href : undefined;
+  } catch { return undefined; }
+}
+
+function renderHardcoverSeriesPopup(snapshot: CatalogBrowserSnapshot): string {
+  const discovery = snapshot.bookDetails!.hardcover!;
+  const selected = discovery.books.find((book) => book.id === discovery.selectedBookId);
+  const page = discovery.seriesPage;
+  const seriesName = page?.name ?? selected?.series.find((series) => series.id === discovery.selectedSeriesId)?.name;
+  const seriesChoice = selected && selected.series.length > 1
+    ? `<label class="hardcover-choice"><span>Series</span><select data-ui-action="select-hardcover-series"><option value="">Choose a series…</option>${selected.series.map((series) => `<option value="${series.id}"${series.id === discovery.selectedSeriesId ? " selected" : ""}>${escapeHtml(series.name)}${series.position === null ? "" : ` · Volume ${series.position}`}</option>`).join("")}</select></label>` : "";
+  const roster = page?.books.map((book) => {
+    const localCover = book.library.books.map((local) => sameOriginMetadataImageUrl(local.coverUrl)).find(Boolean);
+    const cover = localCover ?? safeHardcoverCoverUrl(book.coverUrl);
+    const url = safeHardcoverBookUrl(book.url);
+    const status = book.library.status === "in-library" ? "In your library" : book.library.status === "missing" ? "Missing" : "Possible match";
+    return `<li class="hardcover-series-book"><div class="hardcover-series-cover"><span aria-hidden="true">${libraryIcon("book")}</span>${cover ? `<img src="${escapeHtml(cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-hardcover-cover-image />` : ""}</div><div class="hardcover-series-book-info"><span class="hardcover-volume">${book.position === null ? "Volume not listed" : `Volume ${book.position}`}</span><h3>${escapeHtml(book.title)}</h3><p>${escapeHtml(book.authors.join(", ") || "Author not listed")}${book.releaseYear === null ? "" : ` · ${book.releaseYear}`}</p><span class="hardcover-library-status" data-library-status="${book.library.status}">${status}</span>${book.library.status === "possible" ? '<small class="hardcover-match-note">Check the possible local match before assuming you own this book.</small>' : ""}<div class="hardcover-series-book-actions">${book.library.books.map((local) => `<button type="button" data-ui-action="open-book-details" data-book-id="${escapeHtml(local.id)}">${book.library.status === "possible" ? "Review" : "Open"} ${escapeHtml(local.title)}${local.available ? "" : " (source unavailable)"}</button>`).join("")}${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">View on Hardcover <span aria-hidden="true">↗</span></a>` : ""}</div></div></li>`;
+  }).join("") ?? "";
+  let message = !selected ? '<p class="hardcover-series-notice">Choose the matching book to see its series.</p>'
+    : !selected.series.length ? '<p class="hardcover-series-notice">No series is listed for this book on Hardcover.</p>'
+    : !discovery.selectedSeriesId ? '<p class="hardcover-series-notice">Choose a series to explore its books.</p>' : "";
+  if (discovery.seriesState === "loading") message += `<p class="hardcover-series-notice" role="status">${page ? "Loading more books…" : "Loading the series from Hardcover…"}</p>`;
+  if (discovery.seriesState === "error") message += `<div class="hardcover-series-notice" role="alert"><p>${escapeHtml(discovery.seriesError)}</p><button type="button" data-ui-action="retry-hardcover-series">Try again</button></div>`;
+  if (discovery.seriesState === "ready" && page?.books.length === 0) message += '<p class="hardcover-series-notice">Hardcover has no books listed in this series.</p>';
+  return `<div class="library-modal-backdrop" data-ui-action="close-hardcover-series" aria-hidden="true"></div><aside class="library-book-details-sheet hardcover-series-sheet" role="dialog" aria-modal="true" aria-labelledby="hardcover-series-title" aria-describedby="hardcover-series-description" tabindex="-1"><button type="button" class="library-sheet-close" data-ui-action="close-hardcover-series" aria-label="Back to book">×</button><header><span class="library-sheet-eyebrow">Discover a series</span><h2 id="hardcover-series-title">${escapeHtml(seriesName ?? "Series on Hardcover")}</h2><p id="hardcover-series-description">Explore the books listed on Hardcover and see which are in this library.</p></header>${hardcoverBookChoice(snapshot)}${seriesChoice}${message}${roster ? `<ol class="hardcover-series-roster">${roster}</ol>` : ""}${page?.hasMore ? `<button type="button" class="hardcover-load-more" data-ui-action="load-more-hardcover-series"${discovery.seriesState === "loading" ? " disabled" : ""}>Load more books</button>` : ""}<footer><span>${page ? `${page.books.length} ${page.hasMore ? "books shown" : page.books.length === 1 ? "book in this series" : "books in this series"} · ` : ""}Library status is separate from Kindle presence.</span><button type="button" data-ui-action="close-hardcover-series">Back to book</button></footer></aside>`;
+}
+
 function renderBookDetails(snapshot: CatalogBrowserSnapshot, state: AppState): string {
   const details = snapshot.bookDetails;
   if (!details) return "";
+  if (details.hardcover?.seriesOpen) return renderHardcoverSeriesPopup(snapshot);
   const book = details.data?.book ?? details.book;
   if (!book) {
     const failed = details.loadState === "error";
@@ -1086,6 +1140,7 @@ function renderBookDetails(snapshot: CatalogBrowserSnapshot, state: AppState): s
     <button type="button" class="library-sheet-close" data-ui-action="close-book-details" aria-label="Close book details">×</button>
     <div class="book-details-hero"><div class="book-details-cover">${coverUrl ? `<img src="${escapeHtml(coverUrl)}" alt="Cover of ${escapeHtml(book.title)}" data-library-cover-image />` : renderBookCover(book, actions.kindleStatus, actions.kindleStatus === "unknown" && actions.currentComparison)}</div><div><div class="library-sheet-eyebrow">Effective catalog presentation</div><h2 id="book-details-title">${escapeHtml(book.title)}</h2><p id="book-details-subtitle">${escapeHtml(bookAuthor(book))}</p><div class="book-details-badges"><span>${escapeHtml(book.format.toLocaleUpperCase())}</span>${book.metadataEdited ? "<span>Metadata edited</span>" : ""}${book.coverEdited ? "<span>Custom cover</span>" : ""}${data?.sourceChanged ? "<span class=\"warning\">Source changed</span>" : ""}</div></div></div>
     ${details.error ? `<div class="book-details-warning" role="status">Some source-versus-override details could not be loaded: ${escapeHtml(details.error)}</div>` : ""}
+    ${renderHardcoverDiscovery(snapshot)}
     <section class="book-details-section" aria-labelledby="book-details-metadata"><h3 id="book-details-metadata">Book information</h3><dl class="book-details-metadata">${field("authors", "Authors", book.authors.join(", "))}${field("authorSort", "Author sort", book.authorSort)}${field("series", "Series", book.series)}${field("seriesIndex", "Series number", book.seriesIndex)}${field("publisher", "Publisher", book.publisher)}${field("publishedAt", "Published", book.publishedAt)}${field("language", "Language", book.language)}${field("identifiers", "Identifiers", book.identifiers.join(", "))}</dl>${book.description ? `<p class="book-details-description">${escapeHtml(book.description)}</p>` : ""}${filterButtons ? `<div class="book-details-filters" aria-label="Browse related books">${filterButtons}</div>` : ""}</section>
     <section class="book-details-section" aria-labelledby="book-details-source"><h3 id="book-details-source">Read-only source</h3><dl class="book-details-metadata"><div><dt>Folder</dt><dd>${escapeHtml(source?.rootLabel ?? root?.label ?? "Unknown folder")}</dd></div><div><dt>Container path</dt><dd><code>${escapeHtml(source?.rootPath ?? root?.path ?? "Unavailable")}</code></dd></div><div><dt>Source file</dt><dd><code>${escapeHtml(source?.relativePath ?? book.sourceFilename)}</code></dd></div><div><dt>File size</dt><dd>${escapeHtml(formatCatalogBytes(book.size))}</dd></div><div><dt>Source status</dt><dd>${source ? `${source.available ? "Available" : "Unavailable"} · ${source.rootStatus.replaceAll("_", " ")}` : actions.sourceAvailable ? "Available" : "Unavailable"}</dd></div>${source?.rootLastScanAt ? `<div><dt>Last source scan</dt><dd>${escapeHtml(relativeScanTime(source.rootLastScanAt))}</dd></div>` : ""}${source?.rootLastErrorCode ? `<div><dt>Source issue</dt><dd>${escapeHtml(source.rootLastErrorCode.replaceAll("_", " "))}</dd></div>` : ""}</dl>${data ? `<details class="book-details-source-metadata"><summary>Source metadata</summary><dl class="book-details-metadata">${sourceField("Title", data.sourceMetadata.title)}${sourceField("Authors", data.sourceMetadata.authors)}${sourceField("Author sort", data.sourceMetadata.authorSort)}${sourceField("Series", data.sourceMetadata.series)}${sourceField("Series number", data.sourceMetadata.seriesIndex)}${sourceField("Publisher", data.sourceMetadata.publisher)}${sourceField("Published", data.sourceMetadata.publishedAt)}${sourceField("Language", data.sourceMetadata.language)}${sourceField("Subjects", data.sourceMetadata.subjects)}${sourceField("Identifiers", data.sourceMetadata.identifiers)}</dl></details>` : ""}<p class="book-details-provenance">${data ? `${Object.keys(data.overrides).length} metadata override${Object.keys(data.overrides).length === 1 ? "" : "s"}; source revision ${data.revision}.` : "Showing effective catalog metadata; detailed source provenance is unavailable on this server."} The original file is never modified.</p></section>
     <section class="book-details-section" aria-labelledby="book-details-kindle"><h3 id="book-details-kindle">Kindle comparison</h3><p class="book-details-kindle-status" data-status="${escapeHtml(actions.kindleStatus)}">${escapeHtml(kindleLabel)}</p>${kindleItems.length ? `<ul class="book-details-kindle-files">${kindleItems.map((item) => `<li><span><strong>${escapeHtml(item.title ?? item.filename)}</strong><code>${escapeHtml(item.filename)}</code></span><small>${escapeHtml(formatCatalogBytes(item.size))} · ${item.managed ? "ShelfSend transfer" : "Existing device file"}</small>${actions.kindleStatus === "possible" ? `<button type="button" data-ui-action="open-match-review" data-item-id="${escapeHtml(item.id)}" data-book-id="${escapeHtml(book.id)}"${actions.matchReview.enabled ? "" : ` disabled title="${escapeHtml(actions.matchReview.reason ?? "Unavailable")}"`}>Review match</button>` : ""}</li>`).join("")}</ul>` : `<p class="book-details-provenance">${snapshot.kindleInventory ? `No associated object in the inventory scanned ${escapeHtml(relativeScanTime(snapshot.kindleInventory.scannedAt))}.` : "Connect a Kindle to compare this title with its Documents."}</p>${actions.kindleStatus === "possible" ? `<button type="button" data-ui-action="open-match-review" data-item-id="${escapeHtml(catalogPossibleMatchReviewId(book.id))}" data-book-id="${escapeHtml(book.id)}"${actions.matchReview.enabled ? "" : ` disabled title="${escapeHtml(actions.matchReview.reason ?? "Unavailable")}"`}>Why is this a possible match?</button>` : ""}`}${latestDelivery ? `<div class="book-details-last-delivery"><strong>Last verified transfer</strong><span>${escapeHtml(latestDelivery.filename ?? "Recorded ShelfSend transfer")} · ${latestDelivery.size === undefined ? "size not recorded" : escapeHtml(formatCatalogBytes(latestDelivery.size))} · ${escapeHtml(relativeScanTime(latestDelivery.deliveredAt))}</span><small>${latestDelivery.currentPresentation ? "Matches the current catalog presentation" : "A prior catalog presentation; use Update Kindle copy after connecting"}</small></div>` : ""}</section>
