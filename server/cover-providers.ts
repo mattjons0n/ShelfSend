@@ -7,7 +7,8 @@ import type {
   MetadataCandidateSearchTerms,
   MetadataProvider,
 } from "../shared/catalog-contracts.js";
-import { HARDCOVER_BOOKS_QUERY, HARDCOVER_DISCOVERY_BOOKS_QUERY, HARDCOVER_DISCOVERY_ISBN_QUERY, HARDCOVER_ISBN_QUERY, HARDCOVER_SEARCH_QUERY, HARDCOVER_SERIES_QUERY, hardcoverBookIds, hardcoverDiscoveryLookup, hardcoverDiscoverySeries, hardcoverIsbn, hardcoverMetadataCandidates } from "./hardcover-provider.js";
+import { HARDCOVER_BOOKS_QUERY, HARDCOVER_DISCOVERY_BOOKS_QUERY, HARDCOVER_DISCOVERY_ISBN_QUERY, HARDCOVER_ISBN_QUERY, HARDCOVER_SEARCH_QUERY, HARDCOVER_SERIES_QUERY, hardcoverBookIds, hardcoverDiscoveryBook, hardcoverDiscoveryLookup, hardcoverDiscoverySeries, hardcoverIsbn, hardcoverMetadataCandidates } from "./hardcover-provider.js";
+import { hardcoverMatchEvidence, hardcoverTitleVariants } from "./hardcover-search.js";
 import type { HardcoverBookLookup, HardcoverSeriesPage } from "../shared/hardcover-contracts.js";
 import { normalizeKindleMetadataIdentifier, normalizeKindleMetadataWords } from "../shared/kindle-metadata-normalization.js";
 import {
@@ -106,17 +107,8 @@ export class CoverProviderClient {
       if (!Array.isArray(data.editions)) throw hardcoverMalformedResponse();
       if (data.editions.length) return hardcoverMetadataCandidates(data.editions, terms, limit, true);
     }
-    const query = [terms.title, terms.author].filter(Boolean).join(" ");
-    if (!query) return [];
-    const search = await this.hardcoverRequest(HARDCOVER_SEARCH_QUERY, { query, limit }, signal);
-    if (!isRecord(search.search) || search.search.error || !Array.isArray(search.search.ids)) throw hardcoverMalformedResponse();
-    const ids = hardcoverBookIds(search.search.ids, limit);
-    if (!ids.length) return [];
-    const data = await this.hardcoverRequest(HARDCOVER_BOOKS_QUERY, { ids, limit }, signal);
-    if (!Array.isArray(data.books)) throw hardcoverMalformedResponse();
-    // Restore relevance order after the relational query and discard unrequested IDs.
-    const books = ids.flatMap((id) => data.books instanceof Array ? data.books.filter((book) => isRecord(book) && book.id === id) : []);
-    return hardcoverMetadataCandidates(books, terms, limit);
+    const result = await this.searchHardcoverTitles(terms, limit, false, signal);
+    return hardcoverMetadataCandidates(result.rows, terms, limit);
   }
 
   async lookupHardcoverBook(terms: MetadataCandidateSearchTerms, signal?: AbortSignal): Promise<HardcoverBookLookup> {
@@ -132,22 +124,49 @@ export class CoverProviderClient {
         return lookup;
       }
     }
-    const query = [normalized.title, normalized.author].filter(Boolean).join(" ");
-    if (!query) return { books: [], matchedBookId: null };
-    const search = await this.hardcoverRequest(HARDCOVER_SEARCH_QUERY, { query, limit: limit + 1 }, signal);
-    if (!isRecord(search.search) || search.search.error || !Array.isArray(search.search.ids)) throw hardcoverMalformedResponse();
-    const ids = hardcoverBookIds(search.search.ids, limit + 1);
-    if (!ids.length) {
-      if (search.search.ids.length) throw hardcoverMalformedResponse();
-      return { books: [], matchedBookId: null };
-    }
-    const data = await this.hardcoverRequest(HARDCOVER_DISCOVERY_BOOKS_QUERY, { ids, limit: limit + 1 }, signal);
-    if (!Array.isArray(data.books) || data.books.length > limit + 1) throw hardcoverMalformedResponse();
-    const rows = data.books;
-    const books = ids.flatMap((id) => rows.filter((book) => isRecord(book) && book.id === id));
-    const lookup = hardcoverDiscoveryLookup(books, normalized, limit, false, search.search.ids.length > limit);
-    if (!lookup || ids.some((id) => !books.some((book) => isRecord(book) && book.id === id))) throw hardcoverMalformedResponse();
+    const result = await this.searchHardcoverTitles(normalized, limit, true, signal);
+    const lookup = hardcoverDiscoveryLookup(result.rows, normalized, limit, false, result.truncated);
+    if (!lookup) throw hardcoverMalformedResponse();
     return lookup;
+  }
+
+  /** Shared, bounded fallback: at most three searches and three detail reads,
+   * plus the caller's optional ISBN request. Every call keeps the existing
+   * paced/abortable provider lane; failures never become successful no-matches. */
+  private async searchHardcoverTitles(
+    terms: MetadataCandidateSearchTerms, limit: number, discovery: boolean, signal?: AbortSignal,
+  ): Promise<{ rows: unknown[]; truncated: boolean }> {
+    const variants = hardcoverTitleVariants(terms);
+    const requestLimit = discovery ? limit + 1 : limit;
+    const found = new Map<number, { row: Record<string, unknown>; evidence: ReturnType<typeof hardcoverMatchEvidence> }>();
+    let truncated = false;
+    for (const variant of variants) {
+      signal?.throwIfAborted();
+      const query = [variant.title, terms.author].filter(Boolean).join(" ");
+      if (!query) break;
+      const search = await this.hardcoverRequest(HARDCOVER_SEARCH_QUERY, { query, limit: requestLimit }, signal);
+      if (!isRecord(search.search) || search.search.error || !Array.isArray(search.search.ids)) throw hardcoverMalformedResponse();
+      const ids = hardcoverBookIds(search.search.ids, requestLimit);
+      if (search.search.ids.length && !ids.length) throw hardcoverMalformedResponse();
+      truncated ||= search.search.ids.length > limit;
+      const freshIds = ids.filter((id) => !found.has(id));
+      if (freshIds.length) {
+        const data = await this.hardcoverRequest(discovery ? HARDCOVER_DISCOVERY_BOOKS_QUERY : HARDCOVER_BOOKS_QUERY,
+          { ids: freshIds, limit: requestLimit }, signal);
+        if (!Array.isArray(data.books) || data.books.length > requestLimit) throw hardcoverMalformedResponse();
+        const rows = data.books;
+        // Preserve search order when scores tie, and never accept unrequested IDs.
+        for (const id of freshIds) {
+          const row = rows.find((row) => isRecord(row) && row.id === id);
+          const book = hardcoverDiscoveryBook(row);
+          if (!isRecord(row) || !book) throw hardcoverMalformedResponse();
+          found.set(id, { row, evidence: hardcoverMatchEvidence(terms, book, variants) });
+        }
+      }
+      if ([...found.values()].some((item) => item.evidence.strong)) break;
+    }
+    const rows = [...found.values()].sort((left, right) => right.evidence.rank - left.evidence.rank).map((item) => item.row);
+    return { rows, truncated };
   }
 
   async getHardcoverSeries(seriesId: number, limit = 50, offset = 0, signal?: AbortSignal): Promise<HardcoverSeriesPage> {

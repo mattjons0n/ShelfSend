@@ -1,6 +1,7 @@
 import type { CatalogMetadataCandidate, EditableBookMetadata, MetadataCandidateSearchTerms } from "../shared/catalog-contracts.js";
 import type { HardcoverBook, HardcoverBookLookup, HardcoverSeriesBook, HardcoverSeriesMembership, HardcoverSeriesPage } from "../shared/hardcover-contracts.js";
-import { normalizeKindleMetadataIdentifier, normalizeKindleMetadataWords } from "../shared/kindle-metadata-normalization.js";
+import { hardcoverIsbn, hardcoverMatchEvidence } from "./hardcover-search.js";
+export { hardcoverIsbn } from "./hardcover-search.js";
 
 // Fixed queries verified against Hardcover's official schema and Searching guide.
 // Search IDs are typed GraphQL values; no third-party search URLs or covers are followed.
@@ -139,12 +140,11 @@ export function hardcoverDiscoveryLookup(rows: unknown[], terms: MetadataCandida
     if (existing) existing.identifiers = [...new Set([...existing.identifiers, ...book.identifiers])].slice(0, 20);
     else byId.set(book.id, book);
   }
-  const books = [...byId.values()].slice(0, limit);
-  const isbn = hardcoverIsbn(terms.identifier);
-  const isbnMatches = isbn ? books.filter((book) => book.identifiers.some((value) => hardcoverIsbn(value) === isbn)) : [];
-  const title = normalizeKindleMetadataWords(terms.title ?? "");
-  const author = normalizeKindleMetadataWords(terms.author ?? "");
-  const strong = isbnMatches.length ? isbnMatches : books.filter((book) => title && author && normalizeKindleMetadataWords(book.title) === title && book.authors.some((name) => normalizeKindleMetadataWords(name) === author));
+  const ranked = [...byId.values()].map((book) => ({ book, evidence: hardcoverMatchEvidence(terms, book) }))
+    .sort((left, right) => right.evidence.rank - left.evidence.rank);
+  const books = ranked.slice(0, limit).map((item) => item.book);
+  const isbnMatches = ranked.filter((item) => item.evidence.kind === "isbn");
+  const strong = (isbnMatches.length ? isbnMatches : ranked.filter((item) => item.evidence.strong)).map((item) => item.book);
   return { books, matchedBookId: !truncated && rows.length <= limit && strong.length === 1 ? strong[0]!.id : null };
 }
 
@@ -170,11 +170,6 @@ export function hardcoverDiscoverySeries(value: unknown, id: number, limit: numb
   // numeric ordering within the page without converting null positions to zero.
   books.sort((left, right) => (left.position ?? Infinity) - (right.position ?? Infinity));
   return { id, name, books, offset, limit, hasMore: value.book_series.length > limit };
-}
-
-export function hardcoverIsbn(value: string | undefined): string | null {
-  const normalized = normalizeKindleMetadataIdentifier(value ?? "");
-  return /^(?:\d{9}[\dX]|\d{13})$/u.test(normalized) ? normalized : null;
 }
 
 export function hardcoverBookIds(value: unknown, limit: number): number[] {
@@ -231,7 +226,7 @@ export function hardcoverMetadataCandidates(
       results.push({
         provider: "hardcover",
         candidateId,
-        confidence: confidence(terms, metadata),
+        confidence: confidence(terms, { ...metadata, series, seriesIndex: discoveryPosition(position) }),
         metadata: {
           ...metadata,
           series,
@@ -246,13 +241,11 @@ export function hardcoverMetadataCandidates(
 }
 
 function confidence(terms: MetadataCandidateSearchTerms, metadata: Partial<EditableBookMetadata>): CatalogMetadataCandidate["confidence"] {
-  const isbn = hardcoverIsbn(terms.identifier);
-  if (isbn && metadata.identifiers?.some((value) => normalizeKindleMetadataIdentifier(value) === isbn)) return "high";
-  const title = normalizeKindleMetadataWords(terms.title ?? "");
-  const author = normalizeKindleMetadataWords(terms.author ?? "");
-  const titleMatches = !!title && title === normalizeKindleMetadataWords(metadata.title ?? "");
-  const authorMatches = !!author && metadata.authors?.some((value) => normalizeKindleMetadataWords(value) === author);
-  return titleMatches && authorMatches ? "high" : titleMatches || authorMatches ? "medium" : "low";
+  const evidence = hardcoverMatchEvidence(terms, {
+    title: metadata.title ?? "", authors: metadata.authors ?? [], identifiers: metadata.identifiers ?? [],
+    series: metadata.series ? [{ name: metadata.series, position: metadata.seriesIndex ?? null }] : [],
+  });
+  return evidence.strong ? "high" : evidence.rank > 0 ? "medium" : "low";
 }
 
 function record(value: unknown): value is Record<string, unknown> {
