@@ -283,6 +283,79 @@ afterEach(() => {
 });
 
 describe("non-destructive metadata and cover editor", () => {
+  it("keeps the metadata editor scroll position and clicked control focused through searches and candidate choices", async () => {
+    const { root } = await openEditor();
+    const sheet = (): HTMLElement => root.querySelector<HTMLElement>(".library-metadata-sheet")!;
+    const search = (): HTMLButtonElement => root.querySelector<HTMLButtonElement>('[data-ui-action="search-metadata-covers"]')!;
+    expect(document.activeElement?.getAttribute("data-ui-action")).toBe("close-metadata-editor");
+    sheet().scrollTop = 740;
+    search().focus();
+    search().click();
+    expect(sheet().scrollTop).toBe(740);
+    expect(document.activeElement).toBe(search());
+    await vi.waitFor(() => expect(root.querySelector('[data-ui-action="import-metadata-cover"]')).not.toBeNull());
+    expect(sheet().scrollTop).toBe(740);
+    expect(document.activeElement).toBe(search());
+
+    root.querySelector<HTMLButtonElement>('[data-ui-action="search-metadata-candidates"]')!.click();
+    await vi.waitFor(() => expect(root.querySelector('[data-ui-action="select-metadata-candidate"]')).not.toBeNull());
+    const candidate = root.querySelector<HTMLButtonElement>('[data-ui-action="select-metadata-candidate"]')!;
+    sheet().scrollTop = 1_240;
+    candidate.focus();
+    candidate.click();
+    expect(sheet().scrollTop).toBe(1_240);
+    expect(document.activeElement?.getAttribute("data-candidate-id")).toBe("provider-book-one");
+
+    const field = (): HTMLInputElement => root.querySelector<HTMLInputElement>('[data-ui-action="toggle-metadata-candidate-field"][data-field="title"]')!;
+    sheet().scrollTop = 1_580;
+    field().focus();
+    field().click();
+    expect(field().checked).toBe(true);
+    expect(sheet().scrollTop).toBe(1_580);
+    expect(document.activeElement).toBe(field());
+  });
+
+  it("keeps metadata editor text focus and selection when a pending cover search finishes", async () => {
+    const api = testApi();
+    const results = {
+      provider: "open-library" as const,
+      items: [{ candidateId: "OL1M", title: "Candidate", authors: ["Author"], identifiers: [],
+        publishedAt: null, thumbnailUrl: "/api/cover-providers/open-library/OL1M/thumbnail" }],
+    };
+    let finishSearch!: (result: typeof results) => void;
+    api.searchBookCovers = vi.fn(() => new Promise<typeof results>((resolve) => { finishSearch = resolve; }));
+    const { root } = await openEditor(api);
+    root.querySelector<HTMLButtonElement>('[data-ui-action="search-metadata-covers"]')!.click();
+    await vi.waitFor(() => expect(api.searchBookCovers).toHaveBeenCalledOnce());
+    const titleToggle = root.querySelector<HTMLInputElement>('[data-metadata-override="title"]')!;
+    titleToggle.click();
+    const title = root.querySelector<HTMLInputElement>('[data-metadata-field="title"]')!;
+    title.value = "My unsaved title";
+    title.dispatchEvent(new Event("input", { bubbles: true }));
+    title.focus();
+    title.setSelectionRange(3, 10, "backward");
+    root.querySelector<HTMLElement>(".library-metadata-sheet")!.scrollTop = 630;
+    finishSearch(results);
+    await vi.waitFor(() => expect(root.querySelector('[data-ui-action="import-metadata-cover"]')).not.toBeNull());
+    const updatedTitle = root.querySelector<HTMLInputElement>('[data-metadata-field="title"]')!;
+    expect(root.querySelector<HTMLElement>(".library-metadata-sheet")!.scrollTop).toBe(630);
+    expect(document.activeElement).toBe(updatedTitle);
+    expect(updatedTitle.value).toBe("My unsaved title");
+    expect([updatedTitle.selectionStart, updatedTitle.selectionEnd, updatedTitle.selectionDirection]).toEqual([3, 10, "backward"]);
+    expect(api.updateBookMetadata).not.toHaveBeenCalled();
+  });
+
+  it("starts a reopened metadata editor at the top with initial dialog focus", async () => {
+    const { root } = await openEditor();
+    root.querySelector<HTMLElement>(".library-metadata-sheet")!.scrollTop = 920;
+    root.querySelector<HTMLButtonElement>('[data-ui-action="close-metadata-editor"]')!.click();
+    await vi.waitFor(() => expect(root.querySelector(".library-metadata-sheet")).toBeNull());
+    root.querySelector<HTMLButtonElement>('[data-ui-action="edit-book-metadata"]')!.click();
+    await vi.waitFor(() => expect(root.querySelector("form.metadata-editor-form")).not.toBeNull());
+    expect(root.querySelector<HTMLElement>(".library-metadata-sheet")!.scrollTop).toBe(0);
+    expect(document.activeElement?.getAttribute("data-ui-action")).toBe("close-metadata-editor");
+  });
+
   it("configures Hardcover through compact Settings without changing the Google Books credential", async () => {
     const api = testApi();
     const google: CoverProviderCredentialState = { provider: "google-books", configured: true, maskedKey: "••••••••", revision: 7, status: "working", lastTestedAt: null, errorCode: null };

@@ -449,6 +449,7 @@ export class AppView {
 
   render(state: AppState): void {
     this.#state = state;
+    const restoreMetadataEditorView = this.#captureMetadataEditorView();
     const active = document.activeElement;
     const discoveryFocus = active instanceof HTMLElement && this.#root.contains(active)
       && active.closest(".hardcover-series-sheet, .hardcover-discovery")
@@ -538,6 +539,7 @@ export class AppView {
         }
       }
     }
+    restoreMetadataEditorView?.();
     const restoreToken = this.#catalog.snapshot.contextRestoreToken ?? 0;
     if (this.#catalog.snapshot.booksState === "ready" && restoreToken !== this.#catalogContextRestoreToken) {
       this.#catalogContextRestoreToken = restoreToken;
@@ -1314,6 +1316,44 @@ export class AppView {
     return true;
   }
 
+  #captureMetadataEditorView(): (() => void) | undefined {
+    const dialog = this.#root.querySelector<HTMLElement>(".library-metadata-sheet");
+    const bookId = dialog?.querySelector<HTMLFormElement>("form.metadata-editor-form")?.dataset.metadataBookId;
+    if (!dialog || !bookId || bookId !== this.#catalog.snapshot.metadataEditor?.bookId) return undefined;
+    const { scrollTop, scrollLeft } = dialog;
+    const discoveryOpen = dialog.querySelector<HTMLDetailsElement>(".metadata-candidate-discovery")?.open;
+    const active = document.activeElement instanceof HTMLElement && dialog.contains(document.activeElement)
+      ? document.activeElement : undefined;
+    // Match the same control by semantic identity, not its position among all
+    // controls: provider results can insert new buttons during an update.
+    const attributes = ["id", "data-ui-action", "data-candidate-id", "data-field", "data-metadata-override",
+      "data-metadata-field", "data-metadata-cover-dropzone"];
+    const sameControl = (element: HTMLElement): boolean => Boolean(active && element.tagName === active.tagName
+      && attributes.every((attribute) => element.getAttribute(attribute) === active.getAttribute(attribute)));
+    const controls = "button, input, select, textarea, summary, [tabindex]";
+    const occurrence = [...dialog.querySelectorAll<HTMLElement>(controls)].filter(sameControl).indexOf(active!);
+    const selection = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+      ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : undefined;
+    return () => {
+      const replacement = this.#root.querySelector<HTMLElement>(".library-metadata-sheet");
+      if (!replacement || replacement.querySelector<HTMLFormElement>("form.metadata-editor-form")?.dataset.metadataBookId !== bookId) return;
+      const discovery = replacement.querySelector<HTMLDetailsElement>(".metadata-candidate-discovery");
+      if (discovery && discoveryOpen) discovery.open = true;
+      const control = [...replacement.querySelectorAll<HTMLElement>(controls)].filter(sameControl)[occurrence];
+      if (control && !control.hasAttribute("disabled") && !control.hasAttribute("hidden") && control.getAttribute("aria-disabled") !== "true") {
+        control.focus({ preventScroll: true });
+        if (selection?.start != null && selection.end != null
+          && (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement)) {
+          control.setSelectionRange(selection.start, selection.end, selection.direction ?? undefined);
+        }
+      } else if (active) replacement.focus({ preventScroll: true });
+      // innerHTML replacement resets the scrolling element. Restore after
+      // binding/focus and disclosure expansion, before the browser paints.
+      replacement.scrollTop = scrollTop;
+      replacement.scrollLeft = scrollLeft;
+    };
+  }
+
   #bindMetadataEditorEvents(scope: ParentNode): void {
     const form = scope.querySelector<HTMLFormElement>("form.metadata-editor-form");
     form?.addEventListener("submit", (event) => event.preventDefault());
@@ -1583,7 +1623,7 @@ export class AppView {
       }
     });
     (dialog.querySelector<HTMLElement>('button[data-ui-action="close-metadata-editor"]:not([disabled])')
-      ?? dialog).focus();
+      ?? dialog).focus({ preventScroll: true });
   }
 
   #activateMatchReviewDialog(): void {
