@@ -27,7 +27,8 @@ export const HARDCOVER_BOOKS_QUERY = `query ShelfSendSeriesBooks($ids: [Int!]!, 
 
 // Discovery is separate from metadata overlays: standalone books are valid results.
 // Fields and ordering verified against Hardcover's official schema.graphql and
-// GettingBooksInSeries.mdx. Do not collapse distinct books that share a position.
+// GettingBooksInSeries.mdx. Discovery lookups retain choices; the series roster
+// uses Hardcover's recommended single main book per volume (not a language guess).
 const DISCOVERY_BOOK_FIELDS = `${BOOK_FIELDS}
   slug release_year image { url }
   editions(limit: 20, order_by: {id: asc}) { isbn_10 isbn_13 }`;
@@ -45,7 +46,11 @@ export const HARDCOVER_DISCOVERY_BOOKS_QUERY = `query ShelfSendDiscoveryBooks($i
 export const HARDCOVER_SERIES_QUERY = `query ShelfSendSeriesRoster($seriesId: Int!, $limit: Int!, $offset: Int!) {
   series_by_pk(id: $seriesId) {
     id name
-    book_series(limit: $limit, offset: $offset, order_by: [{position: asc_nulls_last}, {id: asc}]) {
+    book_series(
+      limit: $limit, offset: $offset, distinct_on: position,
+      order_by: [{position: asc_nulls_last}, {book: {users_count: desc_nulls_last}}, {id: asc}],
+      where: {book: {canonical_id: {_is_null: true}, is_partial_book: {_eq: false}}, compilation: {_eq: false}}
+    ) {
       position book { ${DISCOVERY_BOOK_FIELDS} }
     }
   }

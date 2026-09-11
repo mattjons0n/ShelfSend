@@ -32,3 +32,11 @@ These are selected-library statuses, not Kindle statuses. Offline source folders
 ## Requirement check
 
 Both requested actions are present. The popup uses Hardcover's roster, including unowned books, shows each reported position without rounding, and scopes library membership to the active profile. Existing metadata review, original source files, converter, and Kindle transfer/deletion behavior are unchanged.
+
+## Follow-up: repeated translated volumes (2026-09-11)
+
+The series query now follows [Hardcover's official series-listing recipe](https://github.com/hardcoverapp/hardcover-docs/blob/main/src/content/docs/api/guides/GettingBooksInSeries.mdx): exclude merged, partial, and compilation records, then select the most popular remaining book per position before applying pagination. Stable membership-ID ordering breaks popularity ties. Fractional positions remain distinct; null positions share one representative, as in the provider's documented recipe. Book lookup choices and local-library matching are unchanged.
+
+This resolves repeated translated/duplicate volume cards without hardcoding English. It is **not guaranteed original-language filtering**: Hardcover exposes no original-language field, and its [book naming standards](https://github.com/hardcoverapp/hardcover-docs/blob/main/src/content/docs/librarians/Standards/BookStandards.mdx) prefer an official English title when available. The popup uses the provider's main work per volume; it does not infer the language in which a work was written.
+
+Targeted provider validation: 24 tests passed. The paging regression also covers English anniversary, limited, and collector's editions: volumes 1–5 appear once each across three pages, with volume 1.5 preserved separately. Selection remains Hardcover's main/popular work per position, not a claim to have identified the earliest printing. Final `npm run check` passed: 1,119 tests across 108 files, client/server typechecks, and production build. Live provider acceptance remains separate.

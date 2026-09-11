@@ -118,7 +118,7 @@ describe("Hardcover book and image URLs", () => {
 });
 
 describe("Hardcover complete series pagination", () => {
-  it("requests numeric ordering before paging and uses a sentinel for truthful hasMore", async () => {
+  it("requests one main book per volume before paging and uses a sentinel for truthful hasMore", async () => {
     const fetcher = vi.fn(async () => dataResponse({ series_by_pk: series([
       { position: 0, book: book(1) }, { position: 1.5, book: book(2) }, { position: 2, book: book(3) },
     ]) }));
@@ -127,9 +127,59 @@ describe("Hardcover complete series pagination", () => {
     expect(result.books.map((item) => item.position)).toEqual([0, 1.5]);
     const [, init] = fetcher.mock.calls[0] as unknown as [URL, RequestInit];
     expect(requestBody(init).variables).toEqual({ seriesId: 50, limit: 3, offset: 0 });
-    expect(requestBody(init).query).toContain("order_by: [{position: asc_nulls_last}, {id: asc}]");
-    expect(requestBody(init).query).not.toContain("distinct_on: position");
-    expect(requestBody(init).query).not.toContain("compilation:");
+    expect(requestBody(init).query).toContain("order_by: [{position: asc_nulls_last}, {book: {users_count: desc_nulls_last}}, {id: asc}]");
+    expect(requestBody(init).query).toContain("distinct_on: position");
+    expect(requestBody(init).query).toContain("where: {book: {canonical_id: {_is_null: true}, is_partial_book: {_eq: false}}, compilation: {_eq: false}}");
+    // Use the provider's main work, never an English-only or source-language guess.
+    expect(requestBody(init).query).not.toMatch(/language|featured:/u);
+  });
+
+  it("shows each volume once across pages, including English anniversary and limited editions", async () => {
+    let now = 10_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const rows = [
+      { position: 1, book: book(1, { title: "Fourth Wing" }), users: 1_000 },
+      { position: 1, book: book(2, { title: "Dördüncü Kanat" }), users: 20 },
+      { position: 1, book: book(3, { title: "Štvrté krídlo" }), users: 10 },
+      { position: 1, book: book(4), users: 2_000, canonical: 1 },
+      { position: 1, book: book(5), users: 2_000, partial: true },
+      { position: 1, book: book(6), users: 2_000, compilation: true },
+      { position: 1.5, book: book(7, { title: "Interlude" }), users: 10 },
+      { position: 2, book: book(8, { title: "Iron Flame" }), users: 900 },
+      { position: 1, book: book(9, { title: "Fourth Wing: 10th Anniversary Edition" }), users: 100 },
+      { position: 1, book: book(10, { title: "Fourth Wing: Limited Edition" }), users: 50 },
+      { position: 2, book: book(11, { title: "Iron Flame: Collector's Edition" }), users: 100 },
+      ...[3, 4, 5].flatMap((position) => [
+        { position, book: book(position * 10, { title: `Book ${position}` }), users: 1_000 },
+        { position, book: book(position * 10 + 1, { title: `Book ${position}: Anniversary Edition` }), users: 100 },
+        { position, book: book(position * 10 + 2, { title: `Book ${position}: Limited Edition` }), users: 50 },
+      ]),
+    ];
+    const fetcher = vi.fn(async (_url: URL | RequestInfo, init?: RequestInit) => {
+      now += 1_000;
+      const { query, variables } = requestBody(init);
+      // Model the relational operations at Hardcover, before its offset/limit.
+      let selected = rows.filter((row) => (!query.includes("canonical_id: {_is_null: true}") || !row.canonical)
+        && (!query.includes("is_partial_book: {_eq: false}") || !row.partial)
+        && (!query.includes("compilation: {_eq: false}") || !row.compilation));
+      selected.sort((left, right) => left.position - right.position || right.users - left.users);
+      if (query.includes("distinct_on: position")) selected = selected.filter((row, index, all) => all.findIndex((item) => item.position === row.position) === index);
+      const offset = Number(variables.offset);
+      return dataResponse({ series_by_pk: series(selected.slice(offset, offset + Number(variables.limit))) });
+    });
+    const client = new CoverProviderClient(fetcher, undefined, 1_000, "token");
+    const first = await client.getHardcoverSeries(50, 2, 0);
+    const second = await client.getHardcoverSeries(50, 2, first.offset + first.limit);
+    const third = await client.getHardcoverSeries(50, 2, second.offset + second.limit);
+    expect(first.hasMore).toBe(true);
+    expect(second.hasMore).toBe(true);
+    expect(third.hasMore).toBe(false);
+    const books = [...first.books, ...second.books, ...third.books];
+    expect(books.map((item) => [item.title, item.position]))
+      .toEqual([["Fourth Wing", 1], ["Interlude", 1.5], ["Iron Flame", 2], ["Book 3", 3], ["Book 4", 4], ["Book 5", 5]]);
+    expect(books.filter((item) => Number.isInteger(item.position)).map((item) => item.position)).toEqual([1, 2, 3, 4, 5]);
+    expect(new Set(books.map((item) => item.position)).size).toBe(books.length);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
   it("keeps zero, fractions, null positions, and different books at a shared position; exact duplicate memberships collapse", () => {
