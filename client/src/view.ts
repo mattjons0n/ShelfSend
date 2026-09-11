@@ -1,4 +1,5 @@
 import type { DebugLog } from "./log";
+import { isKoboReader, type CatalogKoboState } from "./reader-ui";
 import type {
   AdvancedPartialObjectProbeRunRequest,
   AdvancedPartialObjectProbeViewState,
@@ -43,6 +44,10 @@ import {
 } from "./state";
 
 export interface AppViewHandlers {
+  readonly onKoboConnect?: () => void | Promise<void>;
+  readonly onKoboDisconnect?: () => void | Promise<void>;
+  readonly onKoboRefresh?: () => void | Promise<void>;
+  readonly onKoboRecoveryAcknowledged?: () => void | Promise<void>;
   readonly onTargetProfileSaved: (profile: TargetProfile) => void;
   readonly onEpubSelected: (file: File) => void;
   readonly onConvert: () => void;
@@ -472,7 +477,7 @@ export class AppView {
     const moreFiltersOpen = this.#root.querySelector<HTMLDetailsElement>(".library-more-filters")?.open ?? false;
     const openDiagnostics = new Set([...this.#root.querySelectorAll<HTMLDetailsElement>("details[data-diagnostic-panel][open]")]
       .map((details) => details.dataset.diagnosticPanel));
-    const globalAlerts = `${renderRecovery(state)}${renderError(state, this.#catalog.snapshot.sendBusy || this.#catalog.snapshot.bulkActionBusy)}`;
+    const globalAlerts = isKoboReader(this.#catalog.snapshot) ? "" : `${renderRecovery(state)}${renderError(state, this.#catalog.snapshot.sendBusy || this.#catalog.snapshot.bulkActionBusy)}`;
     const connected = state.device.kind === "ready" || state.device.kind === "transferring" || state.device.kind === "recovering";
     const diagnostics = this.#catalog.snapshot.filters.view === "settings" ? `
       <section class="poc-lab settings-diagnostics" aria-labelledby="poc-lab-title">
@@ -672,6 +677,21 @@ export class AppView {
     this.#root.querySelector<HTMLButtonElement>('[data-ui-action="onboarding-skip"]')?.addEventListener("click", () => { void this.#catalog.dismissOnboarding().then(() => this.#root.querySelector<HTMLElement>('#settings-library-name, #library-search')?.focus()); });
     this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="connect-catalog-device"]').forEach((button) => button.addEventListener("click", () => {
       void this.#catalog.requestConnect();
+    }));
+    this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="connect-kobo"]').forEach((button) => button.addEventListener("click", () => {
+      if (this.#catalog.snapshot.sendBusy || this.#catalog.snapshot.bulkActionBusy || !["disconnected", "error"].includes(this.#state.device.kind)) return;
+      // Invoke synchronously from this user gesture so the directory chooser
+      // retains the browser's transient activation permission.
+      void this.#handlers.onKoboConnect?.();
+    }));
+    this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="disconnect-kobo"]').forEach((button) => button.addEventListener("click", () => {
+      if (!this.#catalog.snapshot.sendBusy && !this.#catalog.snapshot.bulkActionBusy) void this.#handlers.onKoboDisconnect?.();
+    }));
+    this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="refresh-kobo"]').forEach((button) => button.addEventListener("click", () => {
+      if (!this.#catalog.snapshot.sendBusy && !this.#catalog.snapshot.bulkActionBusy) void this.#handlers.onKoboRefresh?.();
+    }));
+    this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="acknowledge-kobo-recovery"]').forEach((button) => button.addEventListener("click", () => {
+      if (!this.#catalog.snapshot.sendBusy && !this.#catalog.snapshot.bulkActionBusy) void this.#handlers.onKoboRecoveryAcknowledged?.();
     }));
     this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="disconnect-catalog-device"]').forEach((button) => button.addEventListener("click", () => {
       void this.#catalog.requestDisconnect();
@@ -2037,6 +2057,14 @@ export class AppView {
     countsByProfile: ReadonlyMap<string, CatalogKindleStatusCounts> = new Map(),
   ): void {
     this.#catalog.setKindleStatuses(statuses, countsByProfile);
+  }
+
+  setKoboState(state: CatalogKoboState | undefined): void {
+    this.#catalog.setKoboState(state);
+  }
+
+  get activeReader(): "kindle" | "kobo" {
+    return isKoboReader(this.#catalog.snapshot) ? "kobo" : "kindle";
   }
 
   setCatalogKindleBookStatus(profileId: string, bookId: string, status: CatalogKindleStatus): void {

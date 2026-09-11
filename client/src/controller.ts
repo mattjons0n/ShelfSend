@@ -28,6 +28,9 @@ import {
   reconcileCatalogIndexes,
 } from "./catalog-reconciliation";
 import { prepareCatalogArtifact } from "./catalog-transfer";
+import { KoboDevice } from "./kobo/device";
+import { KoboCatalogSession, type KoboCatalogDevice } from "./kobo/catalog-session";
+import type { KoboConnectOptions } from "./kobo/types";
 import {
   catalogManagedUpdateResult,
   catalogManagedUpdateStagePresentation,
@@ -181,6 +184,8 @@ export interface AppControllerDependencies {
   readonly copyText: (value: string) => Promise<void>;
   readonly now: () => number;
   readonly catalogApi?: CatalogApi;
+  /** Browser-local mounted-drive connection, kept separate from Kindle/MTP. */
+  readonly connectKobo?: (options: KoboConnectOptions) => Promise<KoboCatalogDevice>;
   readonly manualMatchDecisions?: KindleManualMatchDecisionStore;
   /** Tests can disable the catalog's startup requests while exercising POC gates. */
   readonly autoStartCatalog?: boolean;
@@ -592,6 +597,8 @@ export class AppController {
   #catalogEventReconciliation?: Promise<void>;
   #catalogEventReconciliationQueued = false;
   #catalogSendBatch?: ActiveCatalogSendBatch;
+  #kobo?: KoboCatalogSession;
+  #koboConnectAbort?: AbortController;
   #advancedPartialObjectProbeNextConnection = false;
   #advancedPartialObjectProbeConnection?: ConnectedKindlePort;
   #advancedPartialObjectProbeHasRun = false;
@@ -599,6 +606,7 @@ export class AppController {
 
   readonly #handlePageHide = (event: Event): void => {
     this.#hiddenAt = undefined;
+    this.#closeKoboSession();
     this.#invalidateForBrowserLifecycle(persistedPageTransition(event) ? "bfcache-restore" : "pagehide");
   };
 
@@ -706,6 +714,10 @@ export class AppController {
       onCopyLog: () => { void this.copyLog(); },
       onCatalogConnectRequested: () => this.connect("catalog"),
       onCatalogDisconnectRequested: () => this.disconnect(),
+      onKoboConnect: () => this.connectKobo(),
+      onKoboDisconnect: () => this.disconnectKobo(),
+      onKoboRefresh: () => this.#kobo ? this.#kobo.refresh(this.#view.activeCatalogProfileId) : this.connectKobo(),
+      onKoboRecoveryAcknowledged: () => this.#kobo?.acknowledgeRecovery(),
       onCatalogSendRequested: (request) => this.sendCatalogBook(request),
       onCatalogSendBatchFinished: (result) => this.finishCatalogSendBatch(result),
       onCatalogRemoveRequested: (request) => this.removeCatalogBooks(request),
@@ -722,6 +734,7 @@ export class AppController {
       autoStartCatalog: dependencies.autoStartCatalog
         ?? dependencies.catalogApi !== undefined,
     });
+    this.#showKoboDisconnected();
     if (dependencies.catalogApi) {
       void flushPendingDeliveries(this.#catalogApi).then(({ delivered, remaining }) => {
         if (delivered > 0) this.log.info("Pending delivery records were reconciled", { delivered });
@@ -730,7 +743,7 @@ export class AppController {
     }
     dependencies.usb?.addEventListener("disconnect", this.#handleUsbDisconnect);
     window.addEventListener("beforeunload", (event) => {
-      if (!this.#connection && !this.#pendingDevice && !this.#hardwareBusy && !this.#disconnectPromise) return;
+      if (!this.#connection && !this.#pendingDevice && !this.#hardwareBusy && !this.#disconnectPromise && !this.#kobo?.busy) return;
       event.preventDefault();
       event.returnValue = "";
     });
@@ -980,7 +993,69 @@ export class AppController {
     }
   }
 
+  get koboSupported(): boolean {
+    return Boolean(this.#dependencies.connectKobo || (
+      globalThis.isSecureContext
+      && typeof Reflect.get(globalThis, "showDirectoryPicker") === "function"
+      && globalThis.navigator?.locks
+    ));
+  }
+
+  #showKoboDisconnected(): void {
+    this.#view.setKoboState({ status: "disconnected", supported: this.koboSupported,
+      statuses: new Map(), countsByProfile: new Map() });
+  }
+
+  /** The folder chooser is called in this user-initiated stack, before any await. */
+  async connectKobo(): Promise<void> {
+    if (this.#kobo || this.#koboConnectAbort || this.#connection || this.#pendingDevice
+      || this.#hardwareBusy || this.#conversionPipelineBusy || this.#disconnectPromise
+      || this.#state.device.kind === "requesting-permission") return;
+    const abort = new AbortController();
+    this.#koboConnectAbort = abort;
+    this.#view.setKoboState({ status: "connecting", supported: this.koboSupported,
+      message: "Connect Kobo by USB, choose Connect on its screen, then select the main Kobo drive folder.",
+      statuses: new Map(), countsByProfile: new Map() });
+    try {
+      const device = await (this.#dependencies.connectKobo ?? ((options) => KoboDevice.connect(options)))({ signal: abort.signal });
+      if (abort.signal.aborted || this.#koboConnectAbort !== abort) { device.disconnect(); return; }
+      const session = new KoboCatalogSession(this.#catalogApi, device, {
+        state: (state) => { if (this.#kobo === session) this.#view.setKoboState(state); },
+        progress: (update) => { if (this.#kobo === session) this.#view.setCatalogTransferUpdate(update); },
+      });
+      this.#kobo = session;
+      this.#view.setKoboState(session.snapshot);
+      await session.refresh(this.#view.activeCatalogProfileId);
+    } catch (error) {
+      if (this.#koboConnectAbort !== abort || abort.signal.aborted) return;
+      if (error && typeof error === "object" && Reflect.get(error, "name") === "AbortError") this.#showKoboDisconnected();
+      else this.#view.setKoboState({ status: "error", supported: this.koboSupported,
+        message: error instanceof Error ? error.message : "Kobo could not connect. Check the USB cable and try again.",
+        statuses: new Map(), countsByProfile: new Map() });
+    } finally {
+      if (this.#koboConnectAbort === abort) this.#koboConnectAbort = undefined;
+    }
+  }
+
+  disconnectKobo(): void {
+    // Normal disconnection cannot release ownership while a write/cleanup is pending.
+    if (this.#kobo?.busy) return;
+    this.#closeKoboSession();
+  }
+
+  #closeKoboSession(): void {
+    this.#koboConnectAbort?.abort(new DOMException("Kobo connection closed", "AbortError"));
+    this.#koboConnectAbort = undefined;
+    this.#kobo?.disconnect();
+    this.#kobo = undefined;
+    this.#showKoboDisconnected();
+  }
+
   async connect(mode: "catalog" | "poc" = "catalog"): Promise<void> {
+    if (this.#kobo || this.#koboConnectAbort) {
+      this.#invalidState("Disconnect Kobo before connecting a Kindle.");
+      return;
+    }
     if (!this.#state.secureContext || !this.#state.webUsbAvailable) {
       this.#invalidState("A trusted HTTPS or localhost context and a WebUSB-capable Chromium browser are required");
       return;
@@ -1951,6 +2026,10 @@ export class AppController {
   }
 
   async sendCatalogBook(request: CatalogSendRequest): Promise<void> {
+    if (this.#view.activeReader === "kobo") {
+      if (!this.#kobo) throw new AppError("INVALID_STATE", "Connect your Kobo before sending a book.");
+      return this.#kobo.send(request);
+    }
     if (this.#hardwareBusy) {
       throw new AppError("INVALID_STATE", "Another Kindle operation is already running");
     }
@@ -2475,6 +2554,10 @@ export class AppController {
   }
 
   async finishCatalogSendBatch(result: CatalogSendBatchResult): Promise<void> {
+    if (this.#view.activeReader === "kobo") {
+      await this.#kobo?.refresh(this.#view.activeCatalogProfileId);
+      return;
+    }
     const batch = this.#catalogSendBatch;
     if (!batch || batch.id !== result.id) {
       this.log.warn("Catalog send batch finalization had no matching active batch", {
@@ -3818,6 +3901,7 @@ export class AppController {
   }
 
   #queueConnectedCatalogReconciliation(): Promise<void> {
+    if (this.#kobo) return this.#kobo.refresh(this.#view.activeCatalogProfileId);
     if (!this.#connection) {
       this.#catalogEventReconciliationQueued = false;
       return Promise.resolve();

@@ -366,3 +366,23 @@ body { background: var(--page); }
 .kindle-recorded-data h4 { overflow-wrap: anywhere; font-size: .8rem; }
 .kindle-recorded-data pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font-size: .75rem; }
 .kindle-recorded-data dd { overflow-wrap: anywhere; }
+
+/* Kobo keeps a separate, explicit connection and never exposes Kindle tools. */
+.library-topbar .library-kobo-connect { order: 2; min-height: 40px; padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); white-space: nowrap; }
+.library-kobo-connection { display: flex; align-items: center; gap: 14px; margin: 12px 20px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); }
+.library-global-alerts:has(> .library-kobo-connection) { background: var(--page); border-color: var(--border); }
+.library-topbar .library-device-button.connected:has(.library-device-icon svg) small { color: var(--muted); }
+.library-kobo-connection > div:first-of-type { flex: 1; min-width: 0; }
+.library-kobo-connection strong { color: var(--text); font-size: 14px; }
+.library-kobo-connection p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.library-kobo-icon { color: var(--green); display: flex; align-items: center; }
+.library-kobo-icon svg { width: 28px; height: 28px; }
+.library-kobo-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.library-kobo-connection button { color: var(--text); border-color: var(--border-strong); background: var(--surface-soft); min-height: 36px; }
+.library-kobo-recovery { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.library-kobo-recovery ul { padding-left: 18px; overflow-wrap: anywhere; }
+.library-kobo-recovery code { color: var(--text); }
+@media (max-width: 760px) {
+  .library-kobo-connection { flex-wrap: wrap; margin: 10px; }
+  .library-kobo-actions { width: 100%; padding-left: 42px; }
+}

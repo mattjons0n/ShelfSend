@@ -1,4 +1,5 @@
 import { AppError, toAppError } from "./app-error";
+import { isKoboReader, koboReady, readerComparisonComplete, readerCounts, readerName, readerStatuses, type CatalogKoboState } from "./reader-ui";
 import { hardcoverLookupIdentifiers } from "../../shared/hardcover-identifiers.js";
 import {
   CatalogApiError,
@@ -99,6 +100,8 @@ import { DEFAULT_KINDLE_READING_PRESENTATION_GATE, isKindleReadingPresentationEn
 import { retireKindleReadingEvidence, type KindleReadingEvidence, type KindleReadingStatus } from "./kindle/reading-state";
 
 export interface CatalogBrowserSnapshot {
+  readonly activeReader?: "kindle" | "kobo";
+  readonly kobo?: CatalogKoboState;
   readonly readingEnabled?: boolean;
   readonly readingEvidence?: ReadonlyMap<string, KindleReadingEvidence>;
   readonly readingFilter?: "any" | KindleReadingStatus;
@@ -1729,10 +1732,7 @@ export class CatalogBrowser {
   async queueSeriesBooks(mode: "next" | "all"): Promise<void> {
     const detail = this.#snapshot.seriesDetail;
     const profileId = this.#snapshot.filters.profileId;
-    const complete = profileId !== undefined
-      && this.#snapshot.kindleInventory?.completeness === "complete"
-      && this.#snapshot.kindleInventory.matching?.status === "complete"
-      && this.#snapshot.kindleStatusCountsByProfile.has(profileId);
+    const complete = readerComparisonComplete(this.#snapshot, profileId);
     if (
       !detail
       || !profileId
@@ -1742,8 +1742,8 @@ export class CatalogBrowser {
       || !this.#snapshot.sendQueue
     ) return;
     const candidates = detail.books.items.filter((book) => {
-      if (!this.#bookSourceAvailable(book)) return false;
-      const status = this.#snapshot.kindleStatus.get(book.id);
+      if (!this.#bookSourceAvailable(book) || (isKoboReader(this.#snapshot) && book.format.toUpperCase() !== "EPUB")) return false;
+      const status = readerStatuses(this.#snapshot).get(book.id);
       return complete ? status === "not-on-kindle" : status !== "confirmed" && status !== "possible";
     });
     await this.#addBooksToSendQueue(mode === "next" ? candidates.slice(0, 1).map(({ id }) => id) : candidates.map(({ id }) => id));
@@ -2201,7 +2201,7 @@ export class CatalogBrowser {
       // Keep filter membership stable while fresh matching is pending. These
       // IDs only query current catalog cards; they never restore match or write
       // authority, which is revoked immediately when a scan event arrives.
-      const filterStatuses = this.#snapshot.kindleFilterStatuses ?? this.#snapshot.kindleStatus;
+      const filterStatuses = isKoboReader(this.#snapshot) ? readerStatuses(this.#snapshot) : this.#snapshot.kindleFilterStatuses ?? this.#snapshot.kindleStatus;
       const confirmed = [...filterStatuses].filter(([, status]) => status === "confirmed").map(([bookId]) => bookId);
       const possible = [...filterStatuses].filter(([, status]) => status === "possible").map(([bookId]) => bookId);
       const absent = [...filterStatuses].filter(([, status]) => status === "not-on-kindle").map(([bookId]) => bookId);
@@ -2211,7 +2211,7 @@ export class CatalogBrowser {
       const wantsPossible = this.#snapshot.filters.kindle === "possible";
       const wantsAbsent = this.#snapshot.filters.kindle === "not-on-kindle";
       const wantsUnknown = this.#snapshot.filters.kindle === "unknown";
-      const hasProfileComparison = this.#snapshot.kindleStatusCountsByProfile.has(profileId);
+      const hasProfileComparison = readerCounts(this.#snapshot).has(profileId);
       const matched = [...new Set([...confirmed, ...possible])];
       const emptyKindleSelection = (wantsMatchedView && matched.length === 0)
         || (wantsOnKindle && confirmed.length === 0)
@@ -2830,8 +2830,9 @@ export class CatalogBrowser {
       if (profileId !== this.#snapshot.filters.profileId) return;
       const existing = new Set(queue.entries.map(({ bookId }) => bookId));
       const added = currentBooks.filter((book) => {
-        const status = this.#snapshot.kindleStatus.get(book.id);
+        const status = readerStatuses(this.#snapshot).get(book.id);
         return !existing.has(book.id)
+          && (!isKoboReader(this.#snapshot) || book.format.toUpperCase() === "EPUB")
           && this.#bookSourceAvailable(book)
           && status !== "confirmed"
           && status !== "possible";
@@ -2990,10 +2991,8 @@ export class CatalogBrowser {
   async selectAllFiltered(missingOnly = false): Promise<void> {
     const profileId = this.#snapshot.filters.profileId;
     if (!profileId || !this.#api.resolveBookSelection || this.#kindleActionBusy()) return;
-    if (missingOnly && !(this.#snapshot.kindleInventory?.completeness === "complete"
-      && this.#snapshot.kindleInventory.matching?.status === "complete"
-      && this.#snapshot.kindleStatusCountsByProfile.has(profileId))) {
-      this.#set({ announcement: "Connect and complete a fresh Kindle comparison before selecting every missing book." }, "all");
+    if (missingOnly && !readerComparisonComplete(this.#snapshot, profileId)) {
+      this.#set({ announcement: `Connect and complete a fresh ${readerName(this.#snapshot)} comparison before selecting every missing book.` }, "all");
       return;
     }
     this.#set({ bulkActionBusy: true, bulkActionError: undefined }, "all");
@@ -3001,7 +3000,7 @@ export class CatalogBrowser {
       const selection = await this.#api.resolveBookSelection(profileId, this.#currentBookQuery());
       if (profileId !== this.#snapshot.filters.profileId) return;
       const ids = missingOnly
-        ? selection.bookIds.filter((bookId) => this.#snapshot.kindleStatus.get(bookId) === "not-on-kindle")
+        ? selection.bookIds.filter((bookId) => readerStatuses(this.#snapshot).get(bookId) === "not-on-kindle")
         : selection.bookIds;
       this.#set({
         selectedBookIds: new Set(ids),
@@ -3045,7 +3044,8 @@ export class CatalogBrowser {
   async sendSelectedBooks(): Promise<void> {
     if (this.#snapshot.layout !== "list" || this.#kindleActionBusy()) return;
     const books = (await this.#hydrateBooks([...this.#snapshot.selectedBookIds])).filter((book) => (
-      this.#snapshot.kindleStatus.get(book.id) === "not-on-kindle" && this.#bookSourceAvailable(book)
+      readerStatuses(this.#snapshot).get(book.id) === "not-on-kindle" && this.#bookSourceAvailable(book)
+      && (!isKoboReader(this.#snapshot) || book.format.toUpperCase() === "EPUB")
     ));
     await this.#sendBookBatch(books, false);
   }
@@ -3053,18 +3053,17 @@ export class CatalogBrowser {
   async sendQueuedBooks(): Promise<void> {
     const queue = this.#snapshot.sendQueue;
     if (!queue || this.#kindleActionBusy()) return;
-    const currentComparisonComplete = this.#snapshot.kindleInventory?.completeness === "complete"
-      && this.#snapshot.kindleInventory.matching?.status === "complete"
-      && this.#snapshot.kindleStatusCountsByProfile.has(queue.profileId);
+    const currentComparisonComplete = readerComparisonComplete(this.#snapshot, queue.profileId);
     const review = buildSendQueueReview({
       queue,
-      kindleStatusByBookId: this.#snapshot.kindleStatus,
+      kindleStatusByBookId: readerStatuses(this.#snapshot),
       currentComparisonComplete,
     });
     const eligible = new Set(review.eligibleBookIds);
     const books = queue.entries
       .filter((entry) => eligible.has(entry.bookId) && entry.book !== null)
-      .map((entry) => entry.book!);
+      .map((entry) => entry.book!)
+      .filter((book) => !isKoboReader(this.#snapshot) || book.format.toUpperCase() === "EPUB");
     if (books.length > 0) this.#set({ sendQueueOpen: false }, "all");
     await this.#sendBookBatch(books, true);
   }
@@ -3153,8 +3152,9 @@ export class CatalogBrowser {
         if (!currentBook || !this.#bookSourceAvailable(currentBook)) {
           throw new Error("The read-only source is no longer available.");
         }
-        if (this.#snapshot.kindleStatus.get(book.id) !== "not-on-kindle") {
-          throw new Error("A current complete Kindle comparison no longer proves this book is missing.");
+        if (readerStatuses(this.#snapshot).get(book.id) !== "not-on-kindle"
+          || (isKoboReader(this.#snapshot) && (!koboReady(this.#snapshot, book.profileId) || currentBook.format.toUpperCase() !== "EPUB"))) {
+          throw new Error(`A current complete ${readerName(this.#snapshot)} comparison no longer proves this book can be sent.`);
         }
         book = currentBook;
         this.#snapshot = { ...this.#snapshot, pendingBook: currentBook };
@@ -3207,7 +3207,7 @@ export class CatalogBrowser {
     if (failed) {
       this.#set({
         sendPhase: cancelled ? "cancelled" : "failed",
-        sendMessage: cancelled ? failed.message : `Failed on “${failed.title}”: ${failed.message} Finalizing the Kindle comparison for ${verifiedBooks.length} verified ${verifiedBooks.length === 1 ? "book" : "books"}.`,
+        sendMessage: cancelled ? failed.message : `Failed on “${failed.title}”: ${failed.message} Finalizing the ${readerName(this.#snapshot)} comparison for ${verifiedBooks.length} verified ${verifiedBooks.length === 1 ? "book" : "books"}.`,
         batchTransfer: {
           id: batchId,
           position: failedIndex + 1,
@@ -3243,7 +3243,7 @@ export class CatalogBrowser {
         id: `transfer-batch-failed-${batchId}`,
         kind: cancelled ? "transfer-result" : "failure",
         tone: cancelled ? "neutral" : "error",
-        title: cancelled ? "Kindle transfer cancelled" : "Kindle batch stopped",
+        title: cancelled ? `${readerName(this.#snapshot)} transfer cancelled` : `${readerName(this.#snapshot)} batch stopped`,
         detail: cancelled ? message : `Failed on “${failed.title}”. ${verifiedBooks.length} of ${books.length} books transferred and verified; ${retryBooks.length} remain for retry.`,
         ...(books[0] ? { profileId: books[0].profileId } : {}),
         action: dequeueVerified ? "open-queue" : "retry-transfer",
@@ -3275,7 +3275,7 @@ export class CatalogBrowser {
       id: `transfer-batch-${batchId}`,
       kind: "transfer-result",
       tone: "success",
-      title: "Kindle batch verified",
+      title: `${readerName(this.#snapshot)} batch verified`,
       detail: summary,
       ...(books[0] ? { profileId: books[0].profileId } : {}),
     });
@@ -3588,6 +3588,7 @@ export class CatalogBrowser {
   }
 
   async openMatchReview(itemId: string, requestedBookId?: string): Promise<void> {
+    if (isKoboReader(this.#snapshot)) return;
     if (this.#kindleActionBusy()) return;
     const inventory = this.#snapshot.kindleInventory;
     const item = inventory?.items.find((candidate) => candidate.id === itemId);
@@ -3705,6 +3706,7 @@ export class CatalogBrowser {
   }
 
   async decideManualMatch(profileId: string, bookId: string, decision: CatalogManualMatchChoice): Promise<void> {
+    if (isKoboReader(this.#snapshot)) return;
     const review = this.#snapshot.matchReview;
     const item = this.#snapshot.kindleInventory?.items.find(({ id }) => id === review?.itemId);
     if (!review || review.busy || !item || !this.#hooks.onManualMatchDecision) return;
@@ -4308,6 +4310,7 @@ export class CatalogBrowser {
   }
 
   requestBookUpdate(bookId: string): void {
+    if (isKoboReader(this.#snapshot)) return;
     if (this.#kindleActionBusy()) return;
     const book = this.#snapshot.page?.items.find((candidate) => candidate.id === bookId)
       ?? (this.#snapshot.bookDetails?.bookId === bookId
@@ -4357,6 +4360,7 @@ export class CatalogBrowser {
   }
 
   async confirmBookUpdate(): Promise<void> {
+    if (isKoboReader(this.#snapshot)) return;
     const pending = this.#snapshot.pendingUpdate;
     const book = pending?.book;
     if (!pending || !book || this.#kindleActionBusy()) return;
@@ -4453,7 +4457,7 @@ export class CatalogBrowser {
   }
 
   async requestSelectedBookRemoval(): Promise<void> {
-    if (this.#snapshot.layout !== "list") return;
+    if (isKoboReader(this.#snapshot) || this.#snapshot.layout !== "list") return;
     const bookIds = [...this.#snapshot.selectedBookIds];
     const books = await this.#hydrateBooks(bookIds);
     this.#requestRemoval(bookIds, books);
@@ -4465,6 +4469,7 @@ export class CatalogBrowser {
   }
 
   async confirmBookRemoval(): Promise<void> {
+    if (isKoboReader(this.#snapshot)) return;
     const request = this.#snapshot.pendingRemoval;
     if (!request || request.targets.length === 0 || this.#kindleActionBusy()) return;
     if (!this.#hooks.onRemoveRequested) {
@@ -4528,8 +4533,8 @@ export class CatalogBrowser {
     if (this.#snapshot.pendingBookId !== bookId || !this.#snapshot.sendBusy
       || !this.#snapshot.sendCancellable || !this.#singleSendAbort
       || (this.#snapshot.batchTransfer?.total ?? 1) > 1) return;
-    this.#singleSendAbort.abort(new AppError("TRANSFER_CANCELLED", "Transfer cancelled before upload; no Kindle file was created."));
-    this.#set({ sendCancellable: false, sendPhase: "cancelling", sendMessage: "Cancelling… keep Kindle connected until cleanup is verified." }, "all");
+    this.#singleSendAbort.abort(new AppError("TRANSFER_CANCELLED", `Transfer cancelled before upload; no ${readerName(this.#snapshot)} file was created.`));
+    this.#set({ sendCancellable: false, sendPhase: "cancelling", sendMessage: `Cancelling… keep ${readerName(this.#snapshot)} connected until cleanup is verified.` }, "all");
   }
 
   closeSend(): void {
@@ -4543,6 +4548,12 @@ export class CatalogBrowser {
     const book = this.#snapshot.pendingBook;
     const profileId = book?.profileId;
     if (!profileId || !book || this.#kindleActionBusy()) return;
+    if (isKoboReader(this.#snapshot) && (!koboReady(this.#snapshot, profileId)
+      || book.format.toUpperCase() !== "EPUB" || readerStatuses(this.#snapshot).get(book.id) !== "not-on-kindle"
+      || !this.#bookSourceAvailable(book))) {
+      this.#set({ announcement: "Connect and check your Kobo before sending an available EPUB that is not already on it." }, "all");
+      return;
+    }
     if (!this.#hooks.onSendRequested) {
       this.#set({
         pendingBookId: undefined,
@@ -4568,7 +4579,7 @@ export class CatalogBrowser {
         id: `transfer-${book.id}-${Date.now().toString(36)}`,
         kind: "transfer-result",
         tone: "success",
-        title: "Kindle transfer verified",
+        title: `${readerName(this.#snapshot)} transfer verified`,
         detail: `“${book.title}” transferred and verified.`,
         profileId,
         bookId: book.id,
@@ -4590,7 +4601,7 @@ export class CatalogBrowser {
         id: `transfer-failed-${book.id}-${Date.now().toString(36)}`,
         kind: cancelled ? "transfer-result" : "failure",
         tone: cancelled ? "neutral" : "error",
-        title: cancelled ? "Kindle transfer cancelled" : "Kindle transfer failed",
+        title: cancelled ? `${readerName(this.#snapshot)} transfer cancelled` : `${readerName(this.#snapshot)} transfer failed`,
         detail: `“${book.title}”: ${message}`,
         profileId,
         bookId: book.id,
@@ -4632,6 +4643,7 @@ export class CatalogBrowser {
   }
 
   async requestConnect(): Promise<void> {
+    if (isKoboReader(this.#snapshot) || this.#kindleActionBusy()) return;
     if (!this.#hooks.onConnectRequested) {
       this.#set({ announcement: "This build has no WebUSB connection hook configured." }, "all");
       return;
@@ -4663,12 +4675,36 @@ export class CatalogBrowser {
   }
 
   async requestDisconnect(): Promise<void> {
-    if (this.#kindleActionBusy()) return;
+    if (isKoboReader(this.#snapshot) || this.#kindleActionBusy()) return;
     await this.#hooks.onDisconnectRequested?.();
   }
 
   dismissAnnouncement(): void {
     this.#set({ announcement: undefined }, "all");
+  }
+
+  setKoboState(kobo: CatalogKoboState | undefined): void {
+    const wasKobo = isKoboReader(this.#snapshot);
+    const activeReader = kobo && kobo.status !== "disconnected" ? "kobo" : "kindle";
+    const switching = wasKobo !== (activeReader === "kobo");
+    const previous = this.#snapshot.kobo;
+    const previousStatuses = previous?.statuses ?? new Map<string, CatalogKindleStatus>();
+    const nextStatuses = kobo?.statuses ?? new Map<string, CatalogKindleStatus>();
+    const membershipChanged = previousStatuses.size !== nextStatuses.size
+      || [...nextStatuses].some(([id, status]) => previousStatuses.get(id) !== status)
+      || previous?.profileId !== kobo?.profileId;
+    this.#set({
+      kobo: kobo ? { ...kobo, statuses: new Map(kobo.statuses), countsByProfile: new Map(kobo.countsByProfile) } : undefined,
+      activeReader,
+      ...(switching ? {
+        filters: { ...this.#snapshot.filters, kindle: "all", view: this.#snapshot.filters.view === "on-kindle" ? "all" : this.#snapshot.filters.view, offset: 0 },
+        selectedBookIds: new Set<string>(), pendingRemoval: undefined, pendingUpdate: undefined, matchReview: undefined,
+        ...(!this.#snapshot.sendBusy ? { pendingBookId: undefined, pendingBook: undefined, sendPhase: undefined, batchTransfer: undefined } : {}),
+      } : {}),
+    }, "all");
+    // Connecting and progress-only renders must not start catalog requests.
+    // Reload only when the active filter membership actually changes.
+    if (switching || membershipChanged) void this.reloadBooks(true);
   }
 
   setKindleStatuses(
@@ -4939,6 +4975,7 @@ export class CatalogBrowser {
   }
 
   #requestRemoval(bookIds: readonly string[], hydratedBooks: readonly CatalogBook[] = []): void {
+    if (isKoboReader(this.#snapshot)) return;
     if (this.#kindleActionBusy()) return;
     const profileId = this.#snapshot.filters.profileId;
     const inventory = this.#snapshot.kindleInventory;
@@ -5041,6 +5078,7 @@ export class CatalogBrowser {
   }
 
   #readingFilterQuery(): { includeBookIds?: string[]; excludeBookIds?: string[] } {
+    if (isKoboReader(this.#snapshot)) return {};
     const filter = this.#snapshot.readingFilter ?? "any";
     if (!this.#snapshot.readingEnabled || filter === "any") return {};
     const entries = [...(this.#snapshot.readingEvidence ?? new Map<string, KindleReadingEvidence>())];

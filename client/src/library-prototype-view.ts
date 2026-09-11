@@ -48,6 +48,27 @@ import {
   projectKindleBridgeActivityCenter,
   type KindleBridgeActivityEvent,
 } from "./activity-center";
+import { isKoboReader, koboReady, readerComparisonComplete, readerCounts, readerName, readerStatuses } from "./reader-ui";
+
+function readerConnected(state: AppState, snapshot: CatalogBrowserSnapshot): boolean {
+  return isKoboReader(snapshot) ? snapshot.kobo?.status === "ready" || snapshot.kobo?.status === "scanning" : actualDeviceConnected(state);
+}
+
+function readerReadyToSend(state: AppState, snapshot: CatalogBrowserSnapshot): boolean {
+  return isKoboReader(snapshot) ? koboReady(snapshot) : deviceReadyToSend(state, snapshot);
+}
+
+function readerConnecting(state: AppState, snapshot: CatalogBrowserSnapshot): boolean {
+  return isKoboReader(snapshot) ? snapshot.kobo?.status === "connecting" || snapshot.kobo?.status === "scanning" : deviceConnecting(state);
+}
+
+function renderKoboDevicePanel(snapshot: CatalogBrowserSnapshot): string {
+  if (!isKoboReader(snapshot) || !snapshot.kobo) return "";
+  const kobo = snapshot.kobo;
+  const busy = snapshot.sendBusy || snapshot.bulkActionBusy || kobo.status === "connecting" || kobo.status === "scanning";
+  const title = kobo.recovery?.length ? "Check an interrupted transfer" : kobo.status === "ready" ? "Kobo connected" : kobo.status === "scanning" ? "Checking books on your Kobo…" : kobo.status === "connecting" ? "Choose your Kobo’s drive" : "Kobo needs attention";
+  return `<section class="library-kobo-connection" aria-label="Kobo connection" role="status"><span class="library-kobo-icon" aria-hidden="true">${libraryIcon("device")}</span><div><strong>${title}</strong><p>${escapeHtml(kobo.message ?? (kobo.status === "ready" ? "EPUB transfers are ready. Eject Kobo from your computer before unplugging it." : "Unlock your Kobo, choose Connect on its screen, then select its drive in the folder picker."))}</p>${kobo.recovery?.length ? `<div class="library-kobo-recovery"><p>A previous transfer could not be verified. Use your computer’s file manager to check these exact files. Remove only an incomplete copy; keep any complete book.</p><ul>${kobo.recovery.map((entry) => `<li><code>${escapeHtml(entry.filename)}</code></li>`).join("")}</ul><button type="button" data-ui-action="acknowledge-kobo-recovery"${busy ? " disabled" : ""}>I inspected these files</button></div>` : ""}</div><div class="library-kobo-actions"><button type="button" data-ui-action="refresh-kobo"${busy ? " disabled" : ""}>Check again</button><button type="button" data-ui-action="disconnect-kobo"${busy ? " disabled" : ""}>Disconnect</button></div></section>`;
+}
 
 function escapeHtml(value: unknown): string {
   return String(value)
@@ -115,12 +136,12 @@ function renderLibraryNav(snapshot: CatalogBrowserSnapshot, connected: boolean):
   const counts = countLibraryBooks(
     profile,
     snapshot.page,
-    snapshot.kindleStatus,
-    snapshot.kindleStatusCountsByProfile,
+    readerStatuses(snapshot),
+    readerCounts(snapshot),
   );
   const items: ReadonlyArray<readonly [LibraryView, string, string, number | undefined]> = [
     ["all", libraryIcon("book"), "All books", profile?.bookCount ?? 0],
-    ["on-kindle", libraryIcon("device"), "On Kindle", counts.onKindle || undefined],
+    ["on-kindle", libraryIcon("device"), `On ${readerName(snapshot)}`, counts.onKindle || undefined],
     ["recent", libraryIcon("clock"), "Recently added", undefined],
     ["series", libraryIcon("series"), "Series", snapshot.seriesPage?.total],
     ["attention", libraryIcon("attention"), "Needs attention", snapshot.healthPage?.counts.active || undefined],
@@ -140,7 +161,7 @@ function renderSmartShelfRail(snapshot: CatalogBrowserSnapshot): string {
   return `<div class="library-sidebar-label library-shelves-label">Your shelves</div><nav class="library-shelf-list" aria-label="Smart shelves">${shelves.map((shelf) => {
     const active = snapshot.activeShelf?.id === shelf.id;
     const count = "serverCount" in shelf ? shelf.serverCount : null;
-    return `<button type="button" class="library-shelf-item${active ? " active" : ""}" data-ui-action="apply-smart-shelf" data-shelf-id="${escapeHtml(shelf.id)}"${active ? ' aria-current="page"' : ""}><span aria-hidden="true">${libraryIcon(shelf.id === "builtin-favorites" ? "heart" : shelf.id === "builtin-want-to-read" ? "bookmark" : shelf.id === "builtin-read-books" ? "check" : "book")}</span><span>${escapeHtml(shelf.name)}</span>${count === null ? "" : `<small>${count}</small>`}</button>`;
+    return `<button type="button" class="library-shelf-item${active ? " active" : ""}" data-ui-action="apply-smart-shelf" data-shelf-id="${escapeHtml(shelf.id)}"${active ? ' aria-current="page"' : ""}><span aria-hidden="true">${libraryIcon(shelf.id === "builtin-favorites" ? "heart" : shelf.id === "builtin-want-to-read" ? "bookmark" : shelf.id === "builtin-read-books" ? "check" : "book")}</span><span>${escapeHtml(isKoboReader(snapshot) && shelf.id === "builtin-not-on-kindle" ? "Not on Kobo" : shelf.name)}</span>${count === null ? "" : `<small>${count}</small>`}</button>`;
   }).join("")}<button type="button" class="library-shelf-item manage" data-ui-action="manage-smart-shelves"><span aria-hidden="true">＋</span><span>Manage shelves</span></button></nav>`;
 }
 
@@ -179,7 +200,7 @@ function renderActiveFilters(snapshot: CatalogBrowserSnapshot): string {
     ui.rootId === "all" ? "" : optionLabel(facets.roots, ui.rootId),
     ui.year === "all" ? "" : `Published ${optionLabel(facets.years, ui.year)}`,
     ui.metadata === "all" ? "" : ui.metadata === "complete" ? "Complete metadata" : "Missing metadata",
-    ui.kindle === "all" ? "" : ui.kindle === "on-kindle" ? "On Kindle" : ui.kindle === "possible" ? "Possible match" : ui.kindle === "unknown" ? "Not yet compared" : "Not on Kindle",
+    ui.kindle === "all" ? "" : ui.kindle === "on-kindle" ? `On ${readerName(snapshot)}` : ui.kindle === "possible" ? "Possible match" : ui.kindle === "unknown" ? "Not yet compared" : `Not on ${readerName(snapshot)}`,
     ui.query.trim() ? `“${ui.query.trim()}”` : "",
   ].filter(Boolean);
   if (values.length === 0) return "";
@@ -190,12 +211,13 @@ function renderBookCover(
   book: CatalogBook,
   status: ReturnType<typeof effectiveKindleStatus>,
   currentUnknown: boolean,
+  reader: "Kindle" | "Kobo" = "Kindle",
 ): string {
   const coverUrl = sameOriginCoverUrl(book);
   const badge = status === "confirmed"
-    ? '<span class="library-kindle-check" role="img" aria-label="Already on this Kindle" title="Already on this Kindle">✓</span>'
+    ? `<span class="library-kindle-check" role="img" aria-label="Already on this ${reader}" title="Already on this ${reader}">✓</span>`
     : currentUnknown
-        ? '<span class="library-kindle-check unknown" role="img" aria-label="Kindle presence could not be verified" title="Kindle presence could not be verified">!</span>'
+        ? `<span class="library-kindle-check unknown" role="img" aria-label="${reader} presence could not be verified" title="${reader} presence could not be verified">!</span>`
       : "";
   if (coverUrl) {
     return `<div class="library-cover library-cover-image ${coverClass(book.id)}"><img src="${escapeHtml(coverUrl)}" alt="" loading="lazy" data-library-cover-image /><span class="library-cover-kicker" data-library-cover-fallback hidden aria-hidden="true">${book.metadataComplete ? escapeHtml(book.format) : "Metadata incomplete"}</span><strong data-library-cover-fallback hidden aria-hidden="true">${escapeHtml(book.title)}</strong><span class="library-cover-author" data-library-cover-fallback hidden aria-hidden="true">${escapeHtml(bookAuthor(book))}</span><span class="library-cover-rule" data-library-cover-fallback hidden aria-hidden="true"></span>${badge}</div>`;
@@ -212,13 +234,14 @@ function renderBookMenu(
   const reviewItem = snapshot.kindleInventory?.items.find((item) =>
     item.bookId === book.id || item.candidates?.some((candidate) => candidate.bookId === book.id));
   const reviewItemId = reviewItem?.id ?? catalogPossibleMatchReviewId(book.id);
-  const updateAction = book.metadataEdited || book.coverEdited
+  const updateAction = !isKoboReader(snapshot) && (book.metadataEdited || book.coverEdited)
     ? `<button type="button" data-ui-action="update-book-on-kindle" data-book-id="${escapeHtml(book.id)}"${actions.update.enabled ? "" : ` disabled title="${escapeHtml(actions.update.reason ?? "Unavailable")}"`}>Update Kindle copy</button>`
     : "";
-  return `<details class="library-book-menu"><summary aria-label="More actions for ${escapeHtml(book.title)}" title="More actions"><span aria-hidden="true">•••</span></summary><div>${actions.kindleStatus === "possible" ? `<button type="button" data-ui-action="open-match-review" data-item-id="${escapeHtml(reviewItemId)}" data-book-id="${escapeHtml(book.id)}"${actions.matchReview.enabled ? "" : ` disabled title="${escapeHtml(actions.matchReview.reason ?? "Unavailable")}"`}>Review possible match</button>` : ""}${updateAction}<button type="button" data-ui-action="add-book-to-queue" data-book-id="${escapeHtml(book.id)}"${actions.queue.enabled ? "" : ` disabled title="${escapeHtml(actions.queue.reason ?? "Unavailable")}"`}>${escapeHtml(actions.queue.label)}</button><button type="button" data-ui-action="toggle-book-favorite" data-book-id="${escapeHtml(book.id)}" aria-pressed="${actions.favorite.active}"${actions.favorite.enabled ? "" : " disabled"}>${actions.favorite.active ? "★ Favorite" : "☆ Favorite"}</button><button type="button" data-ui-action="toggle-book-want-to-read" data-book-id="${escapeHtml(book.id)}" aria-pressed="${actions.wantToRead.active}"${actions.wantToRead.enabled ? "" : " disabled"}>${actions.wantToRead.active ? "✓ Want to read" : "+ Want to read"}</button><button type="button" data-ui-action="edit-book-metadata" data-book-id="${escapeHtml(book.id)}"${actions.edit.enabled ? "" : ` disabled title="${escapeHtml(actions.edit.reason ?? "Unavailable")}"`}>Edit metadata &amp; cover</button><button type="button" class="danger" data-ui-action="remove-book-from-kindle" data-book-id="${escapeHtml(book.id)}"${actions.remove.enabled ? "" : ` disabled title="${escapeHtml(actions.remove.reason ?? "Unavailable")}"`}>Remove from Kindle</button></div></details>`;
+  return `<details class="library-book-menu"><summary aria-label="More actions for ${escapeHtml(book.title)}" title="More actions"><span aria-hidden="true">•••</span></summary><div>${!isKoboReader(snapshot) && actions.kindleStatus === "possible" ? `<button type="button" data-ui-action="open-match-review" data-item-id="${escapeHtml(reviewItemId)}" data-book-id="${escapeHtml(book.id)}"${actions.matchReview.enabled ? "" : ` disabled title="${escapeHtml(actions.matchReview.reason ?? "Unavailable")}"`}>Review possible match</button>` : ""}${updateAction}<button type="button" data-ui-action="add-book-to-queue" data-book-id="${escapeHtml(book.id)}"${actions.queue.enabled ? "" : ` disabled title="${escapeHtml(actions.queue.reason ?? "Unavailable")}"`}>${escapeHtml(actions.queue.label)}</button><button type="button" data-ui-action="toggle-book-favorite" data-book-id="${escapeHtml(book.id)}" aria-pressed="${actions.favorite.active}"${actions.favorite.enabled ? "" : " disabled"}>${actions.favorite.active ? "★ Favorite" : "☆ Favorite"}</button><button type="button" data-ui-action="toggle-book-want-to-read" data-book-id="${escapeHtml(book.id)}" aria-pressed="${actions.wantToRead.active}"${actions.wantToRead.enabled ? "" : " disabled"}>${actions.wantToRead.active ? "✓ Want to read" : "+ Want to read"}</button><button type="button" data-ui-action="edit-book-metadata" data-book-id="${escapeHtml(book.id)}"${actions.edit.enabled ? "" : ` disabled title="${escapeHtml(actions.edit.reason ?? "Unavailable")}"`}>Edit metadata &amp; cover</button>${isKoboReader(snapshot) ? "" : `<button type="button" class="danger" data-ui-action="remove-book-from-kindle" data-book-id="${escapeHtml(book.id)}"${actions.remove.enabled ? "" : ` disabled title="${escapeHtml(actions.remove.reason ?? "Unavailable")}"`}>Remove from Kindle</button>`}</div></details>`;
 }
 
 export function renderBookReading(bookId: string, snapshot: CatalogBrowserSnapshot): string {
+  if (isKoboReader(snapshot)) return "";
   const evidence = snapshot.readingEvidence?.get(bookId);
   const descriptor = describeKindleReadingPresentation({
     gate: { version: 1, enabled: snapshot.readingEnabled === true },
@@ -242,7 +265,7 @@ function renderInlineSend(book: CatalogBook, snapshot: CatalogBrowserSnapshot): 
   const terminal = complete || cancelled || failed;
   const progress = complete ? 100 : Math.max(0, Math.min(99, Math.round(snapshot.sendProgress ?? 0)));
   const canCancel = snapshot.sendBusy && snapshot.sendCancellable && !terminal;
-  const label = complete ? "Sent to Kindle" : cancelled ? "Cancelled" : failed ? "Send failed"
+  const label = complete ? `Sent to ${readerName(snapshot)}` : cancelled ? "Cancelled" : failed ? "Send failed"
     : phase === "cancelling" ? "Cancelling…"
     : phase === "preparing" ? `Preparing ${progress}%`
     : phase === "converting" ? `Converting ${progress}%`
@@ -276,7 +299,7 @@ function renderBookCard(book: CatalogBook, snapshot: CatalogBrowserSnapshot, sta
   const currentUnknown = status === "unknown" && actions.currentComparison;
   const list = snapshot.layout === "list";
   const selected = list && snapshot.selectedBookIds.has(book.id);
-  const disconnectedQueuePrimary = !actualDeviceConnected(state) && (actions.queue.enabled || actions.queue.queued);
+  const disconnectedQueuePrimary = !readerConnected(state, snapshot) && (actions.queue.enabled || actions.queue.queued);
   const primaryAction = disconnectedQueuePrimary ? "add-book-to-queue" : "send-book";
   const primaryEnabled = disconnectedQueuePrimary ? actions.queue.enabled : actions.send.enabled;
   const primaryLabel = disconnectedQueuePrimary ? actions.queue.label : actions.send.label;
@@ -285,19 +308,19 @@ function renderBookCard(book: CatalogBook, snapshot: CatalogBrowserSnapshot, sta
     ? snapshot.kindleInventory?.items.find((item) => item.bookId === book.id
       || item.candidates?.some((candidate) => candidate.bookId === book.id))
     : undefined;
-  const possibleBadge = status === "possible"
+  const possibleBadge = status === "possible" && !isKoboReader(snapshot)
     ? `<button type="button" class="library-kindle-check possible" data-ui-action="open-match-review" data-item-id="${escapeHtml(possibleItem?.id ?? catalogPossibleMatchReviewId(book.id))}" data-book-id="${escapeHtml(book.id)}" aria-label="Review possible Kindle match for ${escapeHtml(book.title)}" title="${escapeHtml(actions.matchReview.reason ?? "Review possible Kindle match")}"${actions.matchReview.enabled ? "" : " disabled"}>?</button>`
     : "";
   return `
     <article class="library-book-card${list ? " library-book-row" : ""}${selected ? " selected" : ""}" data-book-id="${escapeHtml(book.id)}"${selected ? ' data-selected="true"' : ""}>
       ${list ? `<label class="library-book-selection"><input type="checkbox" data-ui-action="toggle-book-selection" data-book-id="${escapeHtml(book.id)}" aria-label="Select ${escapeHtml(book.title)}"${selected ? " checked" : ""}${actions.select.enabled ? "" : " disabled"} /><span aria-hidden="true"></span></label>` : ""}
-      <div class="library-book-cover-shell"><button type="button" class="library-book-cover-trigger" data-ui-action="open-book-details" data-book-id="${escapeHtml(book.id)}" aria-label="View details for ${escapeHtml(book.title)}">${renderBookCover(book, status, currentUnknown)}</button>${possibleBadge}${list ? "" : renderBookReading(book.id, snapshot)}</div>
+      <div class="library-book-cover-shell"><button type="button" class="library-book-cover-trigger" data-ui-action="open-book-details" data-book-id="${escapeHtml(book.id)}" aria-label="View details for ${escapeHtml(book.title)}">${renderBookCover(book, status, currentUnknown, readerName(snapshot))}</button>${possibleBadge}${list ? "" : renderBookReading(book.id, snapshot)}</div>
       <div class="library-card-copy">
         <h3><button type="button" class="library-book-title-trigger" data-ui-action="open-book-details" data-book-id="${escapeHtml(book.id)}">${escapeHtml(book.title)}</button></h3>
         <p>${escapeHtml(bookAuthor(book))}</p>
         ${list ? renderBookReading(book.id, snapshot) : ""}
         <div class="library-book-meta"><span>${escapeHtml(bookPublishedYear(book))}</span><span>${escapeHtml(book.format.toLocaleUpperCase())}</span><span>${escapeHtml(formatCatalogBytes(book.size))}</span></div>
-        <div class="library-tags">${actions.favorite.active ? "<span>★ Favorite</span>" : ""}${actions.wantToRead.active ? "<span>Want to read</span>" : ""}${book.subjects.slice(0, 2).map((subject) => `<span>${escapeHtml(subject)}</span>`).join("")}${book.series ? `<button type="button" data-ui-action="open-series" data-series-key="${escapeHtml(canonicalSeriesKey(book.series))}" title="Open ${escapeHtml(book.series)} in reading order">${escapeHtml(book.series)}</button>` : ""}${book.metadataEdited ? "<span>Metadata edited</span>" : ""}${book.coverEdited ? "<span>Custom cover</span>" : ""}${status === "possible" ? "<span>Possible Kindle match</span>" : ""}${currentUnknown ? "<span>Kindle presence unknown</span>" : ""}</div>
+        <div class="library-tags">${actions.favorite.active ? "<span>★ Favorite</span>" : ""}${actions.wantToRead.active ? "<span>Want to read</span>" : ""}${book.subjects.slice(0, 2).map((subject) => `<span>${escapeHtml(subject)}</span>`).join("")}${book.series ? `<button type="button" data-ui-action="open-series" data-series-key="${escapeHtml(canonicalSeriesKey(book.series))}" title="Open ${escapeHtml(book.series)} in reading order">${escapeHtml(book.series)}</button>` : ""}${book.metadataEdited ? "<span>Metadata edited</span>" : ""}${book.coverEdited ? "<span>Custom cover</span>" : ""}${status === "possible" ? `<span>Possible ${readerName(snapshot)} match</span>` : ""}${currentUnknown ? `<span>${readerName(snapshot)} presence unknown</span>` : ""}</div>
       </div>
       <div class="library-card-actions">${renderInlineSend(book, snapshot) || `<button type="button" class="library-send-button${confirmed ? " installed" : ""}${disconnectedQueuePrimary ? " queue" : ""}" data-ui-action="${primaryAction}" data-book-id="${escapeHtml(book.id)}"${primaryEnabled ? "" : ` disabled title="${escapeHtml(primaryReason ?? "Unavailable")}"`}>${libraryIcon(confirmed ? "check" : disconnectedQueuePrimary ? "queue" : "send")}<span>${escapeHtml(primaryLabel)}</span></button>`}${renderBookMenu(book, snapshot, state)}</div>
     </article>
@@ -324,7 +347,7 @@ function renderBulkActions(
   const removableCount = bulk.remove.count;
   const canBulkSend = bulk.send.enabled;
   const canBulkRemove = bulk.remove.enabled;
-  return `<div class="library-bulk-actions" role="toolbar" aria-label="Selected book actions"><div class="library-bulk-selection"><strong>${snapshot.selectedBookIds.size}</strong> selected</div><button type="button" data-ui-action="select-visible-books" aria-pressed="${allSelected}"${busy || books.length === 0 ? " disabled" : ""}>${allSelected ? "Deselect page" : "Select visible"}</button><button type="button" data-ui-action="select-all-filtered"${busy ? " disabled" : ""}>Select all filtered</button><button type="button" data-ui-action="select-all-filtered-missing"${busy ? " disabled" : ""}>Select all missing</button><button type="button" data-ui-action="clear-book-selection"${busy || snapshot.selectedBookIds.size === 0 ? " disabled" : ""}>Clear</button><span class="library-bulk-spacer"></span><label class="library-bulk-provider"><span class="sr-only">Metadata provider</span><select id="bulk-metadata-provider"${busy || snapshot.selectedBookIds.size === 0 ? " disabled" : ""}><option value="open-library">Open Library</option><option value="google-books">Google Books</option><option value="hardcover">Hardcover · series</option></select></label><button type="button" data-ui-action="bulk-find-metadata"${busy || snapshot.selectedBookIds.size === 0 || snapshot.selectedBookIds.size > 100 ? " disabled" : ""}>Find metadata</button><button type="button" data-ui-action="bulk-add-to-queue"${busy || snapshot.selectedBookIds.size === 0 ? " disabled" : ""}>Send later <span>${snapshot.selectedBookIds.size}</span></button><button type="button" class="primary" data-ui-action="bulk-send-to-kindle" data-book-count="${sendableCount}"${canBulkSend ? "" : ` disabled title="${escapeHtml(bulk.send.reason ?? "Unavailable")}"`}>Send to Kindle <span aria-label="${sendableCount} eligible">${sendableCount}</span></button><button type="button" class="danger" data-ui-action="bulk-remove-from-kindle" data-book-count="${removableCount}"${canBulkRemove ? "" : ` disabled title="${escapeHtml(bulk.remove.reason ?? "Unavailable")}"`}>Remove from Kindle <span aria-label="${removableCount} eligible">${removableCount}</span></button></div>`;
+  return `<div class="library-bulk-actions" role="toolbar" aria-label="Selected book actions"><div class="library-bulk-selection"><strong>${snapshot.selectedBookIds.size}</strong> selected</div><button type="button" data-ui-action="select-visible-books" aria-pressed="${allSelected}"${busy || books.length === 0 ? " disabled" : ""}>${allSelected ? "Deselect page" : "Select visible"}</button><button type="button" data-ui-action="select-all-filtered"${busy ? " disabled" : ""}>Select all filtered</button><button type="button" data-ui-action="select-all-filtered-missing"${busy ? " disabled" : ""}>Select all missing</button><button type="button" data-ui-action="clear-book-selection"${busy || snapshot.selectedBookIds.size === 0 ? " disabled" : ""}>Clear</button><span class="library-bulk-spacer"></span><label class="library-bulk-provider"><span class="sr-only">Metadata provider</span><select id="bulk-metadata-provider"${busy || snapshot.selectedBookIds.size === 0 ? " disabled" : ""}><option value="open-library">Open Library</option><option value="google-books">Google Books</option><option value="hardcover">Hardcover · series</option></select></label><button type="button" data-ui-action="bulk-find-metadata"${busy || snapshot.selectedBookIds.size === 0 || snapshot.selectedBookIds.size > 100 ? " disabled" : ""}>Find metadata</button><button type="button" data-ui-action="bulk-add-to-queue"${busy || snapshot.selectedBookIds.size === 0 ? " disabled" : ""}>Send later <span>${snapshot.selectedBookIds.size}</span></button><button type="button" class="primary" data-ui-action="bulk-send-to-kindle" data-book-count="${sendableCount}"${canBulkSend ? "" : ` disabled title="${escapeHtml(bulk.send.reason ?? "Unavailable")}"`}>Send to ${readerName(snapshot)} <span aria-label="${sendableCount} eligible">${sendableCount}</span></button>${isKoboReader(snapshot) ? "" : `<button type="button" class="danger" data-ui-action="bulk-remove-from-kindle" data-book-count="${removableCount}"${canBulkRemove ? "" : ` disabled title="${escapeHtml(bulk.remove.reason ?? "Unavailable")}"`}>Remove from Kindle <span aria-label="${removableCount} eligible">${removableCount}</span></button>`}</div>`;
 }
 
 function renderPagination(snapshot: CatalogBrowserSnapshot): string {
@@ -342,12 +365,12 @@ function resultsEmptyCopy(snapshot: CatalogBrowserSnapshot): readonly [string, s
   }
   const activeShelfNeedsKindle = snapshot.activeShelf?.query.kindleStatus !== undefined;
   const hasCurrentProfileComparison = profile !== undefined
-    && snapshot.kindleStatusCountsByProfile.has(profile.id);
+    && readerCounts(snapshot).has(profile.id);
   if (activeShelfNeedsKindle && !hasCurrentProfileComparison) {
-    return ["Connect to compare", "Connect and scan a Kindle to evaluate this smart shelf for the current library."];
+    return ["Connect to compare", `Connect and scan your ${readerName(snapshot)} to evaluate this smart shelf for the current library.`];
   }
   if (snapshot.filters.view === "on-kindle") {
-    return ["No Kindle matches yet", "Connect and scan a Kindle to compare its Documents with this library."];
+    return isKoboReader(snapshot) ? ["No Kobo matches yet", "Connect your Kobo and choose Check again to compare its books with this library."] : ["No Kindle matches yet", "Connect and scan a Kindle to compare its Documents with this library."];
   }
   return ["No books found", "Try a different search or clear your filters."];
 }
@@ -366,7 +389,7 @@ export function renderLibraryResults(state: AppState, snapshot: CatalogBrowserSn
   }
   const page = snapshot.page;
   // Retained membership is presentation-only; badges and actions still use live evidence.
-  const books = booksForKindleView(page?.items ?? [], snapshot.filters, snapshot.kindleFilterStatuses ?? snapshot.kindleStatus);
+  const books = booksForKindleView(page?.items ?? [], snapshot.filters, isKoboReader(snapshot) ? readerStatuses(snapshot) : snapshot.kindleFilterStatuses ?? snapshot.kindleStatus);
   const summary = snapshot.filters.view === "on-kindle"
     ? `<strong>${books.length}</strong> matched items in these results`
     : `<strong>${page?.total ?? 0}</strong> books`;
@@ -391,12 +414,9 @@ function renderSeriesBrowser(snapshot: CatalogBrowserSnapshot, state: AppState):
   }
   if (detail) {
     const profileId = snapshot.filters.profileId;
-    const comparisonComplete = profileId !== undefined
-      && snapshot.kindleInventory?.completeness === "complete"
-      && snapshot.kindleInventory.matching?.status === "complete"
-      && snapshot.kindleStatusCountsByProfile.has(profileId);
+    const comparisonComplete = readerComparisonComplete(snapshot, profileId);
     const queueable = detail.books.items.filter((book) => bookActionCapabilities(book, state, snapshot).queue.enabled);
-    const missing = queueable.filter((book) => snapshot.kindleStatus.get(book.id) === "not-on-kindle");
+    const missing = queueable.filter((book) => readerStatuses(snapshot).get(book.id) === "not-on-kindle");
     const seriesQueueable = comparisonComplete ? missing : queueable;
     const hints = [
       detail.duplicateIndices.length ? `Duplicate volume numbers: ${detail.duplicateIndices.join(", ")}` : "",
@@ -411,7 +431,7 @@ function renderSeriesBrowser(snapshot: CatalogBrowserSnapshot, state: AppState):
       const rowQueueReason = comparisonComplete && actions.kindleStatus !== "not-on-kindle"
         ? "Only a book confirmed missing by the current Kindle comparison can be queued here"
         : actions.queue.reason;
-      return `<li><span class="series-volume">${escapeHtml(number)}</span><button type="button" class="series-book-cover" data-ui-action="open-book-details" data-book-id="${escapeHtml(book.id)}" aria-label="View details for ${escapeHtml(book.title)}">${renderBookCover(book, actions.kindleStatus, actions.kindleStatus === "unknown" && actions.currentComparison)}</button><div class="series-book-copy"><button type="button" class="series-book-title" data-ui-action="open-book-details" data-book-id="${escapeHtml(book.id)}"><strong>${escapeHtml(book.title)}</strong><small>${escapeHtml(bookAuthor(book))}</small></button><p class="series-book-description">${escapeHtml(book.description?.trim() || "No description available.")}</p><span class="series-source-state" data-available="${actions.sourceAvailable}">${actions.sourceAvailable ? "Source available" : "Source unavailable"}${sourceRoot ? ` · ${escapeHtml(sourceRoot.label)}` : ""}</span></div><div class="series-book-actions"><span class="library-device-match" data-match="${escapeHtml(actions.kindleStatus)}">${actions.kindleStatus === "confirmed" ? "✓ On Kindle" : actions.kindleStatus === "possible" ? "Possible" : actions.kindleStatus === "not-on-kindle" ? "Missing" : "Unknown"}</span><button type="button" data-ui-action="edit-book-metadata" data-book-id="${escapeHtml(book.id)}"${actions.edit.enabled ? "" : ` disabled title="${escapeHtml(actions.edit.reason ?? "Unavailable")}"`}>Edit metadata</button><button type="button" data-ui-action="add-book-to-queue" data-book-id="${escapeHtml(book.id)}"${rowQueueEnabled ? "" : ` disabled title="${escapeHtml(rowQueueReason ?? "Unavailable")}"`}>${escapeHtml(actions.queue.label)}</button></div></li>`;
+      return `<li><span class="series-volume">${escapeHtml(number)}</span><button type="button" class="series-book-cover" data-ui-action="open-book-details" data-book-id="${escapeHtml(book.id)}" aria-label="View details for ${escapeHtml(book.title)}">${renderBookCover(book, actions.kindleStatus, actions.kindleStatus === "unknown" && actions.currentComparison, readerName(snapshot))}</button><div class="series-book-copy"><button type="button" class="series-book-title" data-ui-action="open-book-details" data-book-id="${escapeHtml(book.id)}"><strong>${escapeHtml(book.title)}</strong><small>${escapeHtml(bookAuthor(book))}</small></button><p class="series-book-description">${escapeHtml(book.description?.trim() || "No description available.")}</p><span class="series-source-state" data-available="${actions.sourceAvailable}">${actions.sourceAvailable ? "Source available" : "Source unavailable"}${sourceRoot ? ` · ${escapeHtml(sourceRoot.label)}` : ""}</span></div><div class="series-book-actions"><span class="library-device-match" data-match="${escapeHtml(actions.kindleStatus)}">${actions.kindleStatus === "confirmed" ? "✓ On Kindle" : actions.kindleStatus === "possible" ? "Possible" : actions.kindleStatus === "not-on-kindle" ? "Missing" : "Unknown"}</span><button type="button" data-ui-action="edit-book-metadata" data-book-id="${escapeHtml(book.id)}"${actions.edit.enabled ? "" : ` disabled title="${escapeHtml(actions.edit.reason ?? "Unavailable")}"`}>Edit metadata</button><button type="button" data-ui-action="add-book-to-queue" data-book-id="${escapeHtml(book.id)}"${rowQueueEnabled ? "" : ` disabled title="${escapeHtml(rowQueueReason ?? "Unavailable")}"`}>${escapeHtml(actions.queue.label)}</button></div></li>`;
     }).join("")}</ol></section>`;
   }
   const page = snapshot.seriesPage;
@@ -540,7 +560,9 @@ export function renderOnboarding(snapshot: CatalogBrowserSnapshot, state: AppSta
       ? `<h2>Create your library</h2><p>Give it a name and add a folder in the form below. Use the path inside the container, such as <code>/libraries/books</code>—not a host path or SMB address. Save the library to continue.</p>`
       : wizard.step === "indexing"
         ? `<h2>Your library is being indexed</h2><p>Books appear automatically as the folder is scanned. You can continue while indexing runs.</p><ul>${roots.map((root) => `<li><strong>${escapeHtml(root.label)}</strong>: ${escapeHtml(root.status)}${root.lastErrorCode ? ` — ${escapeHtml(root.lastErrorCode)}` : ""}</li>`).join("")}</ul><p>${snapshot.profiles.find((profile) => profile.id === snapshot.settingsLibraryId)?.bookCount ?? 0} books indexed.</p>`
-        : `<h2>Connect your Kindle — optional</h2><p>${actualDeviceConnected(state) ? "Kindle connected. Connection checks and inventory run automatically; wait for the ready state before sending." : supported ? "Plug your Kindle into this computer, then choose Connect Kindle. You can also finish now and connect later." : "USB transfer needs a supported desktop Chromium browser and HTTPS (or localhost). You can still browse and finish setup here."}</p>${!actualDeviceConnected(state) ? `<button type="button" data-ui-action="connect-catalog-device"${!supported || deviceConnecting(state) ? " disabled" : ""}>${deviceConnecting(state) ? "Connecting…" : "Connect Kindle"}</button>` : ""}`;
+        : isKoboReader(snapshot)
+          ? `<h2>Connect your Kobo — optional</h2><p>${koboReady(snapshot) ? "Kobo connected. You can send EPUBs when setup is finished." : "Finish checking your Kobo in the connection panel above, or finish setup and connect later."}</p>`
+          : `<h2>Connect your e-reader — optional</h2><p>${actualDeviceConnected(state) ? "Kindle connected. Connection checks and inventory run automatically; wait for the ready state before sending." : supported ? "Use Connect Kindle for a Kindle, or Connect Kobo in the top bar for a Kobo mounted as a USB drive. You can also finish now and connect later." : "Reader transfers need a supported desktop Chromium browser and HTTPS (or localhost). You can still browse and finish setup here."}</p>${!actualDeviceConnected(state) ? `<button type="button" data-ui-action="connect-catalog-device"${!supported || deviceConnecting(state) ? " disabled" : ""}>${deviceConnecting(state) ? "Connecting…" : "Connect Kindle"}</button>` : ""}`;
   return `<section class="onboarding-wizard" aria-label="Setup wizard" aria-busy="${Boolean(busy)}"><p class="library-eyebrow">Setup · Step ${steps.indexOf(wizard.step) + 1} of 4</p>${content}${wizard.error ? `<p role="alert">${escapeHtml(wizard.error)}</p>` : ""}<div class="onboarding-actions">${wizard.step !== "library" ? `<button type="button" class="primary" data-ui-action="onboarding-next"${busy ? " disabled" : ""}>${wizard.step === "welcome" ? "Get started" : wizard.step === "kindle" ? "Finish setup" : "Continue"}</button>` : ""}<button type="button" data-ui-action="onboarding-skip"${busy ? " disabled" : ""}>Skip for now</button></div></section>`;
 }
 
@@ -593,9 +615,9 @@ function renderSendPreview(state: AppState, snapshot: CatalogBrowserSnapshot): s
   if (!snapshot.pendingBookId) return "";
   const book = snapshot.pendingBook;
   if (!book) return "";
-  const ready = deviceReadyToSend(state, snapshot);
-  const connected = actualDeviceConnected(state);
-  const connecting = deviceConnecting(state);
+  const ready = readerReadyToSend(state, snapshot);
+  const connected = readerConnected(state, snapshot);
+  const connecting = readerConnecting(state, snapshot);
   const phase = snapshot.sendPhase;
   const transferDone = phase === "complete";
   const batch = snapshot.batchTransfer!;
@@ -614,9 +636,9 @@ function renderSendPreview(state: AppState, snapshot: CatalogBrowserSnapshot): s
       : snapshot.sendBusy
         ? "Transfer in progress…"
         : ready
-          ? "Send to Kindle"
+          ? `Send to ${readerName(snapshot)}`
           : connecting
-            ? "Connecting Kindle…"
+            ? `Connecting ${readerName(snapshot)}…`
             : connected
               ? state.selfTest.kind === "passed" ? "Waiting for Kindle" : "Checking Kindle…"
               : "Connect Kindle";
@@ -630,7 +652,7 @@ function renderSendPreview(state: AppState, snapshot: CatalogBrowserSnapshot): s
       ? "Transfer stopped"
       : book.title;
   const author = batchSucceeded
-    ? "All selected books are on your Kindle."
+    ? isKoboReader(snapshot) ? "All selected books are on your Kobo. Eject it from your computer before unplugging." : "All selected books are on your Kindle."
     : bookAuthor(book);
   const statusTitle = finalizing
     ? "Updating your library…"
@@ -643,7 +665,7 @@ function renderSendPreview(state: AppState, snapshot: CatalogBrowserSnapshot): s
         : phase === "failed"
           ? "Couldn’t send this book"
           : phase === "sending"
-            ? "Sending to Kindle…"
+            ? `Sending to ${readerName(snapshot)}…`
             : phase === "verifying"
               ? "Checking transfer…"
               : "Preparing book…";
@@ -656,7 +678,7 @@ function renderSendPreview(state: AppState, snapshot: CatalogBrowserSnapshot): s
       <div class="library-transfer-status${phase === "failed" ? " failed" : ""}" role="status">
         <div class="library-batch-progress-heading"><strong>${escapeHtml(statusTitle)}</strong><span>${overallProgress}%</span></div>
         <div class="progress-track" role="progressbar" aria-label="Overall batch progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${overallProgress}" aria-valuetext="${batch.verifiedBooks.length} of ${batch.total} books sent${finalizing ? "; updating your library" : `; ${overallProgress}% overall`}"><span style="width:${overallProgress}%"></span></div>
-        <div class="library-batch-progress-detail"><span>${batch.verifiedBooks.length} of ${batch.total} books sent</span>${snapshot.sendBusy ? "<span>Keep your Kindle connected</span>" : ""}</div>
+        <div class="library-batch-progress-detail"><span>${batch.verifiedBooks.length} of ${batch.total} books sent</span>${snapshot.sendBusy ? `<span>Keep your ${readerName(snapshot)} connected</span>` : ""}</div>
         ${phase === "failed" && snapshot.sendMessage ? `<p class="library-batch-error">${escapeHtml(snapshot.sendMessage)}</p>` : ""}
       </div>
       ${renderBatchTransferBooks(snapshot)}
@@ -718,9 +740,7 @@ function renderSendQueue(snapshot: CatalogBrowserSnapshot, state: AppState): str
   if (!queue) {
     return `<div class="library-modal-backdrop" data-ui-action="close-send-queue" aria-hidden="true"></div><aside class="library-queue-sheet" role="dialog" aria-modal="true" aria-labelledby="send-queue-title" tabindex="-1"><button type="button" class="library-sheet-close" data-ui-action="close-send-queue" aria-label="Close Send later">×</button><div class="library-loading-state" role="status"><span></span><strong id="send-queue-title">${snapshot.sendQueueState === "error" ? "Send later unavailable" : "Loading Send later…"}</strong><small>${escapeHtml(snapshot.sendQueueError ?? "Reading the persistent server queue")}</small></div></aside>`;
   }
-  const comparisonComplete = snapshot.kindleInventory?.completeness === "complete"
-    && snapshot.kindleInventory.matching?.status === "complete"
-    && snapshot.kindleStatusCountsByProfile.has(queue.profileId);
+  const comparisonComplete = readerComparisonComplete(snapshot, queue.profileId);
   const actionCapabilitiesByBookId = new Map(queue.entries.flatMap((entry) => (
     entry.book === null
       ? []
@@ -728,18 +748,18 @@ function renderSendQueue(snapshot: CatalogBrowserSnapshot, state: AppState): str
   )));
   const review = buildSendQueueReview({
     queue,
-    kindleStatusByBookId: snapshot.kindleStatus,
+    kindleStatusByBookId: readerStatuses(snapshot),
     actionCapabilitiesByBookId,
     currentComparisonComplete: comparisonComplete,
-    ...(state.device.kind === "ready" ? { freeBytes: state.device.details.freeBytes } : {}),
+    ...(!isKoboReader(snapshot) && state.device.kind === "ready" ? { freeBytes: state.device.details.freeBytes } : {}),
   });
-  const rows = review.items.map((item, index) => `<li data-queue-book-id="${escapeHtml(item.bookId)}"><div><strong>${escapeHtml(item.title)}</strong><small>${item.reason ? escapeHtml(item.reason) : item.preparation === "convert-browser-copy" ? "Ready · browser copy will be converted" : "Ready · Kindle file will be validated"}</small></div><span>${escapeHtml(formatCatalogBytes(item.sourceBytes))}</span><div><button type="button" data-ui-action="move-queue-book" data-book-id="${escapeHtml(item.bookId)}" data-direction="-1" aria-label="Move ${escapeHtml(item.title)} up"${index === 0 || snapshot.sendQueueBusy ? " disabled" : ""}>↑</button><button type="button" data-ui-action="move-queue-book" data-book-id="${escapeHtml(item.bookId)}" data-direction="1" aria-label="Move ${escapeHtml(item.title)} down"${index === review.items.length - 1 || snapshot.sendQueueBusy ? " disabled" : ""}>↓</button><button type="button" data-ui-action="remove-queue-book" data-book-id="${escapeHtml(item.bookId)}"${snapshot.sendQueueBusy ? " disabled" : ""}>Remove</button></div></li>`).join("");
+  const rows = review.items.map((item, index) => `<li data-queue-book-id="${escapeHtml(item.bookId)}"><div><strong>${escapeHtml(item.title)}</strong><small>${item.reason ? escapeHtml(item.reason) : isKoboReader(snapshot) ? "Ready · EPUB copy will be sent directly" : item.preparation === "convert-browser-copy" ? "Ready · browser copy will be converted" : "Ready · Kindle file will be validated"}</small></div><span>${escapeHtml(formatCatalogBytes(item.sourceBytes))}</span><div><button type="button" data-ui-action="move-queue-book" data-book-id="${escapeHtml(item.bookId)}" data-direction="-1" aria-label="Move ${escapeHtml(item.title)} up"${index === 0 || snapshot.sendQueueBusy ? " disabled" : ""}>↑</button><button type="button" data-ui-action="move-queue-book" data-book-id="${escapeHtml(item.bookId)}" data-direction="1" aria-label="Move ${escapeHtml(item.title)} down"${index === review.items.length - 1 || snapshot.sendQueueBusy ? " disabled" : ""}>↓</button><button type="button" data-ui-action="remove-queue-book" data-book-id="${escapeHtml(item.bookId)}"${snapshot.sendQueueBusy ? " disabled" : ""}>Remove</button></div></li>`).join("");
   const capacity = review.fitsApproximateFreeSpace === undefined
-    ? "Connect a Kindle to estimate capacity."
+    ? isKoboReader(snapshot) ? "Your browser cannot report the Kobo’s free space." : "Connect a Kindle to estimate capacity."
     : review.fitsApproximateFreeSpace
       ? "Approximately enough free space."
       : "The source-byte estimate exceeds current free space.";
-  return `<div class="library-modal-backdrop"${snapshot.sendQueueBusy ? "" : ' data-ui-action="close-send-queue"'} aria-hidden="true"></div><aside class="library-queue-sheet" role="dialog" aria-modal="true" aria-labelledby="send-queue-title" aria-describedby="send-queue-description" tabindex="-1"><button type="button" class="library-sheet-close" data-ui-action="close-send-queue" aria-label="Close Send later"${snapshot.sendQueueBusy ? " disabled" : ""}>×</button><header><div class="library-sheet-eyebrow">Persistent queue</div><h2 id="send-queue-title">Send later</h2><p id="send-queue-description">Review books before connecting a Kindle. Queue state is saved on this server.</p></header>${snapshot.sendQueueError ? `<div class="metadata-editor-error" role="alert"><strong>Queue action failed</strong><span>${escapeHtml(snapshot.sendQueueError)}</span></div>` : ""}${rows ? `<ol class="library-queue-list">${rows}</ol>` : '<div class="library-empty-state compact"><span aria-hidden="true">✓</span><h3>Nothing waiting</h3><p>Add books while browsing and they will stay here until verified on a Kindle.</p></div>'}<div class="library-queue-totals"><span><strong>${review.items.length}</strong> queued</span><span><strong>${escapeHtml(formatCatalogBytes(review.totalSourceBytes))}</strong> source bytes</span><span><strong>Approximate transfer size</strong> ${escapeHtml(formatCatalogBytes(review.approximateTransferBytes))}${review.conversionSizeUncertain ? " · EPUB conversion can change it" : ""}</span><small>${escapeHtml(capacity)} This is an estimate, not a reservation.</small></div><footer><button type="button" class="danger" data-ui-action="clear-send-queue"${queue.entries.length === 0 || snapshot.sendQueueBusy ? " disabled" : ""}>Clear</button><button type="button" class="primary" data-ui-action="send-queued-books"${review.eligibleBookIds.length === 0 ? " disabled" : ""}>Send ${review.eligibleBookIds.length} eligible</button></footer></aside>`;
+  return `<div class="library-modal-backdrop"${snapshot.sendQueueBusy ? "" : ' data-ui-action="close-send-queue"'} aria-hidden="true"></div><aside class="library-queue-sheet" role="dialog" aria-modal="true" aria-labelledby="send-queue-title" aria-describedby="send-queue-description" tabindex="-1"><button type="button" class="library-sheet-close" data-ui-action="close-send-queue" aria-label="Close Send later"${snapshot.sendQueueBusy ? " disabled" : ""}>×</button><header><div class="library-sheet-eyebrow">Persistent queue</div><h2 id="send-queue-title">Send later</h2><p id="send-queue-description">Review books before sending to your ${readerName(snapshot)}. Queue state is saved on this server.</p></header>${snapshot.sendQueueError ? `<div class="metadata-editor-error" role="alert"><strong>Queue action failed</strong><span>${escapeHtml(snapshot.sendQueueError)}</span></div>` : ""}${rows ? `<ol class="library-queue-list">${rows}</ol>` : `<div class="library-empty-state compact"><span aria-hidden="true">✓</span><h3>Nothing waiting</h3><p>Add books while browsing and they will stay here until verified on your ${readerName(snapshot)}.</p></div>`}<div class="library-queue-totals"><span><strong>${review.items.length}</strong> queued</span><span><strong>${escapeHtml(formatCatalogBytes(review.totalSourceBytes))}</strong> source bytes</span><span><strong>Approximate transfer size</strong> ${escapeHtml(formatCatalogBytes(review.approximateTransferBytes))}${!isKoboReader(snapshot) && review.conversionSizeUncertain ? " · EPUB conversion can change it" : ""}</span><small>${escapeHtml(capacity)} This is an estimate, not a reservation.</small></div><footer><button type="button" class="danger" data-ui-action="clear-send-queue"${queue.entries.length === 0 || snapshot.sendQueueBusy ? " disabled" : ""}>Clear</button><button type="button" class="primary" data-ui-action="send-queued-books"${review.eligibleBookIds.length === 0 ? " disabled" : ""}>Send ${review.eligibleBookIds.length} eligible</button></footer></aside>`;
 }
 
 function renderShelfManager(snapshot: CatalogBrowserSnapshot): string {
@@ -1002,7 +1022,9 @@ function renderMetadataEditor(snapshot: CatalogBrowserSnapshot, state: AppState)
   const mutationDisabled = editor.busy || !data.book.contentHash;
   const update = bookActionCapabilities(data.book, state, snapshot).update;
   const editedPresentation = data.book.metadataEdited === true || data.book.coverEdited === true;
-  const updateNote = editedPresentation
+  const updateNote = isKoboReader(snapshot)
+    ? '<div class="metadata-existing-copy-note" role="note"><strong>Library originals stay unchanged.</strong><span>Edits apply to new EPUB copies sent to Kobo. Existing Kobo copies are not replaced.</span></div>'
+    : editedPresentation
     ? `<div class="metadata-existing-copy-note" role="note"><strong>${update.enabled ? "Edited EPUB ready to update" : "Kindle update unavailable"}</strong><span>${update.enabled ? `Replace <code>${escapeHtml(update.priorFilename ?? "the prior managed copy")}</code> through the guarded upload-first flow.` : escapeHtml(update.reason ?? "Connect and complete a current Kindle comparison first.")}</span>${update.enabled ? `<button type="button" data-ui-action="update-book-on-kindle" data-book-id="${escapeHtml(data.book.id)}">Update Kindle copy</button>` : ""}</div>`
     : '<div class="metadata-existing-copy-note" role="note"><strong>Library originals are never rewritten.</strong><span>Save an EPUB metadata or cover edit first. A guarded Update Kindle copy action appears when exactly one prior ShelfSend-managed presentation is connected.</span></div>';
   const formatNotice = data.book.format.toLocaleLowerCase() === "azw3"
@@ -1104,20 +1126,20 @@ function renderBookDetails(snapshot: CatalogBrowserSnapshot, state: AppState): s
   const source = data && "source" in data ? data.source : undefined;
   const latestDelivery = data && "latestVerifiedDelivery" in data ? data.latestVerifiedDelivery : undefined;
   const coverUrl = sameOriginCoverUrl(book);
-  const kindleItems = snapshot.kindleInventory?.items.filter((item) => item.bookId === book.id) ?? [];
+  const kindleItems = isKoboReader(snapshot) ? [] : snapshot.kindleInventory?.items.filter((item) => item.bookId === book.id) ?? [];
   const kindleLabel = actions.kindleStatus === "confirmed"
-    ? "Confirmed on this Kindle"
+    ? `Confirmed on this ${readerName(snapshot)}`
     : actions.kindleStatus === "possible"
-      ? "Possible Kindle match"
+      ? `Possible ${readerName(snapshot)} match`
       : actions.kindleStatus === "not-on-kindle"
-        ? "Not on this Kindle"
-        : "Kindle presence unknown";
-  const queuePrimary = !actualDeviceConnected(state) && (actions.queue.enabled || actions.queue.queued);
+        ? `Not on this ${readerName(snapshot)}`
+        : `${readerName(snapshot)} presence unknown`;
+  const queuePrimary = !readerConnected(state, snapshot) && (actions.queue.enabled || actions.queue.queued);
   const primaryAction = queuePrimary ? "add-book-to-queue" : "send-book";
   const primaryEnabled = queuePrimary ? actions.queue.enabled : actions.send.enabled;
   const primaryLabel = queuePrimary ? actions.queue.label : actions.send.label;
   const primaryReason = queuePrimary ? actions.queue.reason : actions.send.reason;
-  const updateAction = book.metadataEdited || book.coverEdited
+  const updateAction = !isKoboReader(snapshot) && (book.metadataEdited || book.coverEdited)
     ? `<button type="button" data-ui-action="update-book-on-kindle" data-book-id="${escapeHtml(book.id)}"${actions.update.enabled ? "" : ` disabled title="${escapeHtml(actions.update.reason ?? "Unavailable")}"`}>Update Kindle copy</button>`
     : "";
   const field = (key: keyof BookMetadataOverrides, label: string, value: string | number | undefined): string => {
@@ -1138,14 +1160,14 @@ function renderBookDetails(snapshot: CatalogBrowserSnapshot, state: AppState): s
   ].join("");
   return `<div class="library-modal-backdrop" data-ui-action="close-book-details" aria-hidden="true"></div><aside class="library-book-details-sheet" role="dialog" aria-modal="true" aria-labelledby="book-details-title" aria-describedby="book-details-subtitle" tabindex="-1">
     <button type="button" class="library-sheet-close" data-ui-action="close-book-details" aria-label="Close book details">×</button>
-    <div class="book-details-hero"><div class="book-details-cover">${coverUrl ? `<img src="${escapeHtml(coverUrl)}" alt="Cover of ${escapeHtml(book.title)}" data-library-cover-image />` : renderBookCover(book, actions.kindleStatus, actions.kindleStatus === "unknown" && actions.currentComparison)}</div><div><div class="library-sheet-eyebrow">Effective catalog presentation</div><h2 id="book-details-title">${escapeHtml(book.title)}</h2><p id="book-details-subtitle">${escapeHtml(bookAuthor(book))}</p><div class="book-details-badges"><span>${escapeHtml(book.format.toLocaleUpperCase())}</span>${book.metadataEdited ? "<span>Metadata edited</span>" : ""}${book.coverEdited ? "<span>Custom cover</span>" : ""}${data?.sourceChanged ? "<span class=\"warning\">Source changed</span>" : ""}</div></div></div>
+    <div class="book-details-hero"><div class="book-details-cover">${coverUrl ? `<img src="${escapeHtml(coverUrl)}" alt="Cover of ${escapeHtml(book.title)}" data-library-cover-image />` : renderBookCover(book, actions.kindleStatus, actions.kindleStatus === "unknown" && actions.currentComparison, readerName(snapshot))}</div><div><div class="library-sheet-eyebrow">Effective catalog presentation</div><h2 id="book-details-title">${escapeHtml(book.title)}</h2><p id="book-details-subtitle">${escapeHtml(bookAuthor(book))}</p><div class="book-details-badges"><span>${escapeHtml(book.format.toLocaleUpperCase())}</span>${book.metadataEdited ? "<span>Metadata edited</span>" : ""}${book.coverEdited ? "<span>Custom cover</span>" : ""}${data?.sourceChanged ? "<span class=\"warning\">Source changed</span>" : ""}</div></div></div>
     ${details.error ? `<div class="book-details-warning" role="status">Some source-versus-override details could not be loaded: ${escapeHtml(details.error)}</div>` : ""}
     ${renderHardcoverDiscovery(snapshot)}
     <section class="book-details-section" aria-labelledby="book-details-metadata"><h3 id="book-details-metadata">Book information</h3><dl class="book-details-metadata">${field("authors", "Authors", book.authors.join(", "))}${field("authorSort", "Author sort", book.authorSort)}${field("series", "Series", book.series)}${field("seriesIndex", "Series number", book.seriesIndex)}${field("publisher", "Publisher", book.publisher)}${field("publishedAt", "Published", book.publishedAt)}${field("language", "Language", book.language)}${field("identifiers", "Identifiers", book.identifiers.join(", "))}</dl>${book.description ? `<p class="book-details-description">${escapeHtml(book.description)}</p>` : ""}${filterButtons ? `<div class="book-details-filters" aria-label="Browse related books">${filterButtons}</div>` : ""}</section>
     <section class="book-details-section" aria-labelledby="book-details-source"><h3 id="book-details-source">Read-only source</h3><dl class="book-details-metadata"><div><dt>Folder</dt><dd>${escapeHtml(source?.rootLabel ?? root?.label ?? "Unknown folder")}</dd></div><div><dt>Container path</dt><dd><code>${escapeHtml(source?.rootPath ?? root?.path ?? "Unavailable")}</code></dd></div><div><dt>Source file</dt><dd><code>${escapeHtml(source?.relativePath ?? book.sourceFilename)}</code></dd></div><div><dt>File size</dt><dd>${escapeHtml(formatCatalogBytes(book.size))}</dd></div><div><dt>Source status</dt><dd>${source ? `${source.available ? "Available" : "Unavailable"} · ${source.rootStatus.replaceAll("_", " ")}` : actions.sourceAvailable ? "Available" : "Unavailable"}</dd></div>${source?.rootLastScanAt ? `<div><dt>Last source scan</dt><dd>${escapeHtml(relativeScanTime(source.rootLastScanAt))}</dd></div>` : ""}${source?.rootLastErrorCode ? `<div><dt>Source issue</dt><dd>${escapeHtml(source.rootLastErrorCode.replaceAll("_", " "))}</dd></div>` : ""}</dl>${data ? `<details class="book-details-source-metadata"><summary>Source metadata</summary><dl class="book-details-metadata">${sourceField("Title", data.sourceMetadata.title)}${sourceField("Authors", data.sourceMetadata.authors)}${sourceField("Author sort", data.sourceMetadata.authorSort)}${sourceField("Series", data.sourceMetadata.series)}${sourceField("Series number", data.sourceMetadata.seriesIndex)}${sourceField("Publisher", data.sourceMetadata.publisher)}${sourceField("Published", data.sourceMetadata.publishedAt)}${sourceField("Language", data.sourceMetadata.language)}${sourceField("Subjects", data.sourceMetadata.subjects)}${sourceField("Identifiers", data.sourceMetadata.identifiers)}</dl></details>` : ""}<p class="book-details-provenance">${data ? `${Object.keys(data.overrides).length} metadata override${Object.keys(data.overrides).length === 1 ? "" : "s"}; source revision ${data.revision}.` : "Showing effective catalog metadata; detailed source provenance is unavailable on this server."} The original file is never modified.</p></section>
-    <section class="book-details-section" aria-labelledby="book-details-kindle"><h3 id="book-details-kindle">Kindle comparison</h3><p class="book-details-kindle-status" data-status="${escapeHtml(actions.kindleStatus)}">${escapeHtml(kindleLabel)}</p>${kindleItems.length ? `<ul class="book-details-kindle-files">${kindleItems.map((item) => `<li><span><strong>${escapeHtml(item.title ?? item.filename)}</strong><code>${escapeHtml(item.filename)}</code></span><small>${escapeHtml(formatCatalogBytes(item.size))} · ${item.managed ? "ShelfSend transfer" : "Existing device file"}</small>${actions.kindleStatus === "possible" ? `<button type="button" data-ui-action="open-match-review" data-item-id="${escapeHtml(item.id)}" data-book-id="${escapeHtml(book.id)}"${actions.matchReview.enabled ? "" : ` disabled title="${escapeHtml(actions.matchReview.reason ?? "Unavailable")}"`}>Review match</button>` : ""}</li>`).join("")}</ul>` : `<p class="book-details-provenance">${snapshot.kindleInventory ? `No associated object in the inventory scanned ${escapeHtml(relativeScanTime(snapshot.kindleInventory.scannedAt))}.` : "Connect a Kindle to compare this title with its Documents."}</p>${actions.kindleStatus === "possible" ? `<button type="button" data-ui-action="open-match-review" data-item-id="${escapeHtml(catalogPossibleMatchReviewId(book.id))}" data-book-id="${escapeHtml(book.id)}"${actions.matchReview.enabled ? "" : ` disabled title="${escapeHtml(actions.matchReview.reason ?? "Unavailable")}"`}>Why is this a possible match?</button>` : ""}`}${latestDelivery ? `<div class="book-details-last-delivery"><strong>Last verified transfer</strong><span>${escapeHtml(latestDelivery.filename ?? "Recorded ShelfSend transfer")} · ${latestDelivery.size === undefined ? "size not recorded" : escapeHtml(formatCatalogBytes(latestDelivery.size))} · ${escapeHtml(relativeScanTime(latestDelivery.deliveredAt))}</span><small>${latestDelivery.currentPresentation ? "Matches the current catalog presentation" : "A prior catalog presentation; use Update Kindle copy after connecting"}</small></div>` : ""}</section>
-    ${renderRecordedReadingData(book.id, snapshot.kindleInventory)}
-    <footer class="book-details-actions"><button type="button" class="primary" data-ui-action="${primaryAction}" data-book-id="${escapeHtml(book.id)}"${primaryEnabled ? "" : ` disabled title="${escapeHtml(primaryReason ?? "Unavailable")}"`}>${escapeHtml(primaryLabel)}</button>${updateAction}<button type="button" data-ui-action="edit-book-metadata" data-book-id="${escapeHtml(book.id)}"${actions.edit.enabled ? "" : " disabled"}>Edit metadata &amp; cover</button><button type="button" class="danger" data-ui-action="remove-book-from-kindle" data-book-id="${escapeHtml(book.id)}"${actions.remove.enabled ? "" : ` disabled title="${escapeHtml(actions.remove.reason ?? "Unavailable")}"`}>Remove from Kindle</button></footer>
+    ${isKoboReader(snapshot) ? `<section class="book-details-section" aria-labelledby="book-details-kobo"><h3 id="book-details-kobo">Kobo comparison</h3><p class="book-details-kindle-status" data-status="${escapeHtml(actions.kindleStatus)}">${escapeHtml(kindleLabel)}</p><p class="book-details-provenance">${actions.kindleStatus === "confirmed" ? "An exact matching copy was found on the connected Kobo." : actions.kindleStatus === "possible" ? "A similar file is on your Kobo. ShelfSend will not send a duplicate until its presence can be verified." : "EPUBs are sent directly. Existing Kobo books are never replaced or removed."}</p></section>` : `<section class="book-details-section" aria-labelledby="book-details-kindle"><h3 id="book-details-kindle">Kindle comparison</h3><p class="book-details-kindle-status" data-status="${escapeHtml(actions.kindleStatus)}">${escapeHtml(kindleLabel)}</p>${kindleItems.length ? `<ul class="book-details-kindle-files">${kindleItems.map((item) => `<li><span><strong>${escapeHtml(item.title ?? item.filename)}</strong><code>${escapeHtml(item.filename)}</code></span><small>${escapeHtml(formatCatalogBytes(item.size))} · ${item.managed ? "ShelfSend transfer" : "Existing device file"}</small>${!isKoboReader(snapshot) && actions.kindleStatus === "possible" ? `<button type="button" data-ui-action="open-match-review" data-item-id="${escapeHtml(item.id)}" data-book-id="${escapeHtml(book.id)}"${actions.matchReview.enabled ? "" : ` disabled title="${escapeHtml(actions.matchReview.reason ?? "Unavailable")}"`}>Review match</button>` : ""}</li>`).join("")}</ul>` : `<p class="book-details-provenance">${snapshot.kindleInventory ? `No associated object in the inventory scanned ${escapeHtml(relativeScanTime(snapshot.kindleInventory.scannedAt))}.` : "Connect a Kindle to compare this title with its Documents."}</p>${!isKoboReader(snapshot) && actions.kindleStatus === "possible" ? `<button type="button" data-ui-action="open-match-review" data-item-id="${escapeHtml(catalogPossibleMatchReviewId(book.id))}" data-book-id="${escapeHtml(book.id)}"${actions.matchReview.enabled ? "" : ` disabled title="${escapeHtml(actions.matchReview.reason ?? "Unavailable")}"`}>Why is this a possible match?</button>` : ""}`}${latestDelivery ? `<div class="book-details-last-delivery"><strong>Last verified transfer</strong><span>${escapeHtml(latestDelivery.filename ?? "Recorded ShelfSend transfer")} · ${latestDelivery.size === undefined ? "size not recorded" : escapeHtml(formatCatalogBytes(latestDelivery.size))} · ${escapeHtml(relativeScanTime(latestDelivery.deliveredAt))}</span><small>${latestDelivery.currentPresentation ? "Matches the current catalog presentation" : "A prior catalog presentation; use Update Kindle copy after connecting"}</small></div>` : ""}</section>`}
+    ${isKoboReader(snapshot) ? "" : renderRecordedReadingData(book.id, snapshot.kindleInventory)}
+    <footer class="book-details-actions"><button type="button" class="primary" data-ui-action="${primaryAction}" data-book-id="${escapeHtml(book.id)}"${primaryEnabled ? "" : ` disabled title="${escapeHtml(primaryReason ?? "Unavailable")}"`}>${escapeHtml(primaryLabel)}</button>${updateAction}<button type="button" data-ui-action="edit-book-metadata" data-book-id="${escapeHtml(book.id)}"${actions.edit.enabled ? "" : " disabled"}>Edit metadata &amp; cover</button>${isKoboReader(snapshot) ? "" : `<button type="button" class="danger" data-ui-action="remove-book-from-kindle" data-book-id="${escapeHtml(book.id)}"${actions.remove.enabled ? "" : ` disabled title="${escapeHtml(actions.remove.reason ?? "Unavailable")}"`}>Remove from Kindle</button>`}</footer>
   </aside>`;
 }
 
@@ -1231,6 +1253,10 @@ function activityActionAttributes(
 
 function renderActivityCenter(state: AppState, snapshot: CatalogBrowserSnapshot): string {
   if (!snapshot.activityOpen) return "";
+  if (isKoboReader(snapshot)) {
+    const phase = snapshot.sendBusy ? "Transfer in progress" : koboReady(snapshot) ? "Ready to send EPUBs" : "Check your Kobo connection";
+    return `<div class="library-modal-backdrop" data-ui-action="close-activity-center" aria-hidden="true"></div><aside class="library-activity-sheet" role="dialog" aria-modal="true" aria-labelledby="activity-center-title" tabindex="-1"><button type="button" class="library-sheet-close" data-ui-action="close-activity-center" aria-label="Close activity center">×</button><header><div class="library-sheet-eyebrow">Kobo</div><h2 id="activity-center-title">Activity &amp; device</h2><p>${phase}</p></header>${renderKoboDevicePanel(snapshot)}${snapshot.sendBusy && snapshot.pendingBook ? `<section class="book-details-section"><strong>${escapeHtml(snapshot.pendingBook.title)}</strong><p>${escapeHtml(snapshot.sendMessage ?? "Sending to Kobo…")}</p><div class="progress-track" role="progressbar" aria-label="Current book progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(snapshot.sendProgress ?? 0)}"><span style="width:${Math.round(snapshot.sendProgress ?? 0)}%"></span></div></section>` : ""}<section class="book-details-section"><h3>Recent activity</h3>${snapshot.activityEvents.slice(0, 20).map((event) => `<p><strong>${escapeHtml(event.title)}</strong>${event.detail ? `<br><small>${escapeHtml(event.detail)}</small>` : ""}</p>`).join("") || "<p>No recent activity.</p>"}</section><button type="button" data-ui-action="open-send-queue">Open Send later</button></aside>`;
+  }
   const status = projectKindleBridgeActivityCenter(state, snapshot);
   const history = buildKindleBridgeActivityHistory(snapshot.activityEvents, status.phase);
   const phaseLabel = `${status.phase.replaceAll("-", " ").replace(/^./u, (letter) => letter.toLocaleUpperCase())}${status.newlyIndexed ? ` · ${status.newlyIndexed} newly indexed` : ""}`;
@@ -1253,13 +1279,13 @@ function renderToolbar(snapshot: CatalogBrowserSnapshot): string {
     <label class="library-search"><span class="sr-only">Search books</span><span aria-hidden="true">${libraryIcon("search")}</span><input id="library-search" type="search" value="${escapeHtml(ui.query)}" placeholder="Search title, author, series, subject, or ISBN…" autocomplete="off" /></label>
     <details class="library-more-filters"><summary>${libraryIcon("settings")} Filters</summary><div>    <label><span>author</span><input id="library-author" list="library-author-options" value="${escapeHtml(ui.author === "all" ? "" : ui.author)}" placeholder="All authors" autocomplete="off" />${renderDatalist("library-author-options", facets.authors)}</label>
     <label><span>language</span><select id="library-language">${renderOptions(facets.languages, ui.language, "All languages")}</select></label>
-    <label><span>Kindle status</span><select id="library-kindle-filter"><option value="all"${ui.kindle === "all" ? " selected" : ""}>Any Kindle status</option><option value="on-kindle"${ui.kindle === "on-kindle" ? " selected" : ""}>On Kindle</option><option value="not-on-kindle"${ui.kindle === "not-on-kindle" ? " selected" : ""}>Not on Kindle</option><option value="possible"${ui.kindle === "possible" ? " selected" : ""}>Possible match</option><option value="unknown"${ui.kindle === "unknown" ? " selected" : ""}>Not yet compared</option></select></label>
-    ${snapshot.readingEnabled ? `<label><span>Reading status</span><select id="library-reading-filter">${[["any","Any reading status"],["unread","Unread"],["in-progress","In progress"],["read","Read"],["unknown","Unknown"]].map(([value,label]) => `<option value="${value}"${(snapshot.readingFilter ?? "any") === value ? " selected" : ""}>${label}</option>`).join("")}</select></label>` : ""}
+    <label><span>${readerName(snapshot)} status</span><select id="library-kindle-filter"><option value="all"${ui.kindle === "all" ? " selected" : ""}>Any ${readerName(snapshot)} status</option><option value="on-kindle"${ui.kindle === "on-kindle" ? " selected" : ""}>On ${readerName(snapshot)}</option><option value="not-on-kindle"${ui.kindle === "not-on-kindle" ? " selected" : ""}>Not on ${readerName(snapshot)}</option><option value="possible"${ui.kindle === "possible" ? " selected" : ""}>Possible match</option><option value="unknown"${ui.kindle === "unknown" ? " selected" : ""}>Not yet compared</option></select></label>
+    ${snapshot.readingEnabled && !isKoboReader(snapshot) ? `<label><span>Reading status</span><select id="library-reading-filter">${[["any","Any reading status"],["unread","Unread"],["in-progress","In progress"],["read","Read"],["unknown","Unknown"]].map(([value,label]) => `<option value="${value}"${(snapshot.readingFilter ?? "any") === value ? " selected" : ""}>${label}</option>`).join("")}</select></label>` : ""}
 
 <label><span>Subject</span><input id="library-subject" list="library-subject-options" value="${escapeHtml(ui.subject === "all" ? "" : ui.subject)}" placeholder="All subjects" autocomplete="off" />${renderDatalist("library-subject-options", facets.subjects)}</label><label><span>Publisher</span><input id="library-publisher" list="library-publisher-options" value="${escapeHtml(ui.publisher === "all" ? "" : ui.publisher)}" placeholder="All publishers" autocomplete="off" />${renderDatalist("library-publisher-options", facets.publishers)}</label><label><span>Series</span><input id="library-series" list="library-series-options" value="${escapeHtml(ui.series === "all" ? "" : ui.series)}" placeholder="All series" autocomplete="off" />${renderDatalist("library-series-options", facets.series)}</label><label><span>Publication year</span><select id="library-year">${renderOptions(facets.years, ui.year, "All years")}</select></label><label><span>Format</span><select id="library-format">${renderOptions(facets.formats, ui.format, "All formats")}</select></label><label><span>Source folder</span><select id="library-root-filter">${renderOptions(facets.roots, ui.rootId, "All folders")}</select></label><label><span>Metadata</span><select id="library-metadata"><option value="all"${ui.metadata === "all" ? " selected" : ""}>Any metadata</option><option value="complete"${ui.metadata === "complete" ? " selected" : ""}>Complete metadata</option><option value="partial"${ui.metadata === "partial" ? " selected" : ""}>Missing metadata</option></select></label></div></details>
         <label><span class="sr-only">Sort books</span><select id="library-sort"${ui.view === "recent" ? " disabled" : ""}><option value="recent"${displayedSort === "recent" ? " selected" : ""}>Added newest</option><option value="title"${displayedSort === "title" ? " selected" : ""}>Title A–Z</option><option value="author"${displayedSort === "author" ? " selected" : ""}>Author A–Z</option><option value="series"${displayedSort === "series" ? " selected" : ""}>Series A–Z</option><option value="series-index"${displayedSort === "series-index" ? " selected" : ""}>Series reading order</option><option value="published"${displayedSort === "published" ? " selected" : ""}>Publication date</option><option value="size"${displayedSort === "size" ? " selected" : ""}>File size</option></select></label>
   </section>
-  <nav class="library-quick-tabs" aria-label="Quick Kindle filters">${([["all", "All books"], ["on-kindle", "On Kindle"], ["not-on-kindle", "Not on Kindle"]] as const).map(([value, label]) => `<button type="button" data-ui-kindle-filter="${value}" aria-pressed="${ui.kindle === value}">${label}</button>`).join("")}
+  <nav class="library-quick-tabs" aria-label="Quick ${readerName(snapshot)} filters">${([["all", "All books"], ["on-kindle", `On ${readerName(snapshot)}`], ["not-on-kindle", `Not on ${readerName(snapshot)}`]] as const).map(([value, label]) => `<button type="button" data-ui-kindle-filter="${value}" aria-pressed="${ui.kindle === value}">${label}</button>`).join("")}
   </nav>`;
 }
 
@@ -1323,40 +1349,39 @@ export function renderLibraryPrototype(
   const counts = countLibraryBooks(
     profile,
     snapshot.page,
-    snapshot.kindleStatus,
-    snapshot.kindleStatusCountsByProfile,
+    readerStatuses(snapshot),
+    readerCounts(snapshot),
   );
-  const connected = actualDeviceConnected(state);
-  const connecting = deviceConnecting(state);
+  const connected = readerConnected(state, snapshot);
+  const connecting = readerConnecting(state, snapshot);
   const disconnecting = deviceDisconnecting(state);
   const webUsbUsable = state.secureContext && state.webUsbAvailable;
-  const compatibilityNotice = webUsbUsable
+  const compatibilityNotice = webUsbUsable || isKoboReader(snapshot)
     ? ""
     : `<div class="notice warning library-compatibility-notice" role="status"><div><strong>Kindle connection unavailable</strong>${state.secureContext
       ? "Use Chrome or another WebUSB-compatible Chromium browser."
       : "Open ShelfSend over trusted HTTPS or localhost."} Browsing, metadata editing, and Send later remain available.</div></div>`;
-  const visibleTopAlerts = `${topAlertsHtml}${compatibilityNotice}`;
+  const visibleTopAlerts = `${topAlertsHtml}${compatibilityNotice}${isKoboReader(snapshot) ? renderKoboDevicePanel(snapshot) : ""}`;
   const safeWritePassed = state.selfTest.kind === "passed";
-  const ready = deviceReadyToSend(state, snapshot);
-  const currentComparison = connected
-    && state.catalogInventoryState === "ready"
-    && currentKindleComparison(snapshot);
+  const ready = readerReadyToSend(state, snapshot);
+  const currentComparison = isKoboReader(snapshot) ? koboReady(snapshot) : connected
+    && state.catalogInventoryState === "ready" && currentKindleComparison(snapshot);
   const summaryFilter = (filter: string, count: number, label: string) => `<button type="button" data-ui-summary-filter="${filter}" aria-label="Show ${count} books: ${label}" aria-pressed="${snapshot.filters.kindle === filter && snapshot.filters.view === "all"}"${!currentComparison || snapshot.sendBusy ? " disabled" : ""}><strong>${currentComparison ? count : "—"}</strong><span>${label}</span></button>`;
-  const summary = `${summaryFilter("on-kindle", counts.onKindle, "On Kindle")}${summaryFilter("possible", counts.possible, "Possible matches")}${summaryFilter("not-on-kindle", counts.readyToSend, "Ready to send")}`;
+  const summary = `${summaryFilter("on-kindle", counts.onKindle, `On ${readerName(snapshot)}`)}${summaryFilter("possible", counts.possible, "Possible matches")}${summaryFilter("not-on-kindle", counts.readyToSend, "Ready to send")}`;
   const source = sourceSummary(snapshot);
   const activityStatus = projectKindleBridgeActivityCenter(state, snapshot);
   const activityHistory = buildKindleBridgeActivityHistory(snapshot.activityEvents, activityStatus.phase);
   const activityAttention = activityHistory.needsAttention
     + (snapshot.healthPage?.counts.active ?? 0)
     + activityStatus.replacementCleanupCount;
-  const activityLabel = activityStatus.phase.replaceAll("-", " ").replace(/^./u, (letter) => letter.toLocaleUpperCase());
-  const heading = snapshot.filters.view === "on-kindle" ? "Books on Kindle" : snapshot.filters.view === "recent" ? "Recently added" : profile?.name ?? "Library";
+  const activityLabel = isKoboReader(snapshot) ? snapshot.sendBusy ? "Transferring" : koboReady(snapshot) ? "Ready" : "Checking device" : activityStatus.phase.replaceAll("-", " ").replace(/^./u, (letter) => letter.toLocaleUpperCase());
+  const heading = snapshot.filters.view === "on-kindle" ? `Books on ${readerName(snapshot)}` : snapshot.filters.view === "recent" ? "Recently added" : profile?.name ?? "Library";
   const deviceTitle = disconnecting
     ? "Disconnecting Kindle…"
     : connected
       ? "Kindle connected"
       : connecting
-        ? "Connecting Kindle…"
+        ? `Connecting ${readerName(snapshot)}…`
         : !state.secureContext
           ? "HTTPS required"
           : !state.webUsbAvailable
@@ -1396,8 +1421,11 @@ export function renderLibraryPrototype(
   const kindleConnectionButton = connected
     ? `<button type="button" data-ui-action="disconnect-catalog-device"${disconnectBlocked ? " disabled" : ""}>${disconnecting ? "Disconnecting…" : snapshot.sendBusy ? "Transfer in progress…" : "Disconnect"}</button>`
     : `<button type="button" data-ui-action="connect-catalog-device"${webUsbUsable ? "" : ' disabled aria-disabled="true" title="Kindle connection requires a secure page and a WebUSB-compatible browser"'}>Connect Kindle</button>`;
-  return `<div class="library-workspace"><header class="library-topbar"><span class="library-breadcrumb">Your library <span aria-hidden="true">/</span> ${escapeHtml(profile?.name ?? "Getting started")}</span><div class="library-topbar-status" data-status="${source.tone}" title="${escapeHtml(source.detail)}" role="status"><span class="library-source-dot" aria-hidden="true"></span><span>${escapeHtml(source.title)}</span></div><button type="button" class="library-activity-button" data-ui-action="open-activity-center" aria-expanded="${snapshot.activityOpen}" aria-label="Open activity and device center${activityAttention ? `, ${activityAttention} items need attention` : ""}"><span class="library-source-dot" data-status="${escapeHtml(activityStatus.phase)}"></span><span><strong>${escapeHtml(activityLabel)}</strong><small>Activity${activityAttention ? ` · ${activityAttention}` : ""}</small></span></button><button type="button" class="library-queue-button" data-ui-action="open-send-queue" aria-label="Open Send later queue">${libraryIcon("queue")}<strong>${snapshot.sendQueue?.total ?? 0}</strong><small>Send later</small></button><button type="button" class="library-device-button${connected ? " connected" : ""}" data-ui-action="${connected ? "show-kindle" : "connect-catalog-device"}"${connecting || disconnecting || (!connected && !webUsbUsable) ? " disabled" : ""}><span class="library-device-icon" aria-hidden="true"><img class="library-kindle-photo" src="${kindleDevicePhoto}" alt="" width="32" height="32" /></span><span><strong>${deviceTitle}</strong>${deviceDetail ? `<small>${deviceDetail}</small>` : ""}</span></button></header>
+  const koboButton = isKoboReader(snapshot)
+    ? `<button type="button" class="library-device-button connected" data-ui-action="show-kindle"${connecting || snapshot.sendBusy ? " disabled" : ""}><span class="library-device-icon" aria-hidden="true">${libraryIcon("device")}</span><span><strong>${snapshot.kobo?.status === "ready" ? "Kobo connected" : snapshot.kobo?.status === "scanning" ? "Checking Kobo…" : snapshot.kobo?.status === "connecting" ? "Connecting Kobo…" : "Kobo needs attention"}</strong><small>EPUB · USB drive</small></span></button>`
+    : `<button type="button" class="library-kobo-connect" data-ui-action="connect-kobo"${snapshot.kobo?.supported && !actualDeviceConnected(state) && !deviceConnecting(state) && !snapshot.sendBusy && !snapshot.bulkActionBusy ? "" : ` disabled title="${actualDeviceConnected(state) ? "Disconnect the Kindle before connecting Kobo" : "Kobo needs desktop Chrome or Edge, trusted HTTPS, and a USB-mounted drive"}"`}>Connect Kobo</button>`;
+  return `<div class="library-workspace"><header class="library-topbar"><span class="library-breadcrumb">Your library <span aria-hidden="true">/</span> ${escapeHtml(profile?.name ?? "Getting started")}</span><div class="library-topbar-status" data-status="${source.tone}" title="${escapeHtml(source.detail)}" role="status"><span class="library-source-dot" aria-hidden="true"></span><span>${escapeHtml(source.title)}</span></div><button type="button" class="library-activity-button" data-ui-action="open-activity-center" aria-expanded="${snapshot.activityOpen}" aria-label="Open activity and device center${activityAttention ? `, ${activityAttention} items need attention` : ""}"><span class="library-source-dot" data-status="${escapeHtml(activityStatus.phase)}"></span><span><strong>${escapeHtml(activityLabel)}</strong><small>Activity${activityAttention ? ` · ${activityAttention}` : ""}</small></span></button><button type="button" class="library-queue-button" data-ui-action="open-send-queue" aria-label="Open Send later queue">${libraryIcon("queue")}<strong>${snapshot.sendQueue?.total ?? 0}</strong><small>Send later</small></button>${isKoboReader(snapshot) ? "" : `<button type="button" class="library-device-button${connected ? " connected" : ""}" data-ui-action="${connected ? "show-kindle" : "connect-catalog-device"}"${connecting || disconnecting || snapshot.sendBusy || (!connected && !webUsbUsable) ? " disabled" : ""}><span class="library-device-icon" aria-hidden="true"><img class="library-kindle-photo" src="${kindleDevicePhoto}" alt="" width="32" height="32" /></span><span><strong>${deviceTitle}</strong>${deviceDetail ? `<small>${deviceDetail}</small>` : ""}</span></button>`}${koboButton}</header>
     ${visibleTopAlerts ? `<div class="library-global-alerts">${visibleTopAlerts}</div>` : ""}
     <div class="library-layout" data-density="${escapeHtml(snapshot.density ?? "comfortable")}"><aside class="library-sidebar" aria-label="Library profiles and views"><a class="library-brand" href="#library" aria-label="ShelfSend library home"><span class="library-brand-mark" aria-hidden="true">${libraryIcon("shelfSend")}</span><span><strong>ShelfSend</strong><small>Browser to reader</small></span></a><div class="library-sidebar-label">Libraries</div><div class="library-profile-list">${renderProfileRail(snapshot)}</div><div class="library-sidebar-label library-views-label">Browse</div><nav class="library-nav" aria-label="Library views">${renderLibraryNav(snapshot, connected)}</nav>${renderSmartShelfRail(snapshot)}<div class="library-sidebar-bottom"><button type="button" class="library-nav-item settings${snapshot.filters.view === "settings" ? " active" : ""}" data-ui-view="settings"${snapshot.filters.view === "settings" ? ' aria-current="page"' : ""}>${libraryIcon("settings")}<span>Settings</span></button></div></aside>
-    <main class="library-main" id="library">${renderOnboarding(snapshot, state)}${snapshot.loadState === "error" && snapshot.profiles.length === 0 ? `<div class="library-empty-state library-error-state" role="alert"><span aria-hidden="true">!</span><h1>Catalog service unavailable</h1><p>${escapeHtml(snapshot.error ?? "ShelfSend could not reach its catalog service.")}</p><button type="button" data-ui-action="retry-catalog">Try again</button></div>` : snapshot.filters.view === "settings" ? `${renderLibrarySettings(snapshot)}${settingsDiagnosticsHtml}` : snapshot.filters.view === "series" ? renderSeriesBrowser(snapshot, state) : snapshot.filters.view === "attention" ? renderNeedsAttention(snapshot) : `${renderActiveShelf(snapshot)}<section class="library-hero" aria-labelledby="library-heading"><div><div class="library-eyebrow">${escapeHtml(profile?.description && !/^household collection$/iu.test(profile.description) ? profile.description : "Library")}</div><h1 id="library-heading">${escapeHtml(heading)}</h1><p>${profile?.bookCount ?? 0} books from <strong>${escapeHtml(profile?.sourceLabel ?? "configured sources")}</strong></p></div><div class="library-stat-row" aria-label="Library summary">${summary}</div></section>${snapshot.filters.view === "on-kindle" ? `<section class="library-kindle-summary" aria-label="Kindle summary"><span class="library-kindle-summary-icon" aria-hidden="true"><img class="library-kindle-photo" src="${kindleDevicePhoto}" alt="" width="48" height="44" /></span><div><strong>${disconnecting ? "Disconnecting Kindle" : connected ? "Kindle connected" : "Kindle not connected"}</strong>${kindleSummaryDetail ? `<span>${kindleSummaryDetail}</span>` : ""}</div><div class="library-kindle-summary-stats"><span><strong>${counts.onKindle}</strong> confirmed</span><span><strong>${counts.possible}</strong> possible</span></div>${kindleConnectionButton}</section>` : ""}${renderToolbar(snapshot)}<section class="library-results" aria-live="polite">${renderLibraryResults(state, snapshot)}</section>`}${snapshot.announcement ? `<div class="library-toast" role="status"><span class="library-toast-check">✓</span><span>${escapeHtml(snapshot.announcement)}</span><button type="button" data-ui-action="dismiss-announcement" aria-label="Dismiss notification">×</button></div>` : ""}${renderSendPreview(state, snapshot)}${renderRemovalConfirmation(snapshot)}${renderUpdateConfirmation(snapshot)}${renderMetadataEditor(snapshot, state)}${renderBookDetails(snapshot, state)}${renderMatchReview(snapshot, state)}${renderSendQueue(snapshot, state)}${renderShelfManager(snapshot)}${renderActivityCenter(state, snapshot)}</main></div></div>`;
+    <main class="library-main" id="library">${renderOnboarding(snapshot, state)}${snapshot.loadState === "error" && snapshot.profiles.length === 0 ? `<div class="library-empty-state library-error-state" role="alert"><span aria-hidden="true">!</span><h1>Catalog service unavailable</h1><p>${escapeHtml(snapshot.error ?? "ShelfSend could not reach its catalog service.")}</p><button type="button" data-ui-action="retry-catalog">Try again</button></div>` : snapshot.filters.view === "settings" ? `${renderLibrarySettings(snapshot)}${isKoboReader(snapshot) ? renderKoboDevicePanel(snapshot) : settingsDiagnosticsHtml}` : snapshot.filters.view === "series" ? renderSeriesBrowser(snapshot, state) : snapshot.filters.view === "attention" ? renderNeedsAttention(snapshot) : `${renderActiveShelf(snapshot)}<section class="library-hero" aria-labelledby="library-heading"><div><div class="library-eyebrow">${escapeHtml(profile?.description && !/^household collection$/iu.test(profile.description) ? profile.description : "Library")}</div><h1 id="library-heading">${escapeHtml(heading)}</h1><p>${profile?.bookCount ?? 0} books from <strong>${escapeHtml(profile?.sourceLabel ?? "configured sources")}</strong></p></div><div class="library-stat-row" aria-label="Library summary">${summary}</div></section>${snapshot.filters.view === "on-kindle" && !isKoboReader(snapshot) ? `<section class="library-kindle-summary" aria-label="Kindle summary"><span class="library-kindle-summary-icon" aria-hidden="true"><img class="library-kindle-photo" src="${kindleDevicePhoto}" alt="" width="48" height="44" /></span><div><strong>${disconnecting ? "Disconnecting Kindle" : connected ? "Kindle connected" : "Kindle not connected"}</strong>${kindleSummaryDetail ? `<span>${kindleSummaryDetail}</span>` : ""}</div><div class="library-kindle-summary-stats"><span><strong>${counts.onKindle}</strong> confirmed</span><span><strong>${counts.possible}</strong> possible</span></div>${kindleConnectionButton}</section>` : ""}${renderToolbar(snapshot)}<section class="library-results" aria-live="polite">${renderLibraryResults(state, snapshot)}</section>`}${snapshot.announcement ? `<div class="library-toast" role="status"><span class="library-toast-check">✓</span><span>${escapeHtml(snapshot.announcement)}</span><button type="button" data-ui-action="dismiss-announcement" aria-label="Dismiss notification">×</button></div>` : ""}${renderSendPreview(state, snapshot)}${isKoboReader(snapshot) ? "" : renderRemovalConfirmation(snapshot)}${isKoboReader(snapshot) ? "" : renderUpdateConfirmation(snapshot)}${renderMetadataEditor(snapshot, state)}${renderBookDetails(snapshot, state)}${isKoboReader(snapshot) ? "" : renderMatchReview(snapshot, state)}${renderSendQueue(snapshot, state)}${renderShelfManager(snapshot)}${renderActivityCenter(state, snapshot)}</main></div></div>`;
 }

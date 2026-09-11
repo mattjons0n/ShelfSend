@@ -688,6 +688,130 @@ function rebuildZip(archive: ZipArchive, replacements: ReadonlyMap<string, Repla
   return output;
 }
 
+/**
+ * Validate a plain EPUB before copying it to a reader. This deliberately does
+ * not use boko or execute content. ZIP/control-document work is bounded by the
+ * same catalog envelope; inflation is limited to the small XML control files.
+ * Existing Kindle conversion continues to use its own downstream validator.
+ */
+export async function validateEpubForReader(
+  source: Uint8Array,
+  checkpoint: () => void = () => {},
+): Promise<{ readonly hasObfuscatedFonts: boolean }> {
+  checkpoint();
+  if (source.byteLength === 0 || source.byteLength > MAX_BOOK_SOURCE_BYTES) {
+    malformed("the EPUB is empty or exceeds the 200 MiB source limit");
+  }
+  const eocd = findEndOfCentralDirectory(source);
+  if (uint32(source, eocd + 12) > 24 * 1024 * 1024) {
+    malformed("the EPUB central directory exceeds the 24 MiB limit");
+  }
+  const archive = parseZip(source);
+  let expandedBytes = 0;
+  let nameBytes = 0;
+  for (const entry of archive.entries) {
+    checkpoint();
+    if ((entry.flags & (ENCRYPTED_FLAG | 0x0040 | 0x2000)) !== 0) {
+      malformed("encrypted ZIP entries (DRM) are not supported");
+    }
+    if ((entry.flags & ~(UTF8_FLAG | DATA_DESCRIPTOR_FLAG | 0x0006)) !== 0
+      || (entry.compression !== 0 && entry.compression !== 8)) {
+      malformed("the EPUB uses an unsupported ZIP compression method or flags");
+    }
+    if (entry.nameBytes.byteLength > 2_048
+      || entry.name.split("/").some((part) => part === ".." || part === ".")
+      || /[\u0000-\u001f\u007f]/u.test(entry.name)
+      || /^[a-z][a-z\d+.-]*:/iu.test(entry.name)
+      || ((entry.externalAttributes >>> 16) & 0xf000) === 0xa000) {
+      malformed("the EPUB contains an unsafe archive path");
+    }
+    nameBytes += entry.nameBytes.byteLength;
+    expandedBytes += entry.uncompressedSize;
+    if (entry.uncompressedSize > 128 * 1024 * 1024
+      || expandedBytes > 256 * 1024 * 1024
+      || nameBytes > 8 * 1024 * 1024
+      || entry.uncompressedSize > Math.max(1, entry.compressedSize) * 1_000) {
+      malformed("the EPUB exceeds the bounded archive expansion limit");
+    }
+    const localFlags = uint16(source, entry.localOffset + 6);
+    const localCompression = uint16(source, entry.localOffset + 8);
+    if (localFlags !== entry.flags || localCompression !== entry.compression
+      || (entry.compression === 0 && entry.compressedSize !== entry.uncompressedSize)) {
+      malformed("a local ZIP entry disagrees with the central directory");
+    }
+    if ((entry.flags & DATA_DESCRIPTOR_FLAG) === 0
+      && (uint32(source, entry.localOffset + 14) !== entry.checksum
+        || uint32(source, entry.localOffset + 18) !== entry.compressedSize
+        || uint32(source, entry.localOffset + 22) !== entry.uncompressedSize)) {
+      malformed("a local ZIP entry has inconsistent sizes or checksum");
+    }
+  }
+  const mimetype = archive.byName.get("mimetype");
+  if (!mimetype || mimetype.localOffset !== 0 || mimetype.compression !== 0
+    || mimetype.uncompressedSize !== 20
+    || utf8Decoder.decode(await readEntry(archive, mimetype, 20)) !== "application/epub+zip") {
+    malformed("the archive is not a valid EPUB (missing or invalid mimetype)");
+  }
+  checkpoint();
+  const containerEntry = archive.byName.get("META-INF/container.xml")
+    ?? malformed("the archive has no META-INF/container.xml");
+  const container = parseXml(await readEntry(archive, containerEntry, MAX_XML_BYTES), "container.xml");
+  checkpoint();
+  if (container.documentElement.localName !== "container") malformed("the EPUB container root is invalid");
+  const opfPath = packagePath(container);
+  const opfEntry = archive.byName.get(opfPath) ?? malformed("the package document is absent");
+  const packageDocument = parseXml(await readEntry(archive, opfEntry, MAX_XML_BYTES), "package document");
+  checkpoint();
+  if (packageDocument.documentElement.localName !== "package") malformed("the EPUB package root is invalid");
+  firstByLocalName(packageDocument, "metadata");
+  const manifest = firstByLocalName(packageDocument, "manifest");
+  const spine = firstByLocalName(packageDocument, "spine");
+  const items = Array.from(manifest.children).filter((entry) => entry.localName === "item");
+  const byId = new Map<string, Element>();
+  for (const item of items) {
+    const id = item.getAttribute("id")?.trim();
+    if (!id || byId.has(id)) malformed("the EPUB manifest has missing or duplicate identifiers");
+    byId.set(id, item);
+  }
+  const spineItems = Array.from(spine.children).filter((entry) => entry.localName === "itemref");
+  if (spineItems.length === 0 || spineItems.length > 2_000) malformed("the EPUB reading order is missing or too large");
+  for (const reference of spineItems) {
+    checkpoint();
+    const item = byId.get(reference.getAttribute("idref") ?? "");
+    const href = item?.getAttribute("href") ?? "";
+    const path = resolvedManifestHref(opfPath, href);
+    if (!path || /^[a-z][a-z\d+.-]*:/iu.test(href) || !archive.byName.has(path)) {
+      malformed("a book chapter is missing from the EPUB");
+    }
+  }
+
+  const encryptionEntry = archive.byName.get("META-INF/encryption.xml");
+  if (!encryptionEntry) return { hasObfuscatedFonts: false };
+  const encryption = parseXml(await readEntry(archive, encryptionEntry, MAX_XML_BYTES), "encryption.xml");
+  checkpoint();
+  const encryptedResources = elementsByLocalName(encryption, "EncryptedData");
+  if (encryptedResources.length === 0) malformed("the EPUB encryption metadata cannot be verified (DRM unsupported)");
+  const algorithms = new Set(["http://www.idpf.org/2008/embedding", "http://ns.adobe.com/pdf/enc#RC"]);
+  const fontTypes = new Set([
+    "application/font-sfnt", "application/font-woff", "application/vnd.ms-opentype",
+    "application/x-font-opentype", "application/x-font-ttf", "font/otf", "font/ttf", "font/woff", "font/woff2",
+  ]);
+  const fonts = new Set(items.filter((item) => fontTypes.has(item.getAttribute("media-type") ?? ""))
+    .map((item) => resolvedManifestHref(opfPath, item.getAttribute("href") ?? "")));
+  for (const encrypted of encryptedResources) {
+    const methods = elementsByLocalName(encrypted, "EncryptionMethod");
+    const references = elementsByLocalName(encrypted, "CipherReference");
+    const uri = references[0]?.getAttribute("URI") ?? "";
+    const resource = resolvedManifestHref("", uri);
+    if (methods.length !== 1 || references.length !== 1
+      || !algorithms.has(methods[0]?.getAttribute("Algorithm") ?? "")
+      || !resource || !fonts.has(resource) || !archive.byName.has(resource)) {
+      malformed("DRM-protected EPUB files cannot be sent to Kobo; only standard embedded-font obfuscation is supported");
+    }
+  }
+  return { hasObfuscatedFonts: true };
+}
+
 /** Applies overrides to a bounded, newly allocated EPUB archive. */
 export async function createEphemeralEpubDerivative(
   source: Uint8Array,

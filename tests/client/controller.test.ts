@@ -34,6 +34,75 @@ import {
 import { METADATA_CLAIM_BITMAP_BYTES } from "../../shared/catalog-contracts";
 import { AppError } from "../../client/src/app-error";
 import { AppView } from "../../client/src/view";
+import { KoboCatalogSession, type KoboCatalogDevice } from "../../client/src/kobo/catalog-session";
+
+describe("Kobo controller routing", () => {
+  afterEach(() => vi.restoreAllMocks());
+  function kobo() {
+    let closed = false;
+    return {
+      get closed() { return closed; }, recoveryRecords: [],
+      scan: vi.fn(async () => ({ entries: [], complete: true, scannedAt: new Date().toISOString() })),
+      verifyEntry: vi.fn(async () => false), send: vi.fn(), acknowledgeRecovery: vi.fn(),
+      disconnect: vi.fn(() => { closed = true; }),
+    } satisfies KoboCatalogDevice;
+  }
+
+  it("opens the folder chooser immediately, keeps Kindle USB separate, and routes send and batch completion to Kobo", async () => {
+    vi.spyOn(AppView.prototype, "activeCatalogProfileId", "get").mockReturnValue("profile-1");
+    const device = kobo();
+    const connectKobo = vi.fn(async () => device);
+    const updates = vi.spyOn(AppView.prototype, "setKoboState");
+    const app = harness(false, { connectKobo });
+    const connecting = app.controller.connectKobo();
+    expect(connectKobo).toHaveBeenCalledTimes(1);
+    await connecting;
+    expect(updates.mock.calls.at(-1)?.[0]).toMatchObject({ status: "ready", profileId: "profile-1" });
+    expect(app.requestDevice).not.toHaveBeenCalled();
+    await app.controller.connect();
+    expect(app.requestDevice).not.toHaveBeenCalled();
+    const send = vi.spyOn(KoboCatalogSession.prototype, "send").mockResolvedValue();
+    const request = { profileId: "profile-1", book: app.book };
+    await app.controller.sendCatalogBook(request);
+    expect(send).toHaveBeenCalledWith(request);
+    expect(app.convert).not.toHaveBeenCalled();
+    const scans = device.scan.mock.calls.length;
+    await app.controller.finishCatalogSendBatch({ id: "kobo-batch", total: 1, succeeded: [{ id: app.book.id, title: app.book.title }], unsent: [] });
+    expect(device.scan.mock.calls.length).toBeGreaterThan(scans);
+    app.controller.disconnectKobo();
+    expect(device.disconnect).toHaveBeenCalledOnce();
+    expect(updates.mock.calls.at(-1)?.[0]?.status).toBe("disconnected");
+  });
+
+  it("does not open a Kobo picker while Kindle is connected", async () => {
+    const connectKobo = vi.fn(async () => kobo());
+    const app = harness(false, { connectKobo });
+    await app.controller.connect();
+    await app.controller.connectKobo();
+    expect(connectKobo).not.toHaveBeenCalled();
+    await app.controller.disconnect();
+  });
+
+  it("closes a late picker result after the user has disconnected", async () => {
+    let resolve!: (device: KoboCatalogDevice) => void;
+    const device = kobo();
+    const app = harness(false, { connectKobo: () => new Promise((done) => { resolve = done; }) });
+    const pending = app.controller.connectKobo();
+    app.controller.disconnectKobo();
+    resolve(device);
+    await pending;
+    expect(device.disconnect).toHaveBeenCalledOnce();
+    expect(device.scan).not.toHaveBeenCalled();
+  });
+
+  it("treats a canceled chooser as disconnected, not as a transfer error", async () => {
+    const updates = vi.spyOn(AppView.prototype, "setKoboState");
+    const app = harness(false, { connectKobo: async () => { throw new DOMException("Cancelled", "AbortError"); } });
+    await app.controller.connectKobo();
+    expect(updates.mock.calls.at(-1)?.[0]?.status).toBe("disconnected");
+    expect(app.controller.state.activeError).toBeUndefined();
+  });
+});
 
 function claimantSummary(collisions: readonly number[] = [], complete = true): {
   complete: boolean;
