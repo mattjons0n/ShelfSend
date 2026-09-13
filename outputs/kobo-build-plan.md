@@ -58,7 +58,7 @@ Let a user connect a Kobo mounted on their computer, send DRM-free EPUBs from th
 
 1. Open ShelfSend in desktop Chrome or Edge over trusted HTTPS (or localhost).
 2. Plug Kobo into the same computer and choose **Connect** on the reader. Disconnect an active Kindle session first.
-3. Click **Connect Kobo**, select the main Kobo drive (containing `.kobo`), and grant folder access. No new Docker setting or server-side USB access is needed.
+3. Click **Connect eReader → Kobo**, select the main Kobo drive (containing `.kobo`), and grant folder access. No new Docker setting or server-side USB access is needed.
 4. Wait for the library comparison, then click **Send to Kobo** on an EPUB. List selection and Send later use the connected reader too. Click an active card's progress button to cancel.
 5. Wait for **Sent to Kobo**, safely eject the drive through the operating system, then unplug and allow Kobo to import its books. ShelfSend's Disconnect button is not an OS eject action.
 

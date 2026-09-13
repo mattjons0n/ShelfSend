@@ -68,11 +68,12 @@ describe("Kobo reader UI", () => {
     expect(popup?.textContent).toContain("Keep your Kobo connected");
     expect(rendered({ ...snapshot(), filters: { ...initialLibraryFilters("p"), view: "settings" } }).querySelector("#kindle-only-diagnostic")).toBeNull();
   });
-  it("offers an explicit Kobo connect button without connecting on render", () => {
+  it("offers an explicit Kobo option inside a closed connection chooser", () => {
     const value = snapshot();
     const el = rendered({ ...value, activeReader: "kindle", kobo: { ...value.kobo!, status: "disconnected" } });
     expect(el.querySelector('[data-ui-action="connect-kobo"]')).not.toBeNull();
     expect(el.querySelector('[data-ui-action="connect-catalog-device"]')).not.toBeNull();
+    expect(el.querySelector<HTMLElement>(".library-reader-options")?.hidden).toBe(true);
   });
   it("invokes the directory-connection hook synchronously only after a user click", () => {
     const element = document.createElement("div");
@@ -86,12 +87,13 @@ describe("Kobo reader UI", () => {
     }, new DebugLog(), { autoStartCatalog: false, catalogApi: {} as CatalogApi });
     view.setKoboState({ ...snapshot().kobo!, status: "disconnected", statuses: new Map(), countsByProfile: new Map() });
     expect(onKoboConnect).not.toHaveBeenCalled();
+    element.querySelector<HTMLButtonElement>('[data-ui-action="toggle-reader-picker"]')!.click();
+    expect(onKoboConnect).not.toHaveBeenCalled();
     element.querySelector<HTMLButtonElement>('[data-ui-action="connect-kobo"]')!.click();
     expect(onKoboConnect).toHaveBeenCalledOnce();
     view.render({ ...state, device: { kind: "ready", details: { vendorId: 0x1949, productId: 0x9981 } } });
-    const blocked = element.querySelector<HTMLButtonElement>('[data-ui-action="connect-kobo"]')!;
-    expect(blocked.disabled).toBe(true);
-    blocked.click();
+    expect(element.querySelector('[data-ui-action="connect-kobo"]')).toBeNull();
+    expect(element.querySelector(".library-reader-picker")).toBeNull();
     expect(onKoboConnect).toHaveBeenCalledOnce();
     element.remove();
   });

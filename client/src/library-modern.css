@@ -367,8 +367,26 @@ body { background: var(--page); }
 .kindle-recorded-data pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font-size: .75rem; }
 .kindle-recorded-data dd { overflow-wrap: anywhere; }
 
-/* Kobo keeps a separate, explicit connection and never exposes Kindle tools. */
-.library-topbar .library-kobo-connect { order: 2; min-height: 40px; padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); white-space: nowrap; }
+/* One connection disclosure; choosing a reader still uses its own connection flow. */
+.library-reader-picker { position: relative; order: 2; }
+.library-topbar .library-reader-trigger { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+.library-reader-trigger > svg { width: 18px; height: 18px; color: var(--green); }
+.library-reader-chevron { width: 6px; height: 6px; margin: -3px 2px 0 4px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); }
+.library-reader-trigger[aria-expanded="true"] .library-reader-chevron { transform: translateY(3px) rotate(225deg); }
+.library-reader-options { position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: min(300px, calc(100vw - 32px)); padding: 6px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 32px #00000030; }
+.library-reader-options[hidden] { display: none; }
+.library-reader-options button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 12px; text-align: left; border: 1px solid transparent; background: transparent; color: var(--text); box-shadow: none; }
+.library-reader-options button:not(:disabled):hover { background: var(--surface-soft); border-color: var(--border); }
+.library-reader-options button:focus-visible, .library-reader-trigger:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.library-reader-options button:disabled { opacity: 1; color: var(--muted); cursor: not-allowed; }
+.library-reader-options strong { display: block; font-size: 13px; font-weight: 600; }
+.library-reader-options small { display: block; margin-top: 3px; font-size: 11px; line-height: 1.45; color: var(--muted); }
+.library-reader-option-icon { display: grid; place-items: center; width: 28px; flex: 0 0 28px; color: var(--green); }
+.library-reader-option-icon svg { width: 24px; height: 24px; }
+@media (max-width: 480px) {
+  .library-reader-options { left: 0; right: auto; }
+}
+/* Kobo keeps a separate connection and never exposes Kindle tools. */
 .library-kobo-connection { display: flex; align-items: center; gap: 14px; margin: 12px 20px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); }
 .library-global-alerts:has(> .library-kobo-connection) { background: var(--page); border-color: var(--border); }
 .library-topbar .library-device-button.connected:has(.library-device-icon svg) small { color: var(--muted); }

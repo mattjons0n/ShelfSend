@@ -176,7 +176,8 @@ describe("library list view and Kindle actions", () => {
     };
     const root = render(renderLibraryPrototype(state, snapshot()));
     expect(root.querySelector(".library-compatibility-notice")?.textContent).toContain("trusted HTTPS or localhost");
-    expect(root.querySelector<HTMLButtonElement>('.library-device-button[data-ui-action="connect-catalog-device"]')?.disabled).toBe(true);
+    expect(root.querySelector<HTMLButtonElement>('[data-ui-action="toggle-reader-picker"]')?.disabled).toBe(false);
+    expect(root.querySelector<HTMLButtonElement>('.library-reader-options [data-ui-action="connect-catalog-device"]')?.disabled).toBe(true);
     expect(root.querySelector<HTMLButtonElement>('[data-ui-action="open-send-queue"]')?.disabled).toBe(false);
     expect(root.querySelector("#library-search")).not.toBeNull();
   });

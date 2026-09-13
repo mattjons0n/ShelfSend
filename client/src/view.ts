@@ -1,5 +1,6 @@
 import type { DebugLog } from "./log";
 import { isKoboReader, type CatalogKoboState } from "./reader-ui";
+import { bindReaderConnectionMenu } from "./reader-connection-menu";
 import type {
   AdvancedPartialObjectProbeRunRequest,
   AdvancedPartialObjectProbeViewState,
@@ -322,6 +323,7 @@ export class AppView {
   #state: AppState;
   #profileDraft: TargetProfile;
   #diagnosticsDeviceQuery = "";
+  #readerMenuCleanup?: () => void;
   #catalogDialogReturnBookId?: string;
   #catalogRemovalReturnBookId?: string;
   #catalogUpdateReturnBookId?: string;
@@ -454,6 +456,10 @@ export class AppView {
 
   render(state: AppState): void {
     this.#state = state;
+    const readerMenuOpen = this.#root.querySelector('[data-ui-action="toggle-reader-picker"]')?.getAttribute("aria-expanded") === "true";
+    const readerMenuFocus = document.activeElement instanceof HTMLElement && this.#root.contains(document.activeElement) && document.activeElement.closest(".library-reader-picker")
+      ? document.activeElement.dataset.uiAction : undefined;
+    this.#readerMenuCleanup?.();
     const restoreMetadataEditorView = this.#captureMetadataEditorView();
     const active = document.activeElement;
     const discoveryFocus = active instanceof HTMLElement && this.#root.contains(active)
@@ -515,6 +521,14 @@ export class AppView {
     });
     this.#renderAdvancedPartialObjectProbe();
     this.#bindEvents();
+    if (readerMenuOpen) {
+      const trigger = this.#root.querySelector<HTMLButtonElement>('[data-ui-action="toggle-reader-picker"]');
+      if (trigger && !trigger.disabled) {
+        trigger.click();
+        if (readerMenuFocus) [...this.#root.querySelectorAll<HTMLButtonElement>(".library-reader-picker button")]
+          .find((button) => button.dataset.uiAction === readerMenuFocus && !button.disabled)?.focus({ preventScroll: true });
+      }
+    }
     if (discoveryFocus) {
       [...this.#root.querySelectorAll<HTMLElement>(".hardcover-series-sheet [data-ui-action], .hardcover-discovery [data-ui-action], .hardcover-series-sheet a, .hardcover-discovery a")]
         .find((element) => element.dataset.uiAction === discoveryFocus.action && element.dataset.bookId === discoveryFocus.bookId
@@ -600,6 +614,7 @@ export class AppView {
   }
 
   #bindCatalogEvents(): void {
+    this.#readerMenuCleanup = bindReaderConnectionMenu(this.#root);
     this.#root.querySelector<HTMLInputElement>("#diagnostics-device-search")?.addEventListener("input", (event) => {
       this.#diagnosticsDeviceQuery = (event.currentTarget as HTMLInputElement).value;
       this.#catalog.goToKindleInventoryPage(0);

@@ -17,7 +17,8 @@ describe("ShelfSend display branding", () => {
     expect(html).toContain("<strong>ShelfSend</strong>");
     expect(html).toContain("Browser to reader");
     expect(html).toContain(libraryIcon("shelfSend"));
-    expect(html).toContain("Connect Kindle");
+    expect(html).toContain("Connect eReader");
+    expect(html).toContain('data-ui-action="connect-catalog-device"');
     expect(html).not.toContain("Kindle Bridge");
     const welcome = renderOnboarding({ ...browser.snapshot, onboarding: { step: "welcome" } }, state);
     expect(welcome).toContain("Welcome to ShelfSend");
