@@ -45,9 +45,9 @@
   .kindle-library-file-details { grid-column: 2; max-width: 100%; }
   .kindle-library-file-details summary { padding-left: 0; }
 }
-.library-app-shell .library-kindle-photo { display: block; object-fit: contain; }
+.library-app-shell .library-kindle-photo, .library-app-shell .library-kobo-photo { display: block; object-fit: contain; }
 .library-app-shell .library-device-icon { flex: none; background: transparent; }
-.library-app-shell .library-device-icon .library-kindle-photo { width: 32px; height: 32px; }
+.library-app-shell .library-device-icon .library-kindle-photo, .library-app-shell .library-device-icon .library-kobo-photo { width: 32px; height: 32px; }
 .library-topbar .library-device-indexing { position: relative; display: flex; align-items: center; gap: 10px; width: 272px; max-width: 100%; padding: 10px 14px; border-radius: 9px; text-align: left; }
 .library-app-shell .library-device-progress-link { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; box-shadow: none; }
 .library-app-shell .library-device-progress-link:hover:not(:disabled) { background: transparent; }
