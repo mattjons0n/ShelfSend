@@ -42,7 +42,7 @@ Run ShelfSend on your own server with Docker, then connect your e-reader to the 
 | 🔌 **Your browser is the bridge** | Connect your Kindle or Kobo to your computer and send books directly over USB, without leaving the browser. |
 | 📤 **One book or a whole stack** | Select your books and transfer them together, with clear progress and verification for each title. Build a **Send later** queue whenever inspiration strikes. |
 | ⚡ **EPUB conversion, built in** | Send EPUBs to your Kindle without preparing files in another app. ShelfSend handles conversion locally in your browser. |
-| ✅ **See what's already on your device** | Browse the Kindle's full scanned inventory from **On Kindle** in the sidebar, including books outside your libraries. Within a library, use the device filters to see confirmed matches or books ready to send. |
+| ✅ **See what's already on your device** | Browse the Kindle's full scanned inventory from **On Device** in the sidebar, in a cover gallery or list, including books outside your libraries. Within a library, use the device filters to see confirmed matches or books ready to send. |
 | 📚 **Find the gaps in your series** | Explore a book series through Hardcover and compare its titles with your library. See which volumes you already own and which you're missing, with uncertain matches shown separately. |
 | 🏠 **Host your library. Connect wherever you read.** | Run ShelfSend on your own server and access it through a supported desktop browser over your private LAN/VPN. Your e-reader connects to the computer you're using. |
 | 🗂️ **Your collection, ready to send** | Keep books in your existing folders. ShelfSend indexes them automatically, so they're searchable and ready for your next transfer. |
@@ -102,7 +102,7 @@ Choose your reader from **Connect eReader**. Connect one device at a time, using
 4. **Transfer.** The browser validates the source, converts EPUBs locally, prepares the Kindle copy, and uploads and verifies each book. Batch progress identifies completed titles and keeps unsent titles selected after a failure.
 5. **Read.** Open the transferred title on your Kindle. Prepared sideloads use personal-document metadata so embedded covers can appear in the library; Kindle classifies them under **Documents**.
 
-**On Kindle** shows covers extracted from the device files themselves—not matching library artwork. Covers load as you browse after a complete device scan and are cached only in your browser. Missing, encrypted, unsupported, or oversized files keep a placeholder; cover previews never change your books or library matching.
+**On Device** offers a cover gallery and list using the same layout, card-size, and list-density controls as your library. Its Kindle covers come from the device files themselves—not matching library artwork. Covers load as you browse after a complete device scan and are cached only in your browser. Missing, encrypted, unsupported, or oversized files keep a placeholder; cover previews never change your books or library matching.
 
 ### Kobo
 

@@ -35,6 +35,9 @@
 .kindle-library-empty svg { width: 32px; height: 32px; }
 .kindle-library-empty h2 { margin: 16px 0 8px; font-size: 20px; }
 .kindle-library-empty p { max-width: 540px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.kindle-library-toolbar { display: flex; align-items: center; gap: 20px; margin: 24px 0; }
+.kindle-library-toolbar .kindle-library-search { flex: 1; min-width: 0; margin: 0; }
+.kindle-library-toolbar .library-display-controls { flex: none; }
 @media (max-width: 760px) {
   .kindle-library-view { padding: 24px 18px; }
   .kindle-library-heading { align-items: flex-start; flex-direction: column; gap: 14px; }
@@ -44,6 +47,26 @@
   .kindle-library-icon { width: 36px; height: 48px; }
   .kindle-library-file-details { grid-column: 2; max-width: 100%; }
   .kindle-library-file-details summary { padding-left: 0; }
+  .kindle-library-toolbar { align-items: stretch; flex-direction: column; gap: 14px; }
+  .kindle-library-toolbar .library-display-controls { justify-content: space-between; }
+}
+/* Device cards carry only live inventory fields; catalog card actions and
+   selection styles do not apply. Card width shares the library size control. */
+.library-layout .kindle-library-view .kindle-library-list[data-layout="grid"] { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--library-card-min-width, 180px)), 1fr)); gap: 24px 20px; align-items: stretch; }
+.kindle-library-view .kindle-library-list[data-layout="grid"] .kindle-library-item { min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto; gap: 12px; align-items: start; padding: 12px; }
+.kindle-library-view .kindle-library-list[data-layout="grid"] .kindle-library-icon { width: 100%; height: auto; aspect-ratio: 2 / 3; border-radius: 8px; }
+.kindle-library-view .kindle-library-list[data-layout="grid"] .kindle-library-icon > svg { width: 40px; height: 40px; }
+.kindle-library-view .kindle-library-list[data-layout="grid"] .kindle-library-book h2 { font-size: 14px; line-height: 1.45; }
+.kindle-library-view .kindle-library-list[data-layout="grid"] .kindle-library-book p { font-size: 13px; line-height: 1.45; }
+.kindle-library-view .kindle-library-list[data-layout="grid"] .kindle-library-file-details { grid-column: 1; width: 100%; max-width: 100%; }
+.kindle-library-view .kindle-library-list[data-layout="grid"] .kindle-library-file-details summary { padding: 8px 0; }
+.library-layout .kindle-library-view .kindle-library-list[data-layout="list"] { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.kindle-library-view[data-layout="list"][data-density="compact"] .kindle-library-item { gap: 12px; padding: 10px 14px; }
+.kindle-library-view[data-layout="list"][data-density="compact"] .kindle-library-icon { width: 36px; height: 48px; }
+.kindle-library-view[data-layout="list"][data-density="compact"] .kindle-library-book h2 { margin-bottom: 3px; font-size: 14px; }
+.kindle-library-view[data-layout="list"][data-density="compact"] .kindle-library-book p { margin-bottom: 3px; font-size: 12px; }
+@media (max-width: 760px) {
+  .kindle-library-view .kindle-library-list[data-layout="grid"] { gap: 18px 14px; }
 }
 .library-app-shell .library-kindle-photo, .library-app-shell .library-kobo-photo { display: block; object-fit: contain; }
 .library-app-shell .library-device-icon { flex: none; background: transparent; }

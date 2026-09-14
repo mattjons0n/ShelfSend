@@ -52,7 +52,8 @@ import {
   type KindleBridgeActivityEvent,
 } from "./activity-center";
 import { isKoboReader, koboReady, readerComparisonComplete, readerCounts, readerName, readerStatuses } from "./reader-ui";
-import { LIBRARY_CARD_SIZE_MIN, LIBRARY_CARD_SIZE_MAX, LIBRARY_CARD_SIZE_STEP, LIBRARY_PAGE_SIZES, normalizeLibraryCardSize } from "./library-display-preferences";
+import { LIBRARY_PAGE_SIZES, normalizeLibraryCardSize } from "./library-display-preferences";
+import { renderLibraryLayoutControls } from "./library-layout-controls";
 
 function readerConnected(state: AppState, snapshot: CatalogBrowserSnapshot): boolean {
   return isKoboReader(snapshot) ? snapshot.kobo?.status === "ready" || snapshot.kobo?.status === "scanning" : actualDeviceConnected(state);
@@ -146,7 +147,7 @@ function renderLibraryNav(snapshot: CatalogBrowserSnapshot, connected: boolean):
   );
   const items: ReadonlyArray<readonly [LibraryView, string, string, number | undefined]> = [
     ["all", libraryIcon("book"), "All books", profile?.bookCount ?? 0],
-    ["on-kindle", libraryIcon("device"), `On ${readerName(snapshot)}`, isKoboReader(snapshot) ? counts.onKindle || undefined : snapshot.kindleInventory?.total],
+    ["on-kindle", libraryIcon("device"), "On Device", isKoboReader(snapshot) ? counts.onKindle || undefined : snapshot.kindleInventory?.total],
     ["recent", libraryIcon("clock"), "Recently added", undefined],
     ["series", libraryIcon("series"), "Series", snapshot.seriesPage?.total],
     ["attention", libraryIcon("attention"), "Needs attention", snapshot.healthPage?.counts.active || undefined],
@@ -365,15 +366,6 @@ function renderBookCard(book: CatalogBook, snapshot: CatalogBrowserSnapshot, sta
   `;
 }
 
-function renderLayoutControls(snapshot: CatalogBrowserSnapshot): string {
-  const disabled = snapshot.sendBusy || snapshot.bulkActionBusy ? " disabled" : "";
-  const density = snapshot.density ?? "comfortable";
-  const sizing = snapshot.layout === "grid"
-    ? `<label class="library-card-size" for="library-card-size"><span>Card size</span><span class="library-card-size-track"><span aria-hidden="true">−</span><input id="library-card-size" data-ui-action="set-library-card-size" type="range" min="${LIBRARY_CARD_SIZE_MIN}" max="${LIBRARY_CARD_SIZE_MAX}" step="${LIBRARY_CARD_SIZE_STEP}" value="${normalizeLibraryCardSize(snapshot.cardSize)}" aria-describedby="library-card-size-hint"${disabled} /><span aria-hidden="true">+</span></span><span id="library-card-size-hint" class="sr-only">Smaller to larger covers. Text stays the same readable size.</span></label>`
-    : `<div class="library-layout-toggle library-density-toggle" role="group" aria-label="Book density"><button type="button" data-ui-action="set-library-density" data-density="comfortable" aria-pressed="${density === "comfortable"}" aria-label="Comfortable density" title="Comfortable"${disabled}><span aria-hidden="true">↕</span></button><button type="button" data-ui-action="set-library-density" data-density="compact" aria-pressed="${density === "compact"}" aria-label="Compact density" title="Compact"${disabled}><span aria-hidden="true">≡</span></button></div>`;
-  return `<div class="library-display-controls">${sizing}<div class="library-layout-toggle" role="group" aria-label="Book layout"><button type="button" data-ui-action="set-library-layout" data-layout="grid" aria-pressed="${snapshot.layout === "grid"}" aria-label="Grid view" title="Grid view"${disabled}>${libraryIcon("grid")}</button><button type="button" data-ui-action="set-library-layout" data-layout="list" aria-pressed="${snapshot.layout === "list"}" aria-label="List view" title="List view"${disabled}>${libraryIcon("list")}</button></div></div>`;
-}
-
 function renderBulkActions(
   books: readonly CatalogBook[],
   snapshot: CatalogBrowserSnapshot,
@@ -444,7 +436,7 @@ export function renderLibraryResults(state: AppState, snapshot: CatalogBrowserSn
   const [emptyTitle, emptyMessage] = resultsEmptyCopy(snapshot);
   return `
     ${snapshot.stale ? `<div class="library-stale-notice" role="status"><strong>Catalog temporarily unavailable.</strong> Showing the most recent results in this browser. <button type="button" data-ui-action="retry-catalog">Retry</button></div>` : ""}
-    <div class="library-results-head"><p>${summary}</p><div class="library-results-controls"><span>${snapshot.booksState === "loading" ? "Refreshing…" : snapshot.filters.view === "on-kindle" ? "Device comparison" : snapshot.layout === "list" ? "List view" : "Cover grid"}</span>${renderLayoutControls(snapshot)}</div></div>
+    <div class="library-results-head"><p>${summary}</p><div class="library-results-controls"><span>${snapshot.booksState === "loading" ? "Refreshing…" : snapshot.filters.view === "on-kindle" ? "Device comparison" : snapshot.layout === "list" ? "List view" : "Cover grid"}</span>${renderLibraryLayoutControls(snapshot)}</div></div>
     ${snapshot.kindleFilterStatuses ? '<p class="library-refresh-note" role="status">Updating library… Your books stay visible while we refresh their Kindle status.</p>' : ""}
     ${renderActiveFilters(snapshot)}
     ${snapshot.readingHistoryError ? `<p role="alert">Read books could not be fully saved: ${escapeHtml(snapshot.readingHistoryError)} Reconnect to retry.</p>` : ""}
@@ -1432,7 +1424,7 @@ export function renderLibraryPrototype(
     + (snapshot.healthPage?.counts.active ?? 0)
     + activityStatus.replacementCleanupCount;
   const activityLabel = isKoboReader(snapshot) ? snapshot.sendBusy ? "Transferring" : koboReady(snapshot) ? "Ready" : "Checking device" : activityStatus.phase.replaceAll("-", " ").replace(/^./u, (letter) => letter.toLocaleUpperCase());
-  const heading = snapshot.filters.view === "on-kindle" ? `Books on ${readerName(snapshot)}` : snapshot.filters.view === "recent" ? "Recently added" : profile?.name ?? "Library";
+  const heading = snapshot.filters.view === "on-kindle" ? "On Device" : snapshot.filters.view === "recent" ? "Recently added" : profile?.name ?? "Library";
   const deviceTitle = disconnecting
     ? "Disconnecting Kindle…"
     : connected

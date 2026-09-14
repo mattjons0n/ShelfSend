@@ -182,6 +182,59 @@ describe("standalone Kindle inventory navigation", () => {
 });
 
 describe("standalone Kindle inventory interactions", () => {
+  it("switches device gallery and list layouts without changing membership, search or library queries", async () => {
+    const { root, view, api } = await mount();
+    await openInventory(root);
+    expect(root.querySelector("#kindle-library-heading")?.textContent).toBe("On Device");
+    expect(root.querySelector('.library-nav [data-ui-view="on-kindle"]')?.textContent).toContain("On Device");
+    expect(root.querySelector('.kindle-library-list[data-layout="grid"]')).not.toBeNull();
+    api.listBooks.mockClear();
+    api.queryBooks.mockClear();
+    const details = root.querySelector<HTMLDetailsElement>('[data-kindle-object-id="device-home"] details')!;
+    details.open = true;
+    root.querySelector<HTMLButtonElement>('[data-ui-action="set-library-layout"][data-layout="list"]')!.click();
+    expect(root.querySelector('.kindle-library-list[data-layout="list"]')).not.toBeNull();
+    expect([...root.querySelectorAll("[data-kindle-object-id]")].map((row) => row.getAttribute("data-kindle-object-id"))).toEqual(ITEMS.map((item) => item.id));
+    expect(root.querySelector<HTMLDetailsElement>('[data-kindle-object-id="device-home"] details')?.open).toBe(true);
+    expect(decodeLibraryRoute(window.location.hash)?.layout).toBe("list");
+    root.querySelector<HTMLButtonElement>('[data-ui-action="set-library-density"][data-density="compact"]')!.click();
+    expect(root.querySelector('.kindle-library-view[data-density="compact"]')).not.toBeNull();
+    root.querySelector<HTMLButtonElement>('[data-ui-action="set-library-layout"][data-layout="grid"]')!.click();
+    expect(root.querySelector('.kindle-library-list[data-layout="grid"]')).not.toBeNull();
+    const search = root.querySelector<HTMLInputElement>("#kindle-inventory-search")!;
+    search.value = "Only on my Kindle";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    root.querySelector<HTMLButtonElement>('[data-ui-action="set-library-layout"][data-layout="list"]')!.click();
+    expect(root.querySelectorAll("[data-kindle-object-id]")).toHaveLength(1);
+    expect(root.querySelector("[data-kindle-object-id]")?.getAttribute("data-kindle-object-id")).toBe("device-only");
+    expect(root.querySelector<HTMLInputElement>("#kindle-inventory-search")?.value).toBe("Only on my Kindle");
+    expect(root.querySelector('[data-ui-action="send-book"], [data-ui-action="open-match-review"]')).toBeNull();
+    expect(api.listBooks).not.toHaveBeenCalled();
+    expect(api.queryBooks).not.toHaveBeenCalled();
+    view.dispose();
+  });
+
+  it("preserves a device-gallery card-size preview and slider focus across inventory updates", async () => {
+    const { root, view } = await mount();
+    await openInventory(root);
+    const slider = root.querySelector<HTMLInputElement>("#library-card-size")!;
+    slider.focus();
+    slider.value = "260";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(root.querySelector<HTMLElement>('.kindle-library-list[data-layout="grid"]')?.style.getPropertyValue("--library-card-min-width")).toBe("260px");
+    view.setCatalogKindleInventory(inventory([...ITEMS]));
+    const replacement = root.querySelector<HTMLInputElement>("#library-card-size")!;
+    expect(document.activeElement).toBe(replacement);
+    expect(replacement.value).toBe("260");
+    expect(root.querySelector<HTMLElement>('.kindle-library-list[data-layout="grid"]')?.style.getPropertyValue("--library-card-min-width")).toBe("260px");
+    replacement.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(decodeLibraryRoute(window.location.hash)?.cardSize).toBe(260);
+    root.querySelector<HTMLButtonElement>('[data-ui-action="set-library-layout"][data-layout="list"]')!.click();
+    root.querySelector<HTMLButtonElement>('[data-ui-action="set-library-layout"][data-layout="grid"]')!.click();
+    expect(root.querySelector<HTMLInputElement>("#library-card-size")?.value).toBe("260");
+    view.dispose();
+  });
+
   it("pages all scanned items and searches beyond the first page without a catalog request", async () => {
     const { root, view, api } = await mount();
     const items = Array.from({ length: 205 }, (_, index): CatalogKindleInventoryItem => ({

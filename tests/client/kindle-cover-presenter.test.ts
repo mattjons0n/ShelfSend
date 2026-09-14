@@ -320,6 +320,13 @@ describe("AppView Kindle cover integration", () => {
     Observer.current.show(row(root));
     await vi.waitFor(() => expect(root.querySelector("img[data-kindle-cover-image]")).not.toBeNull());
     expect(request).toHaveBeenCalledExactlyOnceWith(ITEM.id);
+    const coverUrl = root.querySelector<HTMLImageElement>("img[data-kindle-cover-image]")!.src;
+    for (const layout of ["list", "grid"] as const) {
+      root.querySelector<HTMLButtonElement>(`[data-ui-action="set-library-layout"][data-layout="${layout}"]`)!.click();
+      expect(root.querySelector(".kindle-library-list")?.getAttribute("data-layout")).toBe(layout);
+      expect(root.querySelector<HTMLImageElement>("img[data-kindle-cover-image]")?.src).toBe(coverUrl);
+      expect(request).toHaveBeenCalledOnce();
+    }
     root.querySelector<HTMLButtonElement>('[data-ui-view="all"]')!.click();
     await vi.waitFor(() => expect(root.querySelector(".kindle-library-view")).toBeNull());
     view.setCatalogKindleInventory({ ...inventory, items: [ITEM, { ...ITEM, id: "other-device-file" }], total: 2 });
@@ -342,8 +349,8 @@ describe("browser cover thumbnails", () => {
     const drawImage = vi.fn();
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D);
     const toBlob = vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(function (this: HTMLCanvasElement, callback) {
-      expect(this.width).toBe(160);
-      expect(this.height).toBe(240);
+      expect(this.width).toBe(320);
+      expect(this.height).toBe(480);
       callback(new Blob(["small raster"], { type: "image/png" }));
     });
     expect((await prepareKindleCoverThumbnail(COVER))?.type).toBe("image/png");

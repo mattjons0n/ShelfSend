@@ -4,7 +4,8 @@ import type { KindleBookCover } from "./kindle/book-cover";
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_DIMENSION = 8192;
 const MAX_PIXELS = 40_000_000;
-const THUMBNAIL_DIMENSION = 240;
+// Clear enough for gallery cards as well as rows; retained bytes remain capped.
+const THUMBNAIL_DIMENSION = 480;
 const MAX_CACHED_BYTES = 8 * 1024 * 1024;
 const MAX_CACHED_IMAGES = 120;
 const MAX_MISSING_ITEMS = 512;

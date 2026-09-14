@@ -2152,19 +2152,32 @@ export class AppView {
   #refreshCatalogDeviceContents(): void {
     const inventoryPage = this.#root.querySelector<HTMLElement>(".kindle-library-view");
     if (inventoryPage && !isKoboReader(this.#catalog.snapshot)) {
+      const restoreDisplayControl = captureLibraryDisplayControl(this.#root);
+      const openFileDetails = new Set([...inventoryPage.querySelectorAll<HTMLDetailsElement>(".kindle-library-file-details[open]")]
+        .map((details) => details.closest<HTMLElement>("[data-kindle-object-id]")?.dataset.kindleObjectId));
       const active = document.activeElement;
-      const focused = active instanceof HTMLInputElement && inventoryPage.contains(active)
+      const focused = active instanceof HTMLInputElement && active.id === "kindle-inventory-search" && inventoryPage.contains(active)
         ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : undefined;
+      const focusedLayout = active instanceof HTMLButtonElement && inventoryPage.contains(active)
+        && active.dataset.uiAction === "set-library-layout" ? active.dataset.layout : undefined;
       const scrollY = window.scrollY;
       inventoryPage.outerHTML = renderKindleLibraryView(this.#state, this.#catalog.snapshot);
       const replacement = this.#root.querySelector<HTMLElement>(".kindle-library-view");
       if (replacement) {
         this.#bindCatalogResultActions(replacement);
+        replacement.querySelectorAll<HTMLDetailsElement>(".kindle-library-file-details").forEach((details) => {
+          const itemId = details.closest<HTMLElement>("[data-kindle-object-id]")?.dataset.kindleObjectId;
+          if (itemId && openFileDetails.has(itemId)) details.open = true;
+        });
         const input = replacement.querySelector<HTMLInputElement>("#kindle-inventory-search");
         if (focused && input) {
           input.focus({ preventScroll: true });
           if (focused.start !== null && focused.end !== null) input.setSelectionRange(focused.start, focused.end, focused.direction ?? undefined);
         }
+        if (focusedLayout === "grid" || focusedLayout === "list") {
+          replacement.querySelector<HTMLButtonElement>(`[data-ui-action="set-library-layout"][data-layout="${focusedLayout}"]`)?.focus({ preventScroll: true });
+        }
+        restoreDisplayControl();
       }
       if (window.scrollY !== scrollY) window.scrollTo({ top: scrollY, behavior: "instant" });
       return;

@@ -14,7 +14,7 @@ The standalone **On Kindle** view uses only art embedded in the exact device fil
 - Whole-device-file reads: 32 MiB per file, 256 MiB per connection.
 - Embedded raster: 12 MiB; maximum 8192 pixels per dimension and 40 million pixels.
 - Browser device-cover cache: 256 entries / 32 MiB; maximum 4 MiB per persisted image.
-- Display thumbnails: at most 240 pixels on the longest side; 120 URLs / 8 MiB retained.
+- Display thumbnails: at most 480 pixels on the longest side (raised from 240 for the gallery); 120 URLs / 8 MiB retained.
 - No device writes, backend uploads, provider calls, schema changes or source-file edits.
 
 ## Requirement audit

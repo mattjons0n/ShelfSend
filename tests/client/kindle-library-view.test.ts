@@ -29,20 +29,21 @@ function render(overrides: Partial<CatalogBrowserSnapshot> = {}, stateOverrides:
 }
 
 describe("standalone Kindle library", () => {
-  it("shows every device item regardless of library, profile, shelf, filters or match status", () => {
+  it.each(["grid", "list"] as const)("shows every device item in %s regardless of library, profile, shelf, filters or match status", (layout) => {
     const items = [
       { ...BOOK, id: "unmatched", title: "Only on the Kindle" },
       { ...BOOK, id: "other-library", title: "From another library", bookId: "another-profile-book", match: "confirmed" as const },
       { ...BOOK, id: "possible", title: "An uncertain comparison", match: "possible" as const },
     ];
     const root = render({
+      layout,
       loadState: "error", error: "Catalog disconnected", booksState: "loading", profiles: [],
       kindleInventory: inventory(items),
       filters: { ...initialLibraryFilters("empty-profile"), view: "on-kindle", query: "not a device search", kindle: "not-on-kindle", format: "PDF", subject: "unrelated" },
       activeShelf: { id: "empty-shelf", name: "Empty", query: { version: 1 }, builtIn: false },
       kindleStatus: new Map(),
     });
-    expect(root.querySelector("h1")?.textContent).toBe("On Kindle");
+    expect(root.querySelector("h1")?.textContent).toBe("On Device");
     expect(root.querySelectorAll("[data-kindle-object-id]")).toHaveLength(3);
     expect(root.textContent).toContain("Only on the Kindle");
     expect(root.textContent).toContain("From another library");
@@ -51,6 +52,58 @@ describe("standalone Kindle library", () => {
     expect(root.querySelector('[data-ui-action="send-book"]')).toBeNull();
     expect(root.querySelector('[data-ui-action="remove-book-from-kindle"]')).toBeNull();
     expect(root.querySelector("[data-match]")).toBeNull();
+  });
+
+  it("defaults to a gallery with shared layout and cover-size controls", () => {
+    const root = render();
+    expect(root.querySelector('.kindle-library-view[data-layout="grid"]')).not.toBeNull();
+    expect(root.querySelector('.kindle-library-list.library-book-grid[data-layout="grid"]')).not.toBeNull();
+    expect(root.querySelector('[data-ui-action="set-library-layout"][data-layout="grid"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(root.querySelector('[data-ui-action="set-library-layout"][data-layout="list"]')?.getAttribute("aria-pressed")).toBe("false");
+    expect(root.querySelector<HTMLInputElement>("#library-card-size")?.value).toBe("180");
+    expect(root.querySelector('[data-ui-action="set-library-density"]')).toBeNull();
+    expect(root.querySelector(".kindle-library-book h2")?.textContent).toBe(BOOK.title);
+    expect(root.querySelector(".kindle-library-book p")?.textContent).toBe(BOOK.author);
+    expect(root.querySelector(".kindle-library-book small")?.textContent).toBe("AZW3 · 4.10 KB");
+    expect(root.querySelector(".kindle-library-file-details")?.textContent).toContain(BOOK.path);
+  });
+
+  it("uses the shared card size and preserves readable device metadata", () => {
+    const root = render({ cardSize: 260, density: "compact" });
+    expect(root.querySelector<HTMLElement>(".kindle-library-list")?.style.getPropertyValue("--library-card-min-width")).toBe("260px");
+    expect(root.querySelector<HTMLInputElement>("#library-card-size")?.value).toBe("260");
+    expect(root.querySelector(".kindle-library-book")?.textContent).toContain(BOOK.title);
+    expect(root.querySelector(".kindle-library-book")?.textContent).toContain(BOOK.author);
+  });
+
+  it.each(["comfortable", "compact"] as const)("offers a list with %s density and no catalog selection controls", (density) => {
+    const root = render({ layout: "list", density });
+    expect(root.querySelector('.kindle-library-view[data-layout="list"]')?.getAttribute("data-density")).toBe(density);
+    expect(root.querySelector('.kindle-library-list[data-layout="list"]')).not.toBeNull();
+    expect(root.querySelector('[data-ui-action="set-library-layout"][data-layout="list"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(root.querySelector('[data-ui-action="set-library-layout"][data-layout="grid"]')?.getAttribute("aria-pressed")).toBe("false");
+    expect(root.querySelector(`[data-ui-action="set-library-density"][data-density="${density}"]`)?.getAttribute("aria-pressed")).toBe("true");
+    expect(root.querySelector("#library-card-size")).toBeNull();
+    expect(root.querySelector('[type="checkbox"], [data-book-id], .library-book-card')).toBeNull();
+    expect(root.querySelector("details")?.textContent).toContain(BOOK.filename);
+  });
+
+  it.each(["grid", "list"] as const)("keeps device-only artwork placeholders in %s even when catalog art exists", (layout) => {
+    const matched = { ...BOOK, bookId: "catalog-book", match: "confirmed" as const };
+    const root = render({ layout, kindleInventory: inventory([matched]), page: {
+      items: [{ id: "catalog-book", profileId: "profile", rootId: "root", sourceFilename: "source.epub",
+        title: "Catalog-only title", authors: ["Catalog-only author"], authorSort: "Catalog-only author", subjects: [],
+        identifiers: [], format: "epub", size: 2048, addedAt: "2026-09-14", updatedAt: "2026-09-14",
+        metadataComplete: true, available: true, coverUrl: "/api/catalog/cover", sourceUrl: "/api/catalog/source" }],
+      total: 1, offset: 0, limit: 24,
+    } });
+    const item = root.querySelector(`[data-kindle-object-id="${BOOK.id}"]`);
+    expect(item?.querySelector("[data-kindle-cover] svg")).not.toBeNull();
+    expect(item?.querySelector("[data-kindle-cover]")?.getAttribute("aria-hidden")).toBe("true");
+    expect(item?.querySelector("img")).toBeNull();
+    expect(root.innerHTML).not.toContain("/api/catalog/");
+    expect(root.textContent).not.toContain("Catalog-only");
+    expect(root.querySelectorAll("[data-kindle-object-id]")).toHaveLength(1);
   });
 
   it("presents filenames and an honest author fallback when device metadata is missing", () => {

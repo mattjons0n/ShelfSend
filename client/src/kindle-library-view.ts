@@ -1,6 +1,8 @@
 import type { CatalogBrowserSnapshot, CatalogKindleInventoryItem } from "./catalog-browser";
 import { libraryIcon } from "./library-icons";
 import { formatCatalogBytes } from "./library-prototype";
+import { normalizeLibraryCardSize } from "./library-display-preferences";
+import { renderLibraryLayoutControls } from "./library-layout-controls";
 import type { AppState } from "./state";
 
 const PAGE_SIZE = 100;
@@ -45,6 +47,8 @@ function renderItem(item: CatalogKindleInventoryItem): string {
 
 /** Device-owned contents only. Library filters and match evidence never determine membership. */
 export function renderKindleLibraryView(state: AppState, snapshot: CatalogBrowserSnapshot): string {
+  const layout = snapshot.layout === "list" ? "list" : "grid";
+  const density = snapshot.density === "compact" ? "compact" : "comfortable";
   const inventory = snapshot.kindleInventory;
   const connected = state.device.kind === "ready" || state.device.kind === "transferring";
   const disconnecting = state.device.kind === "recovering";
@@ -104,12 +108,12 @@ export function renderKindleLibraryView(state: AppState, snapshot: CatalogBrowse
   const summary = normalizedQuery
     ? `${matchingItems.length.toLocaleString()} of ${items.length.toLocaleString()} files match your search`
     : `${items.length.toLocaleString()} ${items.length === 1 ? "book or document" : "books and documents"}${lastSeen || failed || loading ? " in the last available list" : partial ? " found so far" : ""}`;
-  return `<section class="kindle-library-view" aria-labelledby="kindle-library-heading">
-    <header class="kindle-library-heading"><div><span class="library-eyebrow">Device library</span><h1 id="kindle-library-heading">On Kindle</h1><p>Books and documents on your Kindle, including those outside your libraries.</p></div><div class="kindle-library-actions"><span class="kindle-library-status" data-state="${status}" role="status">${statusLabel}</span>${disconnectButton}</div></header>
+  return `<section class="kindle-library-view" data-layout="${layout}" data-density="${density}" aria-labelledby="kindle-library-heading">
+    <header class="kindle-library-heading"><div><span class="library-eyebrow">Device library</span><h1 id="kindle-library-heading">On Device</h1><p>Books and documents on your Kindle, including those outside your libraries.</p></div><div class="kindle-library-actions"><span class="kindle-library-status" data-state="${status}" role="status">${statusLabel}</span>${disconnectButton}</div></header>
     ${notices.map((notice) => `<p class="kindle-library-notice" role="status">${escapeHtml(notice)}</p>`).join("")}
-    <label class="kindle-library-search"><span class="sr-only">Search Kindle contents</span>${libraryIcon("search")}<input id="kindle-inventory-search" data-ui-action="search-kindle-inventory" type="search" value="${escapeHtml(query)}" placeholder="Search Kindle by title, author, or filename…" autocomplete="off" /></label>
+    <div class="kindle-library-toolbar"><label class="kindle-library-search"><span class="sr-only">Search Kindle contents</span>${libraryIcon("search")}<input id="kindle-inventory-search" data-ui-action="search-kindle-inventory" type="search" value="${escapeHtml(query)}" placeholder="Search Kindle by title, author, or filename…" autocomplete="off" /></label>${renderLibraryLayoutControls(snapshot)}</div>
     ${inventory ? `<div class="kindle-library-summary"><span>${escapeHtml(summary)}</span><span>${escapeHtml(scannedTime(inventory.scannedAt))}</span></div>` : ""}
-    ${shown.length ? `<ul class="kindle-library-list">${shown.map(renderItem).join("")}</ul>` : `<div class="kindle-library-empty"><span aria-hidden="true">${libraryIcon("device")}</span><h2>${emptyTitle}</h2><p>${emptyMessage}</p></div>`}
+    ${shown.length ? `<ul class="kindle-library-list library-book-grid" data-layout="${layout}" style="--library-card-min-width: ${normalizeLibraryCardSize(snapshot.cardSize)}px">${shown.map(renderItem).join("")}</ul>` : `<div class="kindle-library-empty"><span aria-hidden="true">${libraryIcon("device")}</span><h2>${emptyTitle}</h2><p>${emptyMessage}</p></div>`}
     ${matchingItems.length > PAGE_SIZE ? `<nav class="kindle-library-pagination" aria-label="Kindle content pages"><button type="button" data-ui-action="kindle-page" data-page-offset="${Math.max(0, offset - PAGE_SIZE)}"${offset === 0 ? " disabled" : ""}>Previous</button><span>${(offset + 1).toLocaleString()}–${Math.min(offset + PAGE_SIZE, matchingItems.length).toLocaleString()} of ${matchingItems.length.toLocaleString()}</span><button type="button" data-ui-action="kindle-page" data-page-offset="${Math.min(maxOffset, offset + PAGE_SIZE)}"${offset === maxOffset ? " disabled" : ""}>Next</button></nav>` : ""}
   </section>`;
 }

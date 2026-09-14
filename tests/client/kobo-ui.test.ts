@@ -47,7 +47,7 @@ describe("Kobo reader UI", () => {
   it("renders a Kobo connection and reader-specific navigation without Kindle mutation controls", () => {
     const el = rendered();
     expect(el.textContent).toContain("Kobo connected");
-    expect(el.querySelector('[data-ui-view="on-kindle"]')?.textContent).toContain("On Kobo");
+    expect(el.querySelector('[data-ui-view="on-kindle"]')?.textContent).toContain("On Device");
     expect(el.querySelector('[data-ui-action="send-book"]')?.textContent).toContain("Send to Kobo");
     expect(el.querySelector('[data-ui-action="remove-book-from-kindle"]')).toBeNull();
     expect(el.querySelector('[data-ui-action="update-book-on-kindle"]')).toBeNull();

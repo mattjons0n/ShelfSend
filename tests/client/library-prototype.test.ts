@@ -219,7 +219,7 @@ describe("catalog-backed library model", () => {
     expect(buttonPhoto?.getAttribute("src")).toContain("kindle-device.png");
     expect(deviceButton.querySelector("strong")?.textContent).toBe("Kindle connected");
     expect(deviceButton.querySelector("small")).toBeNull();
-    expect(inventory.querySelector("#kindle-library-heading")?.textContent).toBe("On Kindle");
+    expect(inventory.querySelector("#kindle-library-heading")?.textContent).toBe("On Device");
     expect(inventory.querySelector(".kindle-library-status")?.textContent).toBe("Contents up to date");
     expect(inventory.textContent).not.toContain("checks passed");
     expect(deviceButton.textContent).not.toContain("checks passed");
@@ -263,7 +263,7 @@ describe("catalog-backed library model", () => {
     }
   });
 
-  it("shows On Kindle in Browse only while connected and retains the open view after disconnect", async () => {
+  it("shows On Device in Browse only while connected and retains the open view after disconnect", async () => {
     const { root, view } = await loadedView();
     const selector = '.library-nav button[data-ui-view="on-kindle"]';
     const state = initialAppState();
