@@ -361,6 +361,60 @@ body { background: var(--page); }
   .library-book-card, .library-book-card .library-cover { transition: none; }
   .library-book-cover-trigger:hover .library-cover { transform: none; }
 }
+/* Bounded cover sizing, independent of list-row density. The smaller
+   viewport may reduce the column count, never squeeze the text to fit. */
+.library-layout .library-book-grid[data-layout="grid"] {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--library-card-min-width, 220px)), 1fr));
+  gap: 24px 20px;
+}
+.library-book-grid[data-layout="grid"] .library-card-copy {
+  padding: 13px 12px 12px;
+  align-content: start;
+}
+.library-book-grid[data-layout="grid"] .library-card-copy h3 {
+  font-size: 13px;
+  line-height: 1.4;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+.library-book-grid[data-layout="grid"] .library-card-copy p {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.library-book-grid[data-layout="grid"] .library-book-meta { row-gap: 4px; font-size: 11px; }
+.library-book-grid[data-layout="grid"] .library-book-meta > span { white-space: nowrap; }
+.library-book-grid[data-layout="grid"] .library-tags > :is(span, button) { max-width: 100%; overflow-wrap: anywhere; }
+.library-display-controls { gap: 14px; flex-wrap: wrap; }
+.library-card-size { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
+.library-card-size-track { display: flex; align-items: center; gap: 5px; }
+.library-card-size-track > span { font-size: 16px; }
+.library-card-size input {
+  width: 104px; min-width: 0; min-height: 32px; margin: 0; padding: 0;
+  accent-color: var(--green); cursor: pointer; background: transparent; border: 0; box-shadow: none;
+}
+.library-card-size input:disabled { cursor: not-allowed; }
+.library-card-size input:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 4px; }
+.library-catalog-pagination { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; font-size: 12px; }
+.library-page-count { font-variant-numeric: tabular-nums; }
+.library-page-buttons { display: flex; align-items: center; gap: 8px; }
+.library-page-size { display: flex; align-items: center; justify-self: end; gap: 10px; white-space: nowrap; color: var(--muted); }
+.library-page-size select { width: auto; min-width: 72px; min-height: 36px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+@media (max-width: 1000px) {
+  .library-catalog-pagination { display: flex; flex-wrap: wrap; }
+  .library-page-count { margin-right: auto; }
+  .library-page-size { margin-left: auto; }
+}
+@media (max-width: 600px) {
+  .library-results-head { flex-wrap: wrap; gap: 10px; }
+  .library-results-controls { flex-wrap: wrap; }
+  .library-catalog-pagination { justify-content: space-between; gap: 12px; }
+  .library-page-count { flex-basis: 100%; }
+  .library-page-size { gap: 6px; font-size: 11px; }
+  .library-catalog-pagination button { min-width: 0; padding-inline: 10px; }
+}
 /* Read-only sidecar observations in the existing details drawer. */
 .kindle-recorded-data article { border-top: 1px solid var(--border); padding-block: 12px; }
 .kindle-recorded-data h4 { overflow-wrap: anywhere; font-size: .8rem; }

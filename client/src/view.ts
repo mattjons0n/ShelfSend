@@ -25,6 +25,7 @@ import {
   type CoverProvider,
 } from "./catalog-client";
 import { renderKindleDeviceContents, renderLibraryPrototype, renderLibraryResults } from "./library-prototype-view";
+import { bindLibraryDisplayControls, captureLibraryDisplayControl } from "./library-display-controls";
 import type { KindleFilter, LibraryFilters, LibrarySort, LibraryView, MetadataFilter } from "./library-prototype";
 import type { LibraryFolderDraft, LibrarySettingsDraft } from "./library-settings-prototype";
 import {
@@ -412,6 +413,7 @@ export class AppView {
       filters: snapshot.filters,
       layout: snapshot.layout,
       density: snapshot.density ?? "comfortable",
+      cardSize: snapshot.cardSize,
       overlays,
     };
   }
@@ -456,6 +458,7 @@ export class AppView {
 
   render(state: AppState): void {
     this.#state = state;
+    const restoreDisplayControl = captureLibraryDisplayControl(this.#root);
     const readerMenuOpen = this.#root.querySelector('[data-ui-action="toggle-reader-picker"]')?.getAttribute("aria-expanded") === "true";
     const readerMenuFocus = document.activeElement instanceof HTMLElement && this.#root.contains(document.activeElement) && document.activeElement.closest(".library-reader-picker")
       ? document.activeElement.dataset.uiAction : undefined;
@@ -521,6 +524,7 @@ export class AppView {
     });
     this.#renderAdvancedPartialObjectProbe();
     this.#bindEvents();
+    restoreDisplayControl();
     if (readerMenuOpen) {
       const trigger = this.#root.querySelector<HTMLButtonElement>('[data-ui-action="toggle-reader-picker"]');
       if (trigger && !trigger.disabled) {
@@ -1156,6 +1160,16 @@ export class AppView {
         this.#writeCatalogRoute({}, "replace");
       }
     }));
+    bindLibraryDisplayControls(scope, {
+      setCardSize: (size) => {
+        this.#catalog.setCardSize(size);
+        this.#writeCatalogRoute({}, "replace");
+      },
+      setPageSize: (size) => {
+        this.#catalog.setPageSize(size);
+        this.#writeCatalogRoute({ bookId: null, seriesKey: null }, "replace");
+      },
+    });
     scope.querySelectorAll<HTMLInputElement>('input[data-ui-action="toggle-book-selection"]').forEach((input) => input.addEventListener("change", () => {
       const bookId = input.dataset.bookId;
       if (bookId) this.#catalog.toggleBookSelection(bookId, input.checked);
@@ -2014,8 +2028,10 @@ export class AppView {
     });
     const results = this.#root.querySelector<HTMLElement>(".library-results");
     if (!results) return;
+    const restoreDisplayControl = captureLibraryDisplayControl(results);
     results.innerHTML = renderLibraryResults(this.#state, this.#catalog.snapshot);
     this.#bindCatalogResultActions(results);
+    restoreDisplayControl();
   }
 
   #refreshCatalogDeviceContents(): void {

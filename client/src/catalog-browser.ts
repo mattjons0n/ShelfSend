@@ -65,6 +65,7 @@ import {
   writeLibraryBrowserContext,
   type LibraryDensity,
 } from "./library-browser-context";
+import { isLibraryCardSize, isLibraryPageSize, normalizeLibraryCardSize } from "./library-display-preferences";
 import { buildSendQueueReview, reorderedQueueBookIds } from "./send-queue";
 import {
   BUILT_IN_SMART_SHELVES,
@@ -146,6 +147,7 @@ export interface CatalogBrowserSnapshot {
   readonly kindleInventoryOffset: number;
   readonly layout: LibraryLayout;
   readonly density?: LibraryDensity;
+  readonly cardSize?: number;
   /** Restored only when switching profiles/startup, not after ordinary renders. */
   readonly contextScrollY?: number;
   readonly contextRestoreToken?: number;
@@ -779,6 +781,7 @@ export class CatalogBrowser {
       kindleInventoryOffset: 0,
       layout: "grid",
       density: "comfortable",
+      cardSize: normalizeLibraryCardSize(undefined),
       contextScrollY: 0,
       contextRestoreToken: 0,
       selectedBookIds: new Set(),
@@ -858,6 +861,7 @@ export class CatalogBrowser {
         filters: browsingContext?.filters ?? initialLibraryFilters(selected?.id),
         layout: browsingContext?.layout ?? "grid",
         density: browsingContext?.density ?? "comfortable",
+        cardSize: normalizeLibraryCardSize(browsingContext?.cardSize),
         sendQueueOpen: browsingContext?.sendQueueOpen ?? false,
         shelfManagerOpen: browsingContext?.shelfManagerOpen ?? false,
         seriesSort: browsingContext?.seriesSort ?? "name",
@@ -1033,6 +1037,7 @@ export class CatalogBrowser {
       readingHistoryError: undefined,
       layout: browsingContext.layout,
       density: browsingContext.density,
+      cardSize: normalizeLibraryCardSize(browsingContext.cardSize),
       contextScrollY: browsingContext.scrollY,
       contextRestoreToken: (this.#snapshot.contextRestoreToken ?? 0) + 1,
       sendQueue: undefined,
@@ -1199,7 +1204,7 @@ export class CatalogBrowser {
     if (shelvesSettled) this.#restoredShelfId = undefined;
     if (route.filters.view === "settings") {
       await this.setView("settings");
-      this.#set({ layout: route.layout, density: route.density }, "all");
+      this.#set({ layout: route.layout, density: route.density, cardSize: normalizeLibraryCardSize(route.cardSize ?? this.#snapshot.cardSize) }, "all");
       return true;
     }
     this.#bookEpoch += 1;
@@ -1214,6 +1219,7 @@ export class CatalogBrowser {
       filters: routedFilters,
       layout: route.layout,
       density: route.density,
+      cardSize: normalizeLibraryCardSize(route.cardSize ?? this.#snapshot.cardSize),
       sendQueueOpen: route.overlays.sendQueueOpen,
       shelfManagerOpen: route.overlays.shelfManagerOpen,
       activityOpen: route.overlays.activityOpen,
@@ -2742,6 +2748,36 @@ export class CatalogBrowser {
     if (this.#kindleActionBusy() || density === (this.#snapshot.density ?? "comfortable")) return;
     this.#set({ density }, "all");
     this.#persistBrowsingContext();
+  }
+
+  setCardSize(cardSize: number): void {
+    if (!isLibraryCardSize(cardSize) || this.#kindleActionBusy()
+      || cardSize === normalizeLibraryCardSize(this.#snapshot.cardSize)) return;
+    this.#set({ cardSize }, "results");
+    this.#persistBrowsingContext();
+  }
+
+  setPageSize(limit: number): void {
+    if (!isLibraryPageSize(limit) || this.#kindleActionBusy()
+      || !this.#snapshot.filters.profileId || limit === this.#snapshot.filters.limit) return;
+    this.#bookEpoch += 1;
+    this.#bookOperation?.abort();
+    if (this.#searchTimer !== undefined) {
+      window.clearTimeout(this.#searchTimer);
+      this.#searchTimer = undefined;
+    }
+    this.#snapshot = {
+      ...this.#snapshot,
+      filters: { ...this.#snapshot.filters, limit, offset: 0 },
+      // Like changing page, changing its size leaves no hidden bulk selection.
+      selectedBookIds: new Set(),
+      bookDetails: undefined,
+      bulkActionError: undefined,
+      error: undefined,
+    };
+    this.#persistBrowsingContext(0);
+    this.#render("results");
+    void this.reloadBooks();
   }
 
   setScrollPosition(scrollY: number): void {
@@ -5135,6 +5171,7 @@ export class CatalogBrowser {
       filters: this.#snapshot.filters,
       layout: this.#snapshot.layout,
       density: this.#snapshot.density ?? "comfortable",
+      cardSize: normalizeLibraryCardSize(this.#snapshot.cardSize),
       scrollY,
       ...(this.#snapshot.activeShelf ? { activeShelfId: this.#snapshot.activeShelf.id } : {}),
       sendQueueOpen: this.#snapshot.sendQueueOpen,
@@ -5376,6 +5413,7 @@ export class CatalogBrowser {
       ...(profileChanged && restoredContext ? {
         layout: restoredContext.layout,
         density: restoredContext.density,
+        cardSize: normalizeLibraryCardSize(restoredContext.cardSize),
         contextScrollY: restoredContext.scrollY,
         contextRestoreToken: (this.#snapshot.contextRestoreToken ?? 0) + 1,
         sendQueueOpen: restoredContext.sendQueueOpen ?? false,

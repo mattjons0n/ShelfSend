@@ -7,6 +7,7 @@ import {
   type MetadataFilter,
 } from "./library-prototype";
 import type { CatalogIssueSeverity, CatalogIssueType } from "../../shared/catalog-issues.js";
+import { normalizeLibraryCardSize } from "./library-display-preferences";
 
 export type LibraryDensity = "comfortable" | "compact";
 
@@ -14,6 +15,7 @@ export interface LibraryBrowserContext {
   readonly filters: LibraryFilters;
   readonly layout: LibraryLayout;
   readonly density: LibraryDensity;
+  readonly cardSize?: number;
   readonly scrollY: number;
   /** Profile-scoped built-in or server shelf identity; the query is reloaded after shelves load. */
   readonly activeShelfId?: string;
@@ -56,6 +58,7 @@ interface StoredEntry {
   readonly filters: Omit<LibraryFilters, "profileId">;
   readonly layout: LibraryLayout;
   readonly density: LibraryDensity;
+  readonly cardSize?: number;
   readonly scrollY: number;
   readonly activeShelfId?: string;
   readonly sendQueueOpen?: boolean;
@@ -135,6 +138,7 @@ function parseEntry(value: unknown, profileId: string): LibraryBrowserContext | 
     },
     layout: entry.layout === "list" ? "list" : "grid",
     density: entry.density === "compact" ? "compact" : "comfortable",
+    cardSize: normalizeLibraryCardSize(entry.cardSize),
     scrollY: safeOffset(entry.scrollY),
     ...(activeShelfId ? { activeShelfId } : {}),
     sendQueueOpen: entry.sendQueueOpen === true,
@@ -168,6 +172,7 @@ export function readLibraryBrowserContext(
     filters: initialLibraryFilters(profileId),
     layout: "grid",
     density: "comfortable",
+    cardSize: normalizeLibraryCardSize(undefined),
     scrollY: 0,
     sendQueueOpen: false,
     shelfManagerOpen: false,
@@ -189,6 +194,7 @@ export function writeLibraryBrowserContext(
     filters: { ...filters, view: filters.view === "settings" ? "all" : filters.view },
     layout: context.layout,
     density: context.density,
+    cardSize: normalizeLibraryCardSize(context.cardSize),
     scrollY: safeOffset(context.scrollY),
     ...(activeShelfId ? { activeShelfId } : {}),
     sendQueueOpen: context.sendQueueOpen === true,

@@ -49,6 +49,7 @@ import {
   type KindleBridgeActivityEvent,
 } from "./activity-center";
 import { isKoboReader, koboReady, readerComparisonComplete, readerCounts, readerName, readerStatuses } from "./reader-ui";
+import { LIBRARY_CARD_SIZE_MIN, LIBRARY_CARD_SIZE_MAX, LIBRARY_CARD_SIZE_STEP, LIBRARY_PAGE_SIZES, normalizeLibraryCardSize } from "./library-display-preferences";
 
 function readerConnected(state: AppState, snapshot: CatalogBrowserSnapshot): boolean {
   return isKoboReader(snapshot) ? snapshot.kobo?.status === "ready" || snapshot.kobo?.status === "scanning" : actualDeviceConnected(state);
@@ -330,7 +331,10 @@ function renderBookCard(book: CatalogBook, snapshot: CatalogBrowserSnapshot, sta
 function renderLayoutControls(snapshot: CatalogBrowserSnapshot): string {
   const disabled = snapshot.sendBusy || snapshot.bulkActionBusy ? " disabled" : "";
   const density = snapshot.density ?? "comfortable";
-  return `<div class="library-display-controls"><div class="library-layout-toggle" role="group" aria-label="Book layout"><button type="button" data-ui-action="set-library-layout" data-layout="grid" aria-pressed="${snapshot.layout === "grid"}" aria-label="Grid view" title="Grid view"${disabled}>${libraryIcon("grid")}</button><button type="button" data-ui-action="set-library-layout" data-layout="list" aria-pressed="${snapshot.layout === "list"}" aria-label="List view" title="List view"${disabled}>${libraryIcon("list")}</button></div><div class="library-layout-toggle library-density-toggle" role="group" aria-label="Book density"><button type="button" data-ui-action="set-library-density" data-density="comfortable" aria-pressed="${density === "comfortable"}" aria-label="Comfortable density" title="Comfortable"${disabled}><span aria-hidden="true">↕</span></button><button type="button" data-ui-action="set-library-density" data-density="compact" aria-pressed="${density === "compact"}" aria-label="Compact density" title="Compact"${disabled}><span aria-hidden="true">≡</span></button></div></div>`;
+  const sizing = snapshot.layout === "grid"
+    ? `<label class="library-card-size" for="library-card-size"><span>Card size</span><span class="library-card-size-track"><span aria-hidden="true">−</span><input id="library-card-size" data-ui-action="set-library-card-size" type="range" min="${LIBRARY_CARD_SIZE_MIN}" max="${LIBRARY_CARD_SIZE_MAX}" step="${LIBRARY_CARD_SIZE_STEP}" value="${normalizeLibraryCardSize(snapshot.cardSize)}" aria-describedby="library-card-size-hint"${disabled} /><span aria-hidden="true">+</span></span><span id="library-card-size-hint" class="sr-only">Smaller to larger covers. Text stays the same readable size.</span></label>`
+    : `<div class="library-layout-toggle library-density-toggle" role="group" aria-label="Book density"><button type="button" data-ui-action="set-library-density" data-density="comfortable" aria-pressed="${density === "comfortable"}" aria-label="Comfortable density" title="Comfortable"${disabled}><span aria-hidden="true">↕</span></button><button type="button" data-ui-action="set-library-density" data-density="compact" aria-pressed="${density === "compact"}" aria-label="Compact density" title="Compact"${disabled}><span aria-hidden="true">≡</span></button></div>`;
+  return `<div class="library-display-controls">${sizing}<div class="library-layout-toggle" role="group" aria-label="Book layout"><button type="button" data-ui-action="set-library-layout" data-layout="grid" aria-pressed="${snapshot.layout === "grid"}" aria-label="Grid view" title="Grid view"${disabled}>${libraryIcon("grid")}</button><button type="button" data-ui-action="set-library-layout" data-layout="list" aria-pressed="${snapshot.layout === "list"}" aria-label="List view" title="List view"${disabled}>${libraryIcon("list")}</button></div></div>`;
 }
 
 function renderBulkActions(
@@ -352,10 +356,16 @@ function renderBulkActions(
 
 function renderPagination(snapshot: CatalogBrowserSnapshot): string {
   const page = snapshot.page;
-  if (!page || page.total <= page.limit) return "";
+  if (!page) return "";
   const start = page.total === 0 ? 0 : page.offset + 1;
   const end = Math.min(page.total, page.offset + page.items.length);
-  return `<nav class="library-pagination" aria-label="Catalog pages"><button type="button" data-ui-action="catalog-page" data-page-offset="${Math.max(0, page.offset - page.limit)}"${page.offset === 0 ? " disabled" : ""}>Previous</button><span>${start}–${end} of ${page.total}</span><button type="button" data-ui-action="catalog-page" data-page-offset="${page.offset + page.limit}"${page.offset + page.limit >= page.total ? " disabled" : ""}>Next</button></nav>`;
+  const busy = snapshot.sendBusy || snapshot.bulkActionBusy || snapshot.sendQueueBusy;
+  const pagingBusy = busy || snapshot.booksState === "loading";
+  const selectedLimit = snapshot.booksState === "loading" ? snapshot.filters.limit : page.limit;
+  // The response-size guard can reduce a page below the selected limit. Show
+  // that effective value honestly while keeping the normal choices bounded.
+  const limits = [...new Set<number>([...LIBRARY_PAGE_SIZES, selectedLimit])].sort((a, b) => a - b);
+  return `<nav class="library-pagination library-catalog-pagination" aria-label="Catalog pages"><span class="library-page-count">${start}–${end} of ${page.total}</span><div class="library-page-buttons"><button type="button" data-ui-action="catalog-page" data-page-offset="${Math.max(0, page.offset - page.limit)}"${pagingBusy || page.offset === 0 ? " disabled" : ""}>Previous</button><button type="button" data-ui-action="catalog-page" data-page-offset="${page.offset + page.limit}" aria-label="Show more books (next page)"${pagingBusy || page.offset + page.limit >= page.total ? " disabled" : ""}>Show more</button></div><label class="library-page-size" for="library-page-size"><span>Books per page</span><select id="library-page-size" data-ui-action="set-library-page-size"${busy ? " disabled" : ""}>${limits.map((limit) => `<option value="${limit}"${selectedLimit === limit ? " selected" : ""}>${limit}</option>`).join("")}</select></label></nav>`;
 }
 
 function resultsEmptyCopy(snapshot: CatalogBrowserSnapshot): readonly [string, string] {
@@ -401,9 +411,9 @@ export function renderLibraryResults(state: AppState, snapshot: CatalogBrowserSn
     ${renderActiveFilters(snapshot)}
     ${snapshot.readingHistoryError ? `<p role="alert">Read books could not be fully saved: ${escapeHtml(snapshot.readingHistoryError)} Reconnect to retry.</p>` : ""}
     ${snapshot.activeShelf?.id === "builtin-read-books" ? `<p class="library-reading-note">Books confirmed Read on your Kindle stay here after disconnecting or removing the Kindle copy.${snapshot.readingEnabled ? "" : " Automatic reading detection is awaiting physical Kindle validation; no completion is inferred from percentage alone."}</p>` : ""}
-    ${books.length > 0 ? `${snapshot.layout === "list" ? renderBulkActions(books, snapshot, state) : ""}<div class="library-book-grid${snapshot.layout === "list" ? " library-book-list" : ""}" data-layout="${snapshot.layout}">${books.map((book) => renderBookCard(book, snapshot, state)).join("")}</div>${renderPagination(snapshot)}` : `
+    ${books.length > 0 ? `${snapshot.layout === "list" ? renderBulkActions(books, snapshot, state) : ""}<div class="library-book-grid${snapshot.layout === "list" ? " library-book-list" : ""}" data-layout="${snapshot.layout}" style="--library-card-min-width: ${normalizeLibraryCardSize(snapshot.cardSize)}px">${books.map((book) => renderBookCard(book, snapshot, state)).join("")}</div>` : `
       <div class="library-empty-state"><span aria-hidden="true">⌕</span><h2>${escapeHtml(emptyTitle)}</h2><p>${escapeHtml(emptyMessage)}</p>${hasActiveCatalogFilters(snapshot.filters) ? '<button type="button" data-ui-action="clear-filters">Clear filters</button>' : ""}</div>
-    `}
+    `}${renderPagination(snapshot)}
   `;
 }
 

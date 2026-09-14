@@ -6,6 +6,7 @@ import {
   type LibraryView,
 } from "./library-prototype";
 import type { LibraryDensity } from "./library-browser-context";
+import { isLibraryCardSize, normalizeLibraryCardSize } from "./library-display-preferences";
 
 export const LIBRARY_ROUTE_VERSION = 1;
 
@@ -27,6 +28,7 @@ export interface LibraryRouteState {
   readonly filters: LibraryFilters;
   readonly layout: LibraryLayout;
   readonly density: LibraryDensity;
+  readonly cardSize?: number;
   readonly overlays: LibraryRouteOverlays;
 }
 
@@ -102,6 +104,8 @@ export function decodeLibraryRoute(hash: string): LibraryRouteState | undefined 
     }),
     layout: params.get("layout") === "list" ? "list" : "grid",
     density: params.get("density") === "compact" ? "compact" : "comfortable",
+    ...(isLibraryCardSize(Number(params.get("card-size")))
+      ? { cardSize: Number(params.get("card-size")) } : {}),
     overlays: Object.freeze({
       ...(bookId ? { bookId } : {}),
       ...(matchItemId ? { matchItemId } : {}),
@@ -125,6 +129,7 @@ export function encodeLibraryRoute(state: LibraryRouteState): string {
   params.set("sort", state.filters.sort);
   params.set("layout", state.layout);
   if (state.density === "compact") params.set("density", "compact");
+  if (state.cardSize !== undefined) params.set("card-size", String(normalizeLibraryCardSize(state.cardSize)));
   const activeShelfId = state.profileId && state.filters.view !== "settings"
     ? bounded(state.activeShelfId ?? null, 100)
     : undefined;

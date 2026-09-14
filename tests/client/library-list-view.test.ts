@@ -425,15 +425,70 @@ describe("library list view and Kindle actions", () => {
     const grid = render(renderLibraryResults(readyState(), snapshot()));
     expect(grid.querySelector('[data-ui-action="set-library-layout"][data-layout="grid"]')?.getAttribute("aria-pressed")).toBe("true");
     expect(grid.querySelector('[data-ui-action="set-library-layout"][data-layout="list"]')?.getAttribute("aria-label")).toBe("List view");
-    expect(grid.querySelector('[data-ui-action="set-library-density"][data-density="compact"]')?.getAttribute("aria-label")).toBe("Compact density");
+    expect(grid.querySelector('input[type="range"]')?.getAttribute("id")).toBe("library-card-size");
+    expect(grid.querySelector('[data-ui-action="set-library-density"]')).toBeNull();
     expect(grid.querySelector('[data-ui-action="toggle-book-selection"]')).toBeNull();
     expect(grid.querySelectorAll('[data-ui-action="open-book-details"]')).toHaveLength(BOOKS.length * 2);
     expect(grid.querySelectorAll('[data-ui-action="remove-book-from-kindle"]')).toHaveLength(BOOKS.length);
 
     const list = render(renderLibraryResults(readyState(), snapshot({ layout: "list" })));
     expect(list.querySelector('[data-ui-action="set-library-layout"][data-layout="list"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(list.querySelector('[data-ui-action="set-library-density"][data-density="compact"]')?.getAttribute("aria-label")).toBe("Compact density");
+    expect(list.querySelector("#library-card-size")).toBeNull();
     expect(list.querySelectorAll('[data-ui-action="toggle-book-selection"]')).toHaveLength(BOOKS.length);
     expect(list.querySelector('[role="toolbar"][aria-label="Selected book actions"]')).not.toBeNull();
+  });
+
+  it.each([180, 220, 280])("renders bounded card sizing at %i without removing book details", (cardSize) => {
+    const root = render(renderLibraryResults(readyState(), snapshot({ cardSize })));
+    const slider = root.querySelector<HTMLInputElement>("#library-card-size")!;
+    expect([slider.min, slider.max, slider.step, slider.value]).toEqual(["180", "280", "20", String(cardSize)]);
+    expect(root.querySelector('label[for="library-card-size"]')?.textContent).toContain("Card size");
+    expect(root.querySelector<HTMLElement>('.library-book-grid')?.style.getPropertyValue("--library-card-min-width")).toBe(`${cardSize}px`);
+    const card = root.querySelector(".library-book-card")!;
+    expect(card.querySelector("h3")?.textContent).toContain(CONFIRMED.title);
+    expect(card.querySelector(".library-card-copy p")?.textContent).toContain("Test Author");
+    expect(card.querySelector(".library-book-meta")?.textContent).toContain("EPUB");
+    expect(card.querySelector(".library-book-meta")?.textContent).toContain("1.02 KB");
+  });
+
+  it("keeps books-per-page available on short and empty pages, in grid and list views", () => {
+    for (const layout of ["grid", "list"] as const) {
+      for (const items of [BOOKS, []]) {
+        const root = render(renderLibraryResults(readyState(), snapshot({ layout, page: { items, total: items.length, offset: 0, limit: 24 } })));
+        const footer = root.querySelector(".library-catalog-pagination")!;
+        expect(footer.querySelector('label[for="library-page-size"]')?.textContent).toContain("Books per page");
+        expect(footer.querySelector<HTMLSelectElement>("#library-page-size")?.value).toBe("24");
+        expect([...footer.querySelectorAll("option")].map((option) => option.value)).toEqual(["12", "24", "48", "96", "200"]);
+        expect(footer.querySelector<HTMLButtonElement>('[aria-label="Show more books (next page)"]')?.disabled).toBe(true);
+      }
+    }
+  });
+
+  it("keeps page buttons, counter and size choice together and respects first/last pages", () => {
+    const root = render(renderLibraryResults(readyState(), snapshot({ page: { items: BOOKS, total: 99, offset: 48, limit: 48 } })));
+    expect(root.querySelector(".library-page-count")?.textContent).toBe("49–51 of 99");
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>('.library-page-buttons button')];
+    expect(buttons.map((button) => button.dataset.pageOffset)).toEqual(["0", "96"]);
+    expect(buttons.every((button) => !button.disabled)).toBe(true);
+    expect(root.querySelector<HTMLSelectElement>("#library-page-size")?.value).toBe("48");
+    const last = render(renderLibraryResults(readyState(), snapshot({ page: { items: BOOKS, total: 99, offset: 96, limit: 48 } })));
+    expect(last.querySelector<HTMLButtonElement>('[aria-label="Show more books (next page)"]')?.disabled).toBe(true);
+  });
+
+  it("shows an adaptive reduced page size honestly and disables changes during transfers", () => {
+    const reduced = render(renderLibraryResults(readyState(), snapshot({ page: { items: BOOKS, total: 99, offset: 0, limit: 6 } })));
+    expect(reduced.querySelector<HTMLSelectElement>("#library-page-size")?.value).toBe("6");
+    for (const patch of [{ sendBusy: true }, { bulkActionBusy: true }]) {
+      const root = render(renderLibraryResults(readyState(), snapshot(patch)));
+      expect(root.querySelector<HTMLSelectElement>("#library-page-size")?.disabled).toBe(true);
+      expect([...root.querySelectorAll<HTMLButtonElement>('.library-page-buttons button')].every((button) => button.disabled)).toBe(true);
+    }
+    const busy = render(renderLibraryResults(readyState(), snapshot({ sendBusy: true })));
+    expect(busy.querySelector<HTMLInputElement>("#library-card-size")?.disabled).toBe(true);
+    const loading = render(renderLibraryResults(readyState(), snapshot({ booksState: "loading", filters: { ...initialLibraryFilters(PROFILE.id), limit: 96 } })));
+    expect(loading.querySelector<HTMLSelectElement>("#library-page-size")?.value).toBe("96");
+    expect(loading.querySelector<HTMLSelectElement>("#library-page-size")?.disabled).toBe(false);
   });
 
   it("renders effective, source, and current-device evidence in one read-only details drawer", () => {
