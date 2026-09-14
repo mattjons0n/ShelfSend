@@ -24,6 +24,8 @@ coverage/
 /backups/
 # Local working notes and generated review artifacts.
 /outputs/
+# Archived local iPhone feasibility experiment.
+/ios/KindleProbe/
 .kindle-poc-tmp/
 .kindle-bridge-dev/
 DerivedData/

@@ -140,7 +140,7 @@ The Kindle exposes a vendor-specific USB interface rather than only a class-code
 
 Modern MTP Kindles can hide the legacy `system/thumbnails` directory. An ordinary sideloaded `EBOK` AZW3 may consequently show a grey library tile even though its embedded cover is valid. `client/src/api/azw3-sideload.ts` validates PalmDB/MOBI/EXTH bounds and embedded cover records, then changes EXTH record 501 from `EBOK` to `PDOC` without shifting offsets. The physical POC confirmed that this shows the embedded cover; the tradeoff is that Kindle classifies it under Documents rather than Books.
 
-The iOS probe under `ios/KindleProbe` also records a negative physical finding. On an iPhone 16 running iOS 26.6.1, an authorized ImageCaptureCore scan saw no Kindle device callback or listed device. This rules out that discovery path for the tested pairing; it does not establish generic raw-USB, MFi, private-API, or bridge-hardware support.
+A historical read-only iPhone experiment records a negative physical finding: on an iPhone 16 running iOS 26.6.1, an authorized ImageCaptureCore scan saw no Kindle device callback or listed device. The experimental app is no longer part of the repository. This rules out that discovery path for the tested pairing; it does not establish generic raw-USB, MFi, private-API, or bridge-hardware support.
 
 ## Safety invariants
 
