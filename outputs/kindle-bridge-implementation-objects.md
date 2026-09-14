@@ -1,4 +1,6 @@
-# Kindle Bridge implementation objects
+# ShelfSend implementation objects
+
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
 
 These two implementation objects extend the completed household-library baseline. They share one invariant: a transfer may change only a browser-created derivative; a host-mounted source remains byte-identical.
 
@@ -19,7 +21,7 @@ Allow a household member to correct catalog metadata and select a preferred cove
 - Source downloads continue to return the original indexed bytes and source hash. Metadata/cover changes alter a separate `presentationVersion` used for current delivery identity.
 - For an edited EPUB, the browser applies sparse metadata and the selected cover to an ephemeral EPUB copy, converts that copy with boko WASM, and transfers the verified PDOC derivative.
 - Existing AZW3 sources remain sendable when unedited. An edited AZW3 fails before MTP because the checked-in converter has no bounded, verified reconstruction API for that path yet.
-- An edit does not mutate a copy already on a Kindle. Up to 16 distinct retained prior KindleBridge presentation tokens per active book are exposed as exact removal-only evidence: the prior copy stays yellow, can be removed safely, and never proves that the edited presentation is already present.
+- An edit does not mutate a copy already on a Kindle. Up to 16 distinct retained prior ShelfSend presentation tokens per active book are exposed as exact removal-only evidence: the prior copy stays yellow, can be removed safely, and never proves that the edited presentation is already present.
 
 ### External acceptance still required
 

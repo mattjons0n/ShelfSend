@@ -5,7 +5,7 @@
 <h1 align="center">ShelfSend</h1>
 
 <p align="center">
-  <strong>Send books to your Kindle or Kobo. Straight from your browser.</strong><br>
+  <strong>Send books to your e-reader. Straight from your browser.</strong><br>
   Your books. Your e-reader. Just a browser between them.
 </p>
 
@@ -32,7 +32,7 @@ Plug in your e-reader, open ShelfSend, and transfer your books over USB. EPUB co
 Run ShelfSend on your own server with Docker, then connect your e-reader to the computer you're browsing from. Your existing book folders become a searchable catalog, and your original files stay untouched. No Calibre installation or cloud book storage is required.
 
 > [!NOTE]
-> **Formerly Kindle Bridge.** ShelfSend is the new display name; existing `kindle-bridge` container names, settings, volumes, and device identifiers remain compatible. Browser-based transfer is available for Kindle and Kobo; see [compatibility](#compatibility) for formats and device validation status.
+> **Supported readers:** Kindle and Kobo. See the [device guide](docs/devices.md) for connection methods, formats, and reader-specific capabilities.
 
 <a id="features"></a>
 ## ✨ Features
@@ -63,13 +63,7 @@ You need **Docker with Docker Compose**, a folder of DRM-free EPUB or supported 
 
 ### 1. Start the library
 
-From a checkout of this repository, point Compose at your existing book folder:
-
-```sh
-KINDLE_BRIDGE_LIBRARY_HOST_PATH=/path/to/your/books docker compose up --build -d
-```
-
-Or use the default `./library` folder:
+From a checkout of this repository, start the library with the default book folder:
 
 ```sh
 mkdir -p library
@@ -77,11 +71,13 @@ mkdir -p library
 docker compose up --build -d
 ```
 
+To use an existing book folder or customize the service, follow the [deployment configuration](deploy/docker/README.md#3-configure-and-start).
+
 Open **[http://127.0.0.1:8080](http://127.0.0.1:8080/)** on the Docker host.
 
 ### 2. Set up your household library
 
-Follow the first-run wizard to create a profile, choose **`/libraries`** as its folder, and check indexing. You can connect your Kindle during setup or skip that step and return later. Reopen the wizard from **Settings → Run setup wizard**.
+Follow the first-run wizard to create a profile, choose **`/libraries`** as its folder, and check indexing. You can skip the optional connection step and choose your e-reader from **Connect eReader** after setup. Reopen the wizard from **Settings → Run setup wizard**.
 
 Settings uses paths **inside the container**. If your host folder is mounted at `/libraries`, enter `/libraries` or a subfolder such as `/libraries/fiction`—never the host path or an SMB URL.
 
@@ -122,7 +118,7 @@ Use the book's three-dot menu to open **Edit metadata & cover**. Corrections are
 
 **Remove from Kindle** shows the exact filenames and sizes and requires confirmation. Each selected object is revalidated before deletion. Possible or fuzzy matches do not authorize removal, and host library originals remain unchanged.
 
-See the [complete workflow and safety rules](docs/technical-guide.md#kindle-workflow-and-safety) for recovery, matching, cache behavior, and session handling.
+See the [complete workflow and safety rules](docs/technical-guide.md#device-workflows-and-safety) for recovery, matching, cache behavior, and session handling.
 
 </details>
 
@@ -145,8 +141,8 @@ Add and test your Hardcover personal API token in **Settings → Series & book d
 | **Kindle** | Browser-local WebUSB/MTP. The original transfer engine was physically tested on an MTP Kindle with USB IDs `0x1949 / 0x9981`. |
 | **Kobo** | Browser folder access to its mounted USB drive in desktop Chrome or Edge. DRM-free EPUB transfer; physical acceptance is pending. |
 | **Other e-readers** | No current compatibility claim beyond the Kindle and Kobo implementations described here. |
-| **KFX / AZW8 inventory** | Visible device presence with incomplete metadata. Experimental metadata enrichment remains disabled by default. |
-| **Reading information** | Read-only recorded activity is available in book details. Automatic reading percentage and Read/Unread detection remain disabled. |
+| **KFX / AZW8 inventory** | Visible Kindle presence with incomplete metadata. Experimental metadata enrichment remains disabled by default. |
+| **Reading information** | Read-only recorded Kindle activity is available in book details. Automatic reading percentage and Read/Unread detection remain disabled. |
 
 > [!NOTE]
 > **Validation status:** the original physical Kindle test confirmed conversion, transfer, opening, chapter navigation, and cover display. The expanded catalog, queue, update, removal, and reconnect flow still needs fresh physical acceptance, along with the real household mounts and intended private HTTPS origin. Kobo software checks verify transfer behavior with fixtures; physical Kobo transfer, import, opening, covers, and navigation still need acceptance. Automated checks do not establish those results.
@@ -169,8 +165,8 @@ Use **Settings** to manage profiles, library folders, and optional metadata prov
 | Container path | Purpose | Storage |
 | --- | --- | --- |
 | `/libraries` | Your original ebooks | Read-only host mount; defaults to `./library` |
-| `/data` | SQLite state, settings, queues, annotations, metadata overrides, and replacement covers | Persistent `kindle-bridge-data` volume |
-| `/cache` | Rebuildable index/cover cache files | `kindle-bridge-cache` volume |
+| `/data` | SQLite state, settings, queues, annotations, metadata overrides, and replacement covers | Persistent data volume (see [deployment settings](deploy/docker/README.md)) |
+| `/cache` | Rebuildable index/cover cache files | Rebuildable cache volume (see [deployment settings](deploy/docker/README.md)) |
 
 The Docker host makes local or NAS-backed folders available through ordinary mounts. ShelfSend does not mount SMB/NFS shares or receive their credentials. Add more read-only mounts in Compose if folders cannot share one mounted parent, and keep configured roots beneath `CATALOG_ALLOWED_ROOTS`.
 
@@ -179,9 +175,6 @@ The Docker host makes local or NAS-backed folders available through ordinary mou
 
 | Setting | Purpose |
 | --- | --- |
-| `KINDLE_BRIDGE_LIBRARY_HOST_PATH` | Host book folder mounted at `/libraries` |
-| `KINDLE_BRIDGE_HTTP_PORT` | Published port; defaults to `8080` |
-| `KINDLE_BRIDGE_BIND_ADDRESS` | Bind address; defaults to `127.0.0.1` |
 | `CATALOG_ALLOWED_HOSTS` | Accepted host headers for your deployment |
 | `CATALOG_ALLOWED_ORIGINS` | Trusted web origins |
 | `CATALOG_REQUIRE_ORIGIN` | Origin enforcement; enabled by default in Compose |
@@ -201,14 +194,15 @@ flowchart LR
     C -->|Browser folder access| E["Your Kobo USB drive"]
 ```
 
-The server indexes and serves source files. The browser prepares derived copies and operates USB. Metadata edits live separately under `/data`; conversion never rewrites a mounted original. Device inventory and metadata caches stay on the browser/Kindle side and are never sent to the backend or cloud.
+The server indexes and serves source files. The browser prepares derived copies and operates USB. Metadata edits live separately under `/data`; conversion never rewrites a mounted original. Device inventory and metadata caches stay on the browser/device side and are never sent to the backend or cloud.
 
 <a id="documentation"></a>
 ## 📚 Documentation
 
 | Guide | Contents |
 | --- | --- |
-| [Technical guide](docs/technical-guide.md) | Kindle workflow, safety, caching, limits, and diagnostics preserved from the previous README |
+| [Device guide](docs/devices.md) | Shared workflow, supported readers, connection methods, formats, and device-specific limits |
+| [Technical guide](docs/technical-guide.md) | Catalog architecture, device workflows, safety, caching, and diagnostics |
 | [Kobo transfer notes](outputs/kobo-build-plan.md) | Browser requirements, supported formats, recovery, and physical acceptance status |
 | [Series discovery](outputs/hardcover-discovery.md) | Hardcover integration, library comparison, and matching behavior |
 | [Docker deployment](deploy/docker/README.md) | Installation, private HTTPS, storage, backups, restore, and rollback |

@@ -10,7 +10,7 @@
 
 ## Scope
 
-This affects Hardcover lookup and read-only series-library ownership. No EPUB/source metadata changes, Kindle matching or mutation changes, new providers, or deployment are included. The original query and successful ISBN/exact-title paths stay first; no book or author is hard-coded.
+This affects Hardcover lookup and read-only series-library ownership. No EPUB/source metadata changes, device matching or mutation changes, new providers, or deployment are included. The original query and successful ISBN/exact-title paths stay first; no book or author is hard-coded.
 
 ## Implemented behavior
 
@@ -25,7 +25,7 @@ Both lookup paths share one search loop. Original queries and ISBN success remai
 - An additional regression covers a successful cleaner query after a truncated irrelevant search: rank the correct book first, but keep automatic selection disabled.
 - Final `npm run check` passed: 1,158 tests in 109 files, client/server TypeScript validation, and production build. The existing bundle-size advisory remains. The exact reported ID, title, author and series are a mocked regression fixture from the supplied live investigation, not a fresh live-account verification.
 
-All requested cases are covered: original and ISBN-first success, empty or irrelevant nonempty results, conservative variants, author/series/volume conflicts, ambiguity, deduplicated/bounded requests, and provider failures/cancellation. No Kindle matching files or metadata-write paths were changed.
+All requested cases are covered: original and ISBN-first success, empty or irrelevant nonempty results, conservative variants, author/series/volume conflicts, ambiguity, deduplicated/bounded requests, and provider failures/cancellation. No device matching files or metadata-write paths were changed.
 
 ## Follow-up: series ownership (2026-09-11)
 
@@ -40,6 +40,6 @@ Plan and implementation:
 
 Tests-first evidence: both API regressions failed with volumes 2 and 3 missing while volume 1 was owned. The focused ownership tests had 4 failures and 5 passes before the fix. After implementation, all six series/discovery HTTP tests passed; all nine new ownership safeguards passed, including conflicting series/volume membership, wrong authors, competing provider IDs, disjoint ISBN claims and source/edited identity isolation.
 
-Acceptance coverage: all three E-Day volumes map to their correct local IDs; source and edited metadata both work; the same cached roster has no matches in the unrelated profile; existing exact-title and ISBN handling remains intact; conflicting evidence stays uncertain; originals and Kindle matching are untouched. Provider responses are mocked, but the regression uses the real HTTP route and SQLite ownership matcher. This is automated regression evidence, not a fresh live-server verification.
+Acceptance coverage: all three E-Day volumes map to their correct local IDs; source and edited metadata both work; the same cached roster has no matches in the unrelated profile; existing exact-title and ISBN handling remains intact; conflicting evidence stays uncertain; originals and device matching are untouched. Provider responses are mocked, but the regression uses the real HTTP route and SQLite ownership matcher. This is automated regression evidence, not a fresh live-server verification.
 
 Final `npm run check` passed: 1,169 tests in 109 files, client/server TypeScript checks, and production build. Existing test-browser `scrollTo` notices and the bundle-size advisory remain. No push or deployment was performed for this follow-up.

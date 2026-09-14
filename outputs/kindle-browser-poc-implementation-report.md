@@ -1,5 +1,7 @@
 # Kindle Browser POC — Implementation Report
 
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
+
 Date: 2026-08-29
 
 ## Outcome

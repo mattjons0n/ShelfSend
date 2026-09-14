@@ -1,12 +1,14 @@
 # Docker deployment and operations
 
-Kindle Bridge ships only as a standard Docker/OCI container. It has no host-vendor integration and never mounts local, NAS, SMB, or NFS storage itself. Start with the locked decisions in [`MILESTONE-0.md`](MILESTONE-0.md).
+ShelfSend ships only as a standard Docker/OCI container. It has no host-vendor integration and never mounts local, NAS, SMB, or NFS storage itself. Start with the locked decisions in [`MILESTONE-0.md`](MILESTONE-0.md).
+
+The same container serves both supported readers. Device permissions and transfers stay on the browsing computer. See the [device guide](../../docs/devices.md). Commands below intentionally use the exact service, volume, environment, and image paths implemented by the deployment files.
 
 ## 1. Prerequisites
 
 - Docker Engine 26+ and Docker Compose v2.24+ on a supported `linux/amd64` or `linux/arm64` host.
 - A host directory containing DRM-free EPUB files and/or supported uncompressed/PalmDOC-compressed KF8/AZW3 files. HUFF/CDIC AZW3 is rejected. If that directory is network-backed, the host must mount and monitor it before Docker starts.
-- A stable private hostname and trusted HTTPS certificate for non-localhost WebUSB use.
+- Desktop Chrome or Edge, a stable private hostname, and a trusted HTTPS certificate for non-localhost reader access: WebUSB for Kindle or folder access for Kobo.
 - A trusted household LAN/VPN. The no-login service must not be exposed directly to the public internet.
 
 The default single source mount maps a host directory to `/libraries`. For separate household collections, add one read-only child mount per source:
@@ -36,11 +38,11 @@ docker compose build --pull kindle-bridge
 For a multi-platform release, install Buildx and run from the repository root:
 
 ```sh
-IMAGE=registry.example/kindle-bridge \
+IMAGE=registry.example/shelfsend \
 VERSION=0.1.0 \
 BUILD_DATE=2026-08-29T00:00:00Z \
 VCS_REF=0123456789abcdef \
-SOURCE_URL=https://example.invalid/kindle-bridge \
+SOURCE_URL=https://github.com/mattjons0n/ShelfSend \
 docker buildx bake --file deploy/docker/docker-bake.hcl --push
 ```
 
@@ -56,22 +58,22 @@ For a production Compose file, set `KINDLE_BRIDGE_IMAGE` to an immutable release
 
 ## 3. Configure and start
 
-Copy [`kindle-bridge.env.example`](kindle-bridge.env.example) to a private environment file outside the repository, replace every example value, and pass it explicitly:
+Copy [the environment template](kindle-bridge.env.example) to a private environment file outside the repository, replace every example value, and pass it explicitly:
 
 ```sh
-docker compose --env-file /private/path/kindle-bridge.env up -d
-docker compose --env-file /private/path/kindle-bridge.env ps
+docker compose --env-file /private/path/shelfsend.env up -d
+docker compose --env-file /private/path/shelfsend.env ps
 ```
 
 Compose binds HTTP to `127.0.0.1:8080` by default. This keeps the unauthenticated origin off external interfaces. Configure initial libraries while `CATALOG_SETTINGS_MODE=read-write`; after setup, `read-only` prevents Settings mutations until the container is deliberately reconfigured.
 
 Optional Google Books access is configured after startup in **Settings → Online cover search**. It is not part of the normal deployment environment. The saved key is server-side durable state in `/data`; Open Library and local cover upload/paste continue to work without it.
 
-The runtime is UID/GID `1000:1000`, has a read-only root filesystem, no Linux capabilities, `no-new-privileges`, and a bounded process count. Only `/data` and `/cache` are writable. `/data` is durable and includes SQLite, optional provider credentials, queue/shelf/annotation intent, issue dispositions, metadata-lookup review jobs, and user-selected replacement covers under `/data/metadata-covers`; `/cache` is rebuildable and is also the runtime temporary directory, so a fresh empty volume or bind mount works without initialization. The browser owns WebUSB, so never pass a USB device into the container or run the service privileged.
+The runtime is UID/GID `1000:1000`, has a read-only root filesystem, no Linux capabilities, `no-new-privileges`, and a bounded process count. Only `/data` and `/cache` are writable. `/data` is durable and includes SQLite, optional provider credentials, queue/shelf/annotation intent, issue dispositions, metadata-lookup review jobs, and user-selected replacement covers under `/data/metadata-covers`; `/cache` is rebuildable and is also the runtime temporary directory, so a fresh empty volume or bind mount works without initialization. The browser owns device access, so never pass a USB device or the mounted e-reader drive into the container or run the service privileged.
 
 Before first start, the host source directories must grant UID/GID `1000:1000` read permission on book files and search (`x`) permission on every parent directory. Named `/data` and `/cache` volumes are initialized by the image and must remain writable by that identity. If host policy cannot grant those permissions, prepare equivalent ACLs on the host; do not make the container privileged or writable against source mounts.
 
-For network-backed mounts, configure a small marker filename (for example `.kindle-bridge-volume`) in each library root and enter that relative name in the root's **Mount sentinel** field. The marker must live on the intended backing volume, not in a parent mountpoint. Kindle Bridge will retain the previous catalog if the path exists but the marker disappears. The recorded mount identity is opaque host evidence and may also change after a backing-volume swap; either condition requires operator review before the replacement is accepted.
+For network-backed mounts, configure a small marker filename (for example `.shelfsend-volume`) in each library root and enter that relative name in the root's **Mount sentinel** field. The marker must live on the intended backing volume, not in a parent mountpoint. ShelfSend will retain the previous catalog if the path exists but the marker disappears. The recorded mount identity is opaque host evidence and may also change after a backing-volume swap; either condition requires operator review before the replacement is accepted.
 
 ## 4. Health, readiness, and shutdown
 
@@ -87,9 +89,9 @@ docker compose logs --tail 100 kindle-bridge
 
 Compose sends `SIGTERM`, uses an init process, and allows 30 seconds for shutdown. Signal handling is active before allowed-root validation and the initial scan start. The service first stops accepting HTTP work and ends SSE leases, immediately retires Settings and cover validation, then drains active source requests while cooperatively aborting scans and terminating parser workers. The shared drain uses `CATALOG_SHUTDOWN_TIMEOUT_MS` (20 seconds by default, 1,000–25,000 ms); request retirement prevents late filesystem completions from continuing into SQLite. SQLite closes after the HTTP and scanner shutdown participants have either settled or reported failure. If the deadline expires, remaining HTTP sockets are aborted, active source descriptors are closed on a best-effort basis, and scanner work is retired within the 30-second Compose grace period. A host/kernel filesystem call that cannot be cancelled may still require Docker's final forced stop; the application observes any late completion without resuming the retired request. Use `docker compose stop`; do not use `docker kill` for normal maintenance. A forced termination requires a readiness check and root reconciliation after restart.
 
-## 5. HTTPS, Host, Origin, and WebUSB
+## 5. HTTPS, Host, Origin, and device access
 
-Outside the browser's localhost exception, WebUSB requires a secure context. Use one HTTPS origin for both UI and API. [`Caddyfile.example`](Caddyfile.example) demonstrates a proxy on the same Docker network, a locally trusted certificate, a 1 MiB request-body ceiling, CSP, frame denial, MIME sniffing protection, a strict referrer policy, HSTS, and `Permissions-Policy: usb=(self)`.
+Outside the browser's localhost exception, both WebUSB and browser folder access require a secure context. Use one HTTPS origin for both UI and API. [`Caddyfile.example`](Caddyfile.example) demonstrates a proxy on the same Docker network, a locally trusted certificate, a 1 MiB request-body ceiling, CSP, frame denial, MIME sniffing protection, a strict referrer policy, HSTS, and `Permissions-Policy: usb=(self)`.
 
 Set both controls exactly:
 
@@ -105,9 +107,9 @@ Durable retry and identity histories also have fixed retention envelopes. Settin
 
 The proxy must preserve the external Host and must not rewrite the browser to a second API origin. Restrict the proxy with LAN firewall rules, a private VPN, or a real authentication gateway. Profiles do not make a public deployment safe.
 
-Trust Caddy's local root CA on every client before testing. Desktop Chromium is the supported browser. The first USB chooser remains user initiated, and permission is tied to the exact scheme/host/port. Changing the origin can also strand a browser-local recovery-journal entry, so inspect or finish interrupted transfers before changing it.
+Trust Caddy's local root CA on every client before testing. Use desktop Chrome or Edge. Choose the reader through **Connect eReader**: Kindle opens a WebUSB chooser; Kobo opens the browser folder picker for its mounted USB drive. Both require a user gesture, and permission is tied to the exact scheme/host/port. Changing the origin can also strand a browser-local recovery-journal entry, so inspect or finish interrupted transfers before changing it.
 
-For defense in depth, block container egress unless the operator enables online cover or metadata search. Catalog indexing, source-cover extraction, conversion, and Kindle transfer require no cloud service. Google Books/Open Library lookup is the sole optional product feature that needs outbound HTTPS; if it is enabled, restrict egress to the documented provider hosts (`www.googleapis.com`, `books.google.com`, `books.googleusercontent.com`/Google image redirects, `openlibrary.org`, `covers.openlibrary.org`, `archive.org`, and Archive.org data nodes matching `iaNNNNNN.us.archive.org`) and keep arbitrary destinations blocked. Lookup sends only normalized title/author/identifier query terms, never a mounted file, source bytes, a container path, or a browser-supplied fetch URL. Kindle Bridge accepts an Open Library image only through its exact HTTPS cover-ID-bound archive redirect chain; the broader Archive.org sites are not arbitrary fetch targets. Uploaded, dragged, and clipboard-pasted covers remain fully local.
+For defense in depth, block container egress unless the operator enables online cover or metadata search. Catalog indexing, source-cover extraction, conversion, and device transfer require no cloud service. Optional Google Books/Open Library cover lookup and Hardcover metadata/series discovery need outbound HTTPS; if it is enabled, restrict egress to the documented provider hosts (`www.googleapis.com`, `books.google.com`, `books.googleusercontent.com`/Google image redirects, `openlibrary.org`, `covers.openlibrary.org`, `archive.org`, and Archive.org data nodes matching `iaNNNNNN.us.archive.org`, plus `api.hardcover.app` for Hardcover) and keep arbitrary destinations blocked. Lookup sends only normalized title/author/identifier query terms, never a mounted file, source bytes, a container path, or a browser-supplied fetch URL. ShelfSend accepts an Open Library image only through its exact HTTPS cover-ID-bound archive redirect chain; the broader Archive.org sites are not arbitrary fetch targets. Uploaded, dragged, and clipboard-pasted covers remain fully local.
 
 ## 6. Cold backup
 
@@ -119,10 +121,10 @@ Back up all of `/data`; do not back up `/cache`. The archive must include both S
 4. Start again and confirm readiness.
 
 ```sh
-docker compose --env-file /private/path/kindle-bridge.env stop kindle-bridge
+docker compose --env-file /private/path/shelfsend.env stop kindle-bridge
 KINDLE_BRIDGE_IMAGE=kindle-bridge:local \
   deploy/docker/backup-data.sh kindle-bridge-data /absolute/private/backup-directory
-docker compose --env-file /private/path/kindle-bridge.env up -d
+docker compose --env-file /private/path/shelfsend.env up -d
 ```
 
 Store the archive, checksum, image digest, and environment backup together. The `/data` archive contains any saved cover-provider API keys, and the environment file can disclose local paths; both must remain private.
@@ -166,7 +168,7 @@ The helper refuses a missing or in-use volume, verifies the existing database be
 
 For a complete disaster rebuild without `/data`, create fresh data/cache volumes, recreate profiles and container root assignments in Settings, and rescan all sources. Original books recover catalog metadata and covers, but delivery history and prior device evidence require the `/data` backup; they cannot be reconstructed reliably from filenames alone.
 
-Never delete or write to a source mount as part of a rebuild. If a mount disappears or is empty unexpectedly, restore the host mount first. Kindle Bridge must show the root as unavailable and retain its last known catalog until a later successful scan.
+Never delete or write to a source mount as part of a rebuild. If a mount disappears or is empty unexpectedly, restore the host mount first. ShelfSend must show the root as unavailable and retain its last known catalog until a later successful scan.
 
 ## 9. Upgrade rehearsal
 
@@ -181,12 +183,16 @@ Before a household upgrade:
 7. Rehearse a cache/catalog rebuild against a second restored copy and confirm the durable intent above survives while only derived catalog/cache data is reconstructed.
 8. Promote the tested image/data pair. Keep the prior immutable image and pre-upgrade volume snapshot paired until the release is accepted.
 
-Use [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) as the evidence record. Automated checks cannot prove WebUSB secure-context behavior or Kindle acceptance; those lines require a physical device at the real household HTTPS origin.
+Use [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) as the evidence record. Automated checks cannot prove real-origin browser permissions or reader acceptance; those lines require each supported physical device at the real household HTTPS origin.
 
 ## 10. Troubleshooting boundaries
 
 - **Unhealthy container:** inspect `/api/status` for detail, `/api/readyz` for readiness, and redacted logs; confirm `/data` and `/cache` are writable by UID 1000 and no migration is already active.
-- **Unavailable source:** repair the host mount outside Kindle Bridge, verify the Compose mount is `ro`, then reconcile. Do not remove catalog entries to hide a mount failure.
+- **Unavailable source:** repair the host mount outside ShelfSend, verify the Compose mount is `ro`, then reconcile. Do not remove catalog entries to hide a mount failure.
 - **WebUSB unavailable:** confirm desktop Chromium, a trusted certificate, the exact allowed Host/Origin, top-level (not iframe) use, and `Permissions-Policy: usb=(self)`.
 - **Settings disabled:** this is expected when `CATALOG_SETTINGS_MODE=read-only`; change the deployment setting deliberately and restart rather than bypassing it.
 - **Interrupted Kindle send:** use the browser's bounded recovery flow. Never broadly delete Kindle Documents from the server or container.
+
+- **Kobo folder access unavailable:** use desktop Chrome or Edge on trusted HTTPS or localhost. Connect the reader on its own screen, then select the main mounted drive containing `.kobo` through **Connect eReader → Kobo**. Do not mount it into Docker.
+- **Interrupted Kobo send:** inspect only the exact ShelfSend file identified by the recovery message before acknowledging recovery. Existing books and system folders must stay untouched.
+- **Kobo book not visible after Send:** safely eject the drive through the operating system, unplug, and allow the reader to import. Browser byte verification is separate from on-device import/opening.

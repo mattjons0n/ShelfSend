@@ -1,5 +1,7 @@
 # ShelfSend user-experience polish
 
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
+
 Branch: `codex/user-experience-polish`. Do not merge or push to `main`.
 
 ## 1. A calmer library

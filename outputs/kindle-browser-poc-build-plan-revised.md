@@ -1,5 +1,7 @@
 # Kindle Browser POC — No-Calibre Build Plan
 
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
+
 ## Objective
 
 Prove on one recorded Mac/Chromium/Kindle combination that a DRM-free EPUB can be converted locally in the browser and transferred directly to Kindle storage through WebUSB/MTP, with no Calibre installation, cloud upload, or conversion backend.

@@ -1,4 +1,6 @@
-# Kindle Bridge — Backlog Build Plan
+# ShelfSend — Backlog Build Plan
+
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
 
 Date: 2026-09-04
 
@@ -6,15 +8,15 @@ Status: Implemented software release candidate. Device-sensitive experiments rem
 
 Source backlog: [`BACKLOG.md`](../BACKLOG.md)
 
-Implemented baseline: [`kindle-bridge-implementation-build-plan.md`](kindle-bridge-implementation-build-plan.md)
+Implemented baseline: [implementation build plan](kindle-bridge-implementation-build-plan.md)
 
 ## 1. Goal
 
-Complete every item in `BACKLOG.md` as a sequence of independently releasable changes while preserving Kindle Bridge's current safety and architecture. The finished product should make the common household journey feel direct:
+Complete every item in `BACKLOG.md` as a sequence of independently releasable changes while preserving ShelfSend's current safety and architecture. The finished product should make the common household journey feel direct:
 
 1. Find or discover a book.
-2. Decide what should go to the Kindle, even while it is disconnected.
-3. Connect once and understand exactly what Kindle Bridge is doing.
+2. Decide what should go to the e-reader, even while it is disconnected.
+3. Connect once and understand exactly what ShelfSend is doing.
 4. Transfer, update, compare, or remove the intended books with explicit verification.
 5. Correct catalog presentation without ever modifying the mounted originals.
 
@@ -34,7 +36,7 @@ This plan covers all 15 backlog objectives:
 
 Every milestone must preserve these constraints:
 
-- Deployment remains one platform-neutral Docker/OCI service. Do not add a Synology package or make Kindle Bridge mount SMB/NFS storage.
+- Deployment remains one platform-neutral Docker/OCI service. Do not add a Synology package or make ShelfSend mount SMB/NFS storage.
 - Host book directories remain read-only. Metadata changes, cover replacements, conversion, update, and transfer operate only on overlays or derivatives.
 - SQLite durable state and provider configuration live under `/data`; rebuildable extracted covers/indexes live under `/cache`.
 - EPUB conversion, AZW3 validation, PDOC preparation, raw Kindle inventory, WebUSB, and MTP remain browser-local.
@@ -220,7 +222,7 @@ Tasks:
 - Add a versioned per-profile browsing-context record for layout, density, filters, sort, result offset or stable anchor, open shelf, and scroll position.
 - Use precedence `valid URL state → saved profile context → defaults`. The URL owns shareable route/filter/book state; browser storage owns density, scroll, and other harmless preferences.
 - Clamp stale page offsets after catalog changes and restore scroll only after the matching result anchor has rendered. Switching profiles must restore that profile rather than carrying invalid facets across.
-- Add a read-only details DTO using effective metadata, source-versus-overlay provenance, source/root health, cover, and latest verified delivery summary. Do not include a device identifier or infer live Kindle state on the server.
+- Add a read-only details DTO using effective metadata, source-versus-overlay provenance, source/root health, cover, and latest verified delivery summary. Do not include a device identifier or infer live device state on the server.
 - Make cover/title activation open a lazy-loaded side drawer keyed by opaque profile/book IDs. Include cover, description, authors, series/index, publication data, identifiers, subjects, language, format/size, source health, metadata provenance, and last verified delivery.
 - Make author, series, subject, publisher, and language values filter shortcuts.
 - Feed all visible actions through `bookActionCapabilities()`: **Add to queue/Send**, **Edit metadata & cover**, **Update Kindle copy**, and **Remove from Kindle** appear only with their exact reason/state.
@@ -251,14 +253,14 @@ Data and API:
 - Add typed profile-scoped routes for hydrated queue read, idempotent bounded batch add, remove, clear, and optimistic reorder/replace.
 - Add a bounded query-to-ID operation that applies the existing catalog search/facets/sort without pagination. It must fail explicitly when the configured selection ceiling is exceeded.
 - Publish one coalesced `queue.updated` event; do not emit one event per row during bulk changes.
-- Hydration classifies each entry as ready, source unavailable, source changed, presentation changed, already on current Kindle, possible/unknown, unsupported, or missing/retired. Never silently delete a stale item merely to make the queue appear clean.
+- Hydration classifies each entry as ready, source unavailable, source changed, presentation changed, already on the current device, possible/unknown, unsupported, or missing/retired. Never silently delete a stale item merely to make the queue appear clean.
 
 Client and UI:
 
 - Replace disconnected **Connect to send** card buttons with **Add to queue**. Keep **Connect Kindle** as the single global device action.
 - Persist queue count in the top bar and expose a review drawer with remove, clear, reorder, current eligibility, conversion expectation, total source bytes, and a clearly labelled approximate device-space estimate.
-- Add **Select visible** and **Select all filtered**. Offer **Select all filtered missing books** only when the current Kindle inventory and metadata evidence are complete; last-seen or disconnected state can never prove absence.
-- Resolve all-filtered catalog IDs server-side, intersect Kindle-dependent eligibility with the complete browser-local match index, and send only bounded opaque IDs back to the queue API.
+- Add **Select visible** and **Select all filtered**. Offer **Select all filtered missing books** only when the current device inventory and metadata evidence are complete; last-seen or disconnected state can never prove absence.
+- Resolve all-filtered catalog IDs server-side, intersect device-dependent eligibility with the complete browser-local match index, and send only bounded opaque IDs back to the queue API.
 - Generalize the existing verified batch sender to consume queue entries. Immediately before each book, refetch source and overlay, re-check current hash/presentation, require current exact not-on-Kindle authority, and re-check capacity.
 - Dequeue only books that transferred and verified. On partial failure, keep the failed and unsent entries, select them for retry, and retain the existing exact success/failure summary.
 - Recalculate queue status on profile events, source events, edits, inventory changes, reconnect, and lifecycle retirement without starting conversion or USB work.
@@ -272,14 +274,14 @@ Targeted validation:
 
 Exit gate:
 
-- The complete intended batch can be assembled without the Kindle attached and survives a reload.
+- The complete intended batch can be assembled without the device attached and survives a reload.
 - No queued snapshot bypasses current source, presentation, match, write-proof, capacity, or MTP checks.
 - Verified successes leave the queue; only actionable failures and unsent books remain.
 
 Rollback:
 
 - Hide queue UI and fall back to current-page Send without deleting queue rows.
-- An older application ignores the additive queue table; source and Kindle contents are unchanged.
+- An older application ignores the additive queue table; source and device contents are unchanged.
 
 ### Milestone 4 — Explain and resolve Possible matches
 
@@ -319,7 +321,7 @@ The preferred order is **prepare → upload new copy → verify and record new c
 
 Tasks:
 
-- Surface **Update Kindle copy** only for an edited supported presentation with one exact current prior KindleBridge presentation and no ambiguous target.
+- Surface **Update Kindle copy** only for an edited supported presentation with one exact current prior ShelfSend presentation and no ambiguous target.
 - Fully fetch, validate, overlay, convert, PDOC-prepare, bound, and hash the new derivative before acquiring deletion authority.
 - Acquire the existing device-operation lock, ensure current-session write proof, refresh/revalidate complete inventory, re-check the prior exact target, check collision and capacity for coexistence, and show one confirmation naming both presentations.
 - Transfer the collision-resistant new presentation without overwrite and verify handle, parent, filename, size, and readable metadata as currently required.
@@ -357,9 +359,9 @@ Tasks:
 - Derive a canonical series key and numeric ordering from effective metadata, including saved overlays. Preserve the display string separately; do not group unrelated books by fuzzy title alone.
 - Add profile-scoped series summary and series-page queries, or equivalent extensions to the current catalog query, with stable pagination and counts.
 - Add `series` and `seriesIndex` sorts. Order finite numbered volumes first, including decimals, then unnumbered volumes with stable title/ID tie-breakers.
-- Make series chips and the details drawer link to a focused series view. Show the description, ordered covers/rows, current Kindle state, source availability, and metadata-edit shortcut.
+- Make series chips and the details drawer link to a focused series view. Show the description, ordered covers/rows, current device state, source availability, and metadata-edit shortcut.
 - Flag duplicate indices and defensible missing positive-integer sequence positions as review hints. Do not claim that a missing number means a file should exist, and do not invent gaps around decimal novellas.
-- Add **Add next missing volume to queue** and **Add all series books missing from Kindle**. These actions feed Milestone 3's queue and require selected-profile scope plus a complete current Kindle comparison. When disconnected, allow adding an explicitly selected series/book set but label device absence as unknown.
+- Add **Add next missing volume to queue** and **Add all series books missing from Kindle**. These actions feed Milestone 3's queue and require selected-profile scope plus a complete current device comparison. When disconnected, allow adding an explicitly selected series/book set but label device absence as unknown.
 - Keep unnumbered or malformed entries usable and place them after numbered volumes instead of hiding them.
 
 Targeted validation:
@@ -380,11 +382,11 @@ Exit gate:
 Data and API:
 
 - Add bounded `smart_shelves` and `profile_book_annotations` state using stable profile/book identity rather than rebuildable source rows.
-- Define one canonical, versioned query codec for search text, catalog facets, sort, personal-state filters, and an optional Kindle-state constraint. Never persist raw SQL or an arbitrary expression language.
+- Define one canonical, versioned query codec for search text, catalog facets, sort, personal-state filters, and an optional device-state constraint. Never persist raw SQL or an arbitrary expression language.
 - Exclude transient pagination, scroll, MTP handles, and current device IDs from a shelf definition.
 - Provide immutable built-in presets and idempotent/optimistic create, rename, update, delete, pin, unpin, reorder, and annotation mutations.
 - Limit name length, shelf count, pinned count, query bytes, and mutation batch size. Publish coalesced typed events.
-- Calculate server-resolvable counts from the catalog. Calculate Kindle-dependent results only after current browser reconciliation; while disconnected, show **Connect to compare** instead of an old absence count.
+- Calculate server-resolvable counts from the catalog. Calculate device-dependent results only after current browser reconciliation; while disconnected, show **Connect to compare** instead of an old absence count.
 
 Client and UI:
 
@@ -397,7 +399,7 @@ Client and UI:
 Targeted validation:
 
 - Test migrations, restart/rebuild retention, CRUD, idempotency, revision conflicts, bounds, pin ordering, built-in protection, annotation updates, and profile deletion.
-- Test invalid or renamed facet values, URL/reload behavior, counts, offline Kindle-dependent semantics, queue integration, and cross-profile isolation.
+- Test invalid or renamed facet values, URL/reload behavior, counts, offline device-dependent semantics, queue integration, and cross-profile isolation.
 - Test keyboard navigation, focus return, screen-reader names, narrow layout, and maximum shelf/name lengths.
 
 Exit gate:
@@ -435,7 +437,7 @@ Duplicate review:
 
 - Derive candidates from exact content hash, exact normalized identifier, and conservative title/author/edition evidence; label why each group exists.
 - Let the user choose a preferred catalog presentation or reject the grouping. Do not delete, rename, move, merge, or rewrite a mounted torrent file.
-- Keep distinct editions/formats available when the user wants them and ensure one preferred row does not falsely claim every duplicate is on Kindle.
+- Keep distinct editions/formats available when the user wants them and ensure one preferred row does not falsely claim every duplicate is on the device.
 
 Targeted validation:
 
@@ -453,7 +455,7 @@ Exit gate:
 
 ### Milestone 9 — Compact activity/device center and final context integration
 
-**User-visible outcome:** One quiet top-bar surface explains what the server and Kindle are doing, shows capacity and recent outcomes, and offers the relevant recovery action.
+**User-visible outcome:** One quiet top-bar surface explains what the server and device are doing, shows capacity and recent outcomes, and offers the relevant recovery action.
 
 Tasks:
 
@@ -475,7 +477,7 @@ Targeted validation:
 
 Exit gate:
 
-- At any point the user can answer: **Is the library healthy? Is the Kindle ready? What is happening now? What succeeded? What needs me?**
+- At any point the user can answer: **Is the library healthy? Is the device ready? What is happening now? What succeeded? What needs me?**
 - The default page remains quiet when everything is healthy.
 
 Rollback:
@@ -751,7 +753,7 @@ For each milestone:
 - Preserve a cold `/data` backup before each schema-bearing deployment and test restore with the exact candidate image.
 - Release provider repair, browsing foundation, queue, matching decisions, update, discovery, and maintenance as separate slices so one UI feature can be rolled back without reverting device protocol work.
 - Keep physical-device experiments behind internal defaults-off capability gates. Do not expose a growing list of experimental toggles in Settings or Compose.
-- A runtime provider can be disabled independently. Local upload/paste, catalog scanning, conversion, and Kindle transfer must continue without network providers.
+- A runtime provider can be disabled independently. Local upload/paste, catalog scanning, conversion, and device transfer must continue without network providers.
 - Queue, shelves, annotations, issues, and provider rows are inert if their UI is rolled back; never delete user intent during rollback.
 - Browser-local decision/progress stores are versioned. Unknown/new versions are ignored safely rather than partially interpreted.
 - MTP range reads fall back only after nonfatal capability failure; transport faults retire the connection. KFX/progress failures fall back to unknown metadata/status.
@@ -797,7 +799,7 @@ For each milestone:
 | Read-only Book details drawer | 2 | Complete DTO; actions; filter shortcuts; URL/back/focus/scroll/accessibility |
 | Series-first browsing | 6 | Stable order/gap/duplicate tests; queue actions; profile/device correctness |
 | Metadata and library-health inbox | 8 | Issue lifecycle; candidate diff/import; bulk controls; duplicate non-mutation; `/data` overlays |
-| Smart shelves and personal state | 7 | Versioned CRUD/pinning; per-profile persistence; offline Kindle semantics; manual/device distinction |
+| Smart shelves and personal state | 7 | Versioned CRUD/pinning; per-profile persistence; offline device semantics; manual/device distinction |
 | Compact activity and device center | 9 | Truthful phases/capacity/history; coalescing; redaction; recovery actions; physical flow |
 | Display density and remembered context | 2, 9 | Per-profile restore; wide/narrow/high-zoom/a11y pass across every new surface |
 
@@ -823,6 +825,6 @@ The backlog program is complete only when:
 2. Every research-gated item has either passed real-device acceptance or records a clear no-enable decision while preserving the safe existing behavior.
 3. The main library and Settings remain simple under real household use; advanced controls are discoverable but not permanently exposed.
 4. Queue, matching, update, removal, progress, and activity never disagree about current device authority.
-5. No feature alters a mounted original, broadens deletion authority, bypasses current write proof, or sends raw Kindle/book data to the backend or cloud.
+5. No feature alters a mounted original, broadens deletion authority, bypasses current write proof, or sends raw device/book data to the backend or cloud.
 6. The final `npm run check`, hardened Docker lifecycle, backup/restore/rebuild, real provider, real mount/private HTTPS, and required physical Kindle checks pass and are reported separately.
 7. A final requirement-by-requirement audit confirms that no backlog feature or acceptance condition was accidentally omitted.

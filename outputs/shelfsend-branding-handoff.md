@@ -1,12 +1,14 @@
 # ShelfSend branding handoff
 
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
+
 ## Scope completed
 
 - ShelfSend name in the corner wordmark, browser title, onboarding, Settings/help/recovery text, user-facing match/update messages, and current README/handoff documentation.
-- Local books-and-send-arrow brand mark, matching SVG browser icon, and “Browser to reader” corner subtitle. README uses “From your browser to your e-reader” and states current Kindle support.
-- Kindle-specific Connect/Send/remove wording retained. No claim that other readers already work.
+- Local books-and-send-arrow brand mark, matching SVG browser icon, and “Browser to reader” corner subtitle. The original README used “From your browser to your e-reader”; the current README describes both supported reader integrations.
+- The original branding change retained Kindle action labels. Current shared connection wording uses **Connect eReader**; reader-specific Send and Kindle-only removal/update labels remain explicit.
 - Existing package name, repository URL, website address, Docker image/service/volume names, environment variables, browser keys, device locks, recovery journals, managed identities, and Kindle cache filenames retained. No data migration or external repository/domain rename.
-- Historical output reports and backlog remain unchanged. No feature work or transfer policy changes included.
+- The original branding change included no feature work or transfer policy changes. Later documentation edits use ShelfSend branding and distinguish shared features from device-specific behavior.
 
 ## Validation
 

@@ -2,13 +2,13 @@
 
 [← Back to the project overview](../README.md)
 
-**Kindle workflow and catalog internals.** This guide preserves the detailed Kindle documentation from the earlier README. For the current Kindle and Kobo overview and Hardcover series discovery, see the [project README](../README.md).
+**Device workflows and catalog internals.** ShelfSend serves a shared library to browser-local reader integrations. See the [device guide](devices.md) for the Kindle/Kobo capability comparison and the [project README](../README.md) for the overview.
 
-This is a display-brand rename. Existing `kindle-bridge` package/container names, environment variables, Docker volumes, browser storage keys, managed-book identifiers and Kindle cache filenames are intentionally retained for compatibility. The GitHub repository and deployment address are unchanged.
+Use the exact service names, environment variables, paths, and volume names shown in the deployment reference. These are compatibility identifiers; display wording does not rename existing installations or stored device evidence.
 
-ShelfSend is a private, self-hosted household ebook library. A platform-agnostic Docker service watches configured read-only directories, indexes EPUB and supported AZW3 metadata and covers into SQLite, and serves a searchable web catalog. In the browser, a household member can connect a Kindle, compare its live inventory with the selected library, and send a missing book in one action.
+ShelfSend is a private, self-hosted household ebook library. A platform-agnostic Docker service watches configured read-only directories, indexes EPUB and supported AZW3 metadata and covers into SQLite, and serves a searchable web catalog. In the browser, a household member can connect an e-reader, compare its current device evidence with the selected library, and send an eligible missing book.
 
-EPUB conversion remains entirely browser-local through the vendored boko WebAssembly converter. Kindle access remains browser-local through user-initiated WebUSB/MTP. ShelfSend does not require Calibre, does not upload books to a cloud converter, and does not mount or manage SMB/NFS shares.
+EPUB conversion remains entirely browser-local through the vendored boko WebAssembly converter. Device access remains browser-local: user-initiated WebUSB/MTP for Kindle and browser folder access to a mounted USB drive for Kobo. ShelfSend does not require Calibre, does not upload books to a cloud converter, and does not mount or manage SMB/NFS shares.
 
 ## Current state
 
@@ -17,25 +17,26 @@ The repository now contains the implemented household-library flow:
 - a Node.js catalog service with SQLite migrations, persistent profiles and roots, health/readiness endpoints, and a rebuildable cover/search index;
 - bounded metadata extraction, incremental directory watching, scheduled reconciliation, source-health reporting, and server-sent scan events;
 - a real API-backed cover grid and toggleable multi-select list with profile selection, search, filters, sorting, pagination, source status, bulk actions, and Settings CRUD;
-- a durable per-profile **Send later** queue, read-only book-details drawer, Comfortable/Compact density, versioned browser context, series-first browsing, smart shelves, and Favorite/Want-to-read annotations;
+- a durable per-profile **Send later** queue for the selected reader, read-only book-details drawer, Comfortable/Compact density, versioned browser context, series-first browsing, smart shelves, and Favorite/Want-to-read annotations;
 - an actionable **Needs attention** inbox with issue lifecycle, duplicate presentation choices, reviewed field-by-field provider metadata imports, and bounded resumable lookup jobs;
 - a compact activity/device center with truthful connection phases, capacity/queue summaries, coalesced transfer/removal/update outcomes, scan health, and progressively disclosed diagnostics;
 - non-destructive metadata and cover editing: sparse user overrides and replacement-cover bytes persist under `/data`, while mounted originals and the rebuildable `/cache` remain separate;
-- live Kindle inventory, automatic exact-byte self-test after connection, Calibre-compatible active-library matching, and green checks reserved for strong matches;
+- current device comparison with green checks reserved for strong matches; Kindle uses MTP inventory and a connection self-test, while Kobo confirms only verified current ShelfSend-managed copies;
 - catalog-driven **Send to Kindle**, including authoritative source validation, browser-local EPUB conversion or AZW3 validation, PDOC preparation, collision-resistant transfer, verification, and delivery recording;
 - coherent multi-book Send feedback with `Book X of Y`, combined batch/current-book progress, per-title verification, exact partial-failure retry selection, and one final catalog reconciliation;
-- explicitly confirmed single/bulk **Remove from Kindle** for exact current-device matches, including removal-only prior KindleBridge presentations after an edit, with exact-handle revalidation and one post-removal inventory refresh;
+- catalog-driven **Send to Kobo** through user-granted folder access, browser-local EPUB preparation, verification, batches, cancellation, and recovery; existing device books are never replaced or removed;
+- explicitly confirmed single/bulk **Remove from Kindle** for exact current-device matches, including removal-only prior ShelfSend presentations after an edit, with exact-handle revalidation and one post-removal inventory refresh;
 - guarded one-click **Update Kindle copy** for edited EPUBs with one exact stale ShelfSend-managed presentation, using upload → verify → durable record → exact old-copy deletion rather than overwrite or delete-first replacement;
 - default-off engineering foundations for a physical `GetPartialObject` probe, KFX/AZW8 book metadata, and semantic reading status; separate bounded, read-only sidecar observations are available in book details;
 - a hardened, non-root Docker/OCI image and Compose deployment using ordinary read-only library mounts plus persistent `/data` and rebuildable `/cache` volumes.
 
 The original transfer engine was physically validated on an MTP Kindle with USB IDs `0x1949 / 0x9981`: conversion, MTP connection, exact-byte self-test, transfer, opening, chapter navigation, and library-cover display all succeeded. The expanded integrated catalog/inventory/Send/removal journey still requires a fresh physical Kindle run and acceptance against the real household mounts and intended HTTPS LAN/VPN origin. Automated tests do not replace those checks.
 
-See the current [`backlog build plan`](../outputs/kindle-bridge-backlog-build-plan.md) and [`release-candidate omission audit`](../outputs/kindle-bridge-backlog-feature-audit.md) for milestone/evidence status, and [`outputs/kindle-bridge-service-design-plan.md`](../outputs/kindle-bridge-service-design-plan.md) for the architecture rationale.
+See the current [`backlog build plan`](../outputs/kindle-bridge-backlog-build-plan.md) and [`release-candidate omission audit`](../outputs/kindle-bridge-backlog-feature-audit.md) for milestone/evidence status, and [service design plan](../outputs/kindle-bridge-service-design-plan.md) for the architecture rationale.
 
 ## Modern library interface
 
-The approved modern design is integrated with the real catalog: a softer sidebar, system light/dark palette, cover-first cards with direct actions, compact filters and quick Kindle-status tabs. Settings stays below Your shelves. Grid/list selection, bulk actions, metadata editing and the original transfer controls remain available. See [GUI implementation and acceptance](../outputs/modern-gui-implementation.md).
+The approved modern design is integrated with the real catalog: a softer sidebar, system light/dark palette, cover-first cards with direct actions, compact filters and quick device-status tabs. Settings stays below Your shelves. Grid/list selection, bulk actions, metadata editing and the original transfer controls remain available. See [GUI implementation and acceptance](../outputs/modern-gui-implementation.md).
 
 ## Reading information and Read books
 
@@ -51,18 +52,18 @@ Click a book cover or title to open **Kindle reading data** in its details drawe
 Host directories exposed to Docker as read-only mounts
   -> Docker catalog service: scanner + SQLite/FTS + durable presentation overlays + source API
   -> same-origin web interface
-  -> browser-local boko conversion or AZW3 validation
-  -> browser-local WebUSB/MTP
-  -> Kindle
+  -> browser-local preparation for the selected reader
+     -> Kindle: boko conversion or AZW3 validation -> WebUSB/MTP
+     -> Kobo: EPUB preparation -> browser folder access to its USB drive
 ```
 
-The host is responsible for making local, NAS-, SMB-, or NFS-backed directories available to Docker. ShelfSend sees only their container paths, normally below `/libraries`. It never receives storage credentials and never changes an original book. Metadata corrections and selected cover images are stored separately under `/data`; conversion and PDOC preparation apply them only to an in-browser derivative.
+The host is responsible for making local, NAS-, SMB-, or NFS-backed directories available to Docker. ShelfSend sees only their container paths, normally below `/libraries`. It never receives storage credentials and never changes an original book. Metadata corrections and selected cover images are stored separately under `/data`; conversion and reader-specific preparation apply them only to an in-browser derivative.
 
 Profiles are organizational views over one or more roots. They are deliberately not access-control boundaries: anyone who can reach a no-login deployment can switch profiles. Keep the service on a trusted LAN/VPN or behind an appropriate private HTTPS access layer; do not publish it unauthenticated to the internet.
 
 ## Run the complete stack locally
 
-Requirements are Node.js 24 or newer, npm, and a WebUSB-capable Chromium desktop browser for Kindle access. Calibre and Rust are not required.
+Requirements are Node.js 24 or newer, npm, and desktop Chrome or Edge with the required reader API: WebUSB for Kindle, folder access for Kobo. Calibre and Rust are not required.
 
 ```sh
 npm ci
@@ -71,7 +72,7 @@ npm run dev
 
 Open <http://127.0.0.1:5173/>. The development command starts Vite on port 5173 and the catalog API on port 5174, with `/api` proxied by Vite. Development data, cache, and allowed library paths are created under `.kindle-bridge-dev/`.
 
-On an unconfigured installation, the setup wizard guides you through creating a library, choosing a container-visible folder, checking indexing and optionally connecting a Kindle. **Skip for now** is remembered on this server across browsers and restarts; use **Run setup wizard** in Settings to reopen it. Optional provider credentials are never required. Read-only Settings deployments do not automatically launch setup.
+On an unconfigured installation, the setup wizard guides you through creating a library, choosing a container-visible folder, checking indexing, and an optional reader connection step. Use **Connect eReader** to choose the reader after setup. **Skip for now** is remembered on this server across browsers and restarts; use **Run setup wizard** in Settings to reopen it. Optional provider credentials are never required. Read-only Settings deployments do not automatically launch setup.
 
 In **Settings**:
 
@@ -118,19 +119,31 @@ Important service controls include:
 - `CATALOG_COVER_RETENTION_MS` and `CATALOG_COVER_PRUNE_MS` for safe cleanup of rebuildable, unreferenced covers;
 - `CATALOG_MAX_BODY_BYTES`, `CATALOG_MAX_CONCURRENT`, and `CATALOG_RATE_PER_MINUTE` for HTTP bounds.
 
-Remote WebUSB use requires a trustworthy HTTPS origin in a supported Chromium desktop browser. Full deployment, reverse-proxy, backup, restore, rollback, mount-loss, and rebuild procedures are in [`deploy/docker/README.md`](../deploy/docker/README.md).
+Remote device access requires a trustworthy HTTPS origin in a supported desktop browser, for both WebUSB and folder access. Full deployment, reverse-proxy, backup, restore, rollback, mount-loss, and rebuild procedures are in [`deploy/docker/README.md`](../deploy/docker/README.md).
 
-## Kindle workflow and safety
+## Device workflows and safety
 
-1. Click **Connect Kindle** to open the browser's required user-initiated device chooser.
+Choose **Connect eReader**, then select the reader. Device evidence stays separate for each integration. A queue or library match never grants removal authority by itself.
+
+### Kobo workflow
+
+Connect the reader by USB, choose **Connect** on its screen, and select its main drive through **Connect eReader → Kobo**. The selected root must contain `.kobo`. After the comparison completes, send eligible DRM-free EPUBs individually, in a list selection, or through **Send later**. Browser-local preparation applies metadata/cover overlays to a derivative; writes and verified cleanup are restricted to ShelfSend-owned files. Existing books and the device database are untouched.
+
+Kobo has no KEPUB conversion, AZW3 transfer, existing-book replacement/removal, or reading-state synchronization. Inspect any exact interrupted-file recovery request before acknowledging it. After a successful send, safely eject using the operating system, unplug, and allow the reader to import the books. The app’s Disconnect action is not an OS eject. Physical import/open/cover/navigation acceptance remains pending.
+
+### Kindle workflow
+
+The following MTP, PDOC, self-test, cache, and removal rules apply specifically to Kindle. They must not be inferred for Kobo.
+
+1. Choose **Connect eReader → Kindle** to open the browser's required user-initiated device chooser.
 2. On a clean connection, ShelfSend opens one browser-local MTP session, runs the exact-byte create/read/compare/delete self-test, inventories Documents, and compares the result with the selected library. The interface labels those three phases separately. If exact cleanup is pending, it permits only read-only recovery inventory first; acknowledgement must be followed by a new self-test, inventory, and reconciliation.
 3. Confirmed matches receive a green check. For unmanaged books, ShelfSend follows Calibre's active-library comparison: punctuation-insensitive exact title plus Calibre-style joined author or `author_sort`, including Calibre's individual-author fallback. A fully parsed exact device row can confirm even if an unrelated file could not be parsed; incomplete metadata still prevents proving that a missing book is absent. Fuzzy evidence remains visibly possible and blocks ordinary Send.
-4. Use a book's three-dot menu to open **Edit metadata & cover**. Field overrides, uploaded/dragged/pasted images, and reviewed Google Books/Open Library candidates are saved separately from the source. The catalog uses the effective presentation immediately. If one exact prior KindleBridge presentation remains on the connected device, the edited book stays yellow until the guarded **Update Kindle copy** flow succeeds.
+4. Use a book's three-dot menu to open **Edit metadata & cover**. Field overrides, uploaded/dragged/pasted images, and reviewed Google Books/Open Library candidates are saved separately from the source. The catalog uses the effective presentation immediately. If one exact prior ShelfSend presentation remains on the connected device, the edited book stays yellow until the guarded **Update Kindle copy** flow succeeds.
 5. **Update Kindle copy** prepares and uploads the edited EPUB derivative beside the old copy, verifies and durably records the replacement, then revalidates and removes only the exact old object. The Kindle must temporarily hold both files. Any preparation/upload failure leaves the old copy untouched, and insufficient capacity never triggers delete-first behavior. Edited AZW3 embedding remains unavailable until a bounded reconstruction path exists.
 6. Use **Send later** while disconnected or click **Send to Kindle** for an eligible connected book. Immediately before each transfer, the browser revalidates the indexed source size, hash, presentation version, ETag, actual format, current device evidence, and capacity; applies EPUB overlays to a temporary copy; converts or validates the derivative; transfers without overwrite; verifies the result; and records delivery. The original remains untouched.
-7. Toggle **List view** to select multiple books for queueing, bulk Send, or bulk removal. Batch Send retains `Book X of Y`, combines current-book and overall progress, lists verified titles, leaves only unsent titles selected after a failure, and performs one final catalog reconciliation. The three-dot menu on every grid/list item also offers **Remove from Kindle** when that catalog book has an exact confirmed association. A bounded exact prior KindleBridge presentation token can also authorize removal only, without claiming that the current edited presentation is on the device. Removal shows the exact Kindle filenames and sizes, requires confirmation, revalidates every live MTP object before deleting its concrete handle, and refreshes inventory once. Ordinary possible/unknown matches, Kindle-only items, protected files, folders, caches, or changed objects cannot authorize removal. Library originals are never changed.
+7. Toggle **List view** to select multiple books for queueing, bulk Send, or bulk removal. Batch Send retains `Book X of Y`, combines current-book and overall progress, lists verified titles, leaves only unsent titles selected after a failure, and performs one final catalog reconciliation. The three-dot menu on every grid/list item also offers **Remove from Kindle** when that catalog book has an exact confirmed association. A bounded exact prior ShelfSend presentation token can also authorize removal only, without claiming that the current edited presentation is on the device. Removal shows the exact Kindle filenames and sizes, requires confirmation, revalidates every live MTP object before deleting its concrete handle, and refreshes inventory once. Ordinary possible/unknown matches, Kindle-only items, protected files, folders, caches, or changed objects cannot authorize removal. Library originals are never changed.
 
-Browser lifecycle safety is deliberately conservative. A page restored from the browser back/forward cache, or a visible return after the page was observed hidden for at least 60 seconds, invalidates the retained WebUSB/MTP session. In-flight device work is aborted, the session is closed after that work drains, inventory becomes **Last seen**, green-check evidence becomes unknown, and reconnect plus the automatic byte self-test is required before Send. This handles observable browser lifecycle and hidden/visible timing; it does not claim to detect every operating-system sleep or hardware suspend event.
+Kindle session lifecycle safety is deliberately conservative. A page restored from the browser back/forward cache, or a visible return after the page was observed hidden for at least 60 seconds, invalidates the retained WebUSB/MTP session. In-flight device work is aborted, the session is closed after that work drains, inventory becomes **Last seen**, green-check evidence becomes unknown, and reconnect plus the automatic byte self-test is required before Send. This handles observable browser lifecycle and hidden/visible timing; it does not claim to detect every operating-system sleep or hardware suspend event.
 
 Safety invariants include immutable source mounts, optimistic edit revision/source-hash checks, a 200 MiB source limit, bounded parsing, no overwrite, presentation-version-scoped collision-resistant managed filenames, a bounded metadata-only recovery journal, exact-handle cleanup, one active browser-wide device lease, and clean USB/session shutdown. DRM-protected ebooks are unsupported.
 
@@ -155,7 +168,7 @@ Durable histories are bounded rather than append-only. Settings/direct-profile r
 npm run check
 ```
 
-This runs the client and server tests, TypeScript validation, and production builds. The suite covers the catalog database/API/scanner/parser, filesystem and large-catalog integration behavior, real API-backed UI/controller flows, conversion, matching, WebUSB/MTP behavior, exact selected-object removal, transfer and Kindle-resident cache safety, and deployment contracts. Final release acceptance additionally requires the physical Kindle and real household deployment checks described above, including matching, Send, removal, cache creation, reconnect reuse, A/B rotation, and cleanup of the root-level cache files.
+This runs the client and server tests, TypeScript validation, and production builds. The suite covers the catalog database/API/scanner/parser, filesystem and large-catalog integration behavior, real API-backed UI/controller flows, conversion, matching, WebUSB/MTP behavior, exact selected-object removal, transfer and Kindle-resident cache safety, and deployment contracts. Final release acceptance additionally requires each supported reader’s physical checks and the real household deployment checks. Kindle-specific acceptance includes the checks described above, including matching, Send, removal, cache creation, reconnect reuse, A/B rotation, and cleanup of the root-level cache files.
 
 ## Third-party converter
 

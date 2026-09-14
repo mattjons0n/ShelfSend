@@ -9,7 +9,7 @@ Implemented on 2026-09-11 for the `codex/user-experience-polish` development bra
 3. Use **View on Hardcover** to open its external book page, or **View series** for the series popup. Choose a book or series when there is more than one candidate.
 4. The popup shows covers where available, titles, authors, volume positions (including 0 and 1.5), and **In your library**, **Missing**, or **Possible match**. Local matches can be opened directly. Longer series have **Load more books**.
 
-These are selected-library statuses, not Kindle statuses. Offline source folders do not erase ownership. Looking at a series never applies metadata suggestions, downloads books, or changes mounted originals.
+These are selected-library statuses, not device-presence statuses. Offline source folders do not erase ownership. Looking at a series never applies metadata suggestions, downloads books, or changes mounted originals.
 
 ## Completed implementation units
 
@@ -31,7 +31,7 @@ These are selected-library statuses, not Kindle statuses. Offline source folders
 
 ## Requirement check
 
-Both requested actions are present. The popup uses Hardcover's roster, including unowned books, shows each reported position without rounding, and scopes library membership to the active profile. Existing metadata review, original source files, converter, and Kindle transfer/deletion behavior are unchanged.
+Both requested actions are present. The popup uses Hardcover's roster, including unowned books, shows each reported position without rounding, and scopes library membership to the active profile. Existing metadata review, original source files, converter, and device transfer behavior (including Kindle-only deletion) are unchanged.
 
 ## Follow-up: repeated translated volumes (2026-09-11)
 

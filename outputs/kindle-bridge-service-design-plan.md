@@ -1,10 +1,12 @@
-# Kindle Bridge — Library Service Design Plan
+# ShelfSend — Library Service Design Plan
+
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
 
 Date: 2026-08-29
 
 ## Product outcome
 
-Kindle Bridge becomes a self-hosted household ebook library. A platform-agnostic Docker service continuously indexes book directories mounted into its container. A user opens the web interface, chooses a household profile, connects a Kindle, sees which catalog books are already on it, and sends any missing book with one action.
+ShelfSend becomes a self-hosted household ebook library. A platform-agnostic Docker service continuously indexes book directories mounted into its container. A user opens the web interface, chooses a household profile, connects a Kindle, sees which catalog books are already on it, and sends any missing book with one action.
 
 The browser retains the proven conversion and USB-transfer technology:
 
@@ -46,7 +48,7 @@ volumes:
 /libraries/wife     → profile: Wife's library
 ```
 
-Kindle Bridge only handles paths visible inside the container. The host decides whether each source comes from a local disk, NAS, SMB mount, NFS mount, or another storage system. The application does not mount remote storage, store storage credentials, or depend on a host brand.
+ShelfSend only handles paths visible inside the container. The host decides whether each source comes from a local disk, NAS, SMB mount, NFS mount, or another storage system. The application does not mount remote storage, store storage credentials, or depend on a host brand.
 
 The service owns:
 
@@ -183,7 +185,7 @@ If the test fails, show **Safe-write check failed. No book has been sent.** Keep
 
 Use the strongest available evidence in this order:
 
-1. A prior Kindle Bridge delivery record plus persistent MTP object identity where supported.
+1. A prior ShelfSend delivery record plus persistent MTP object identity where supported.
 2. A source-version-scoped short managed identifier in the generated collision-resistant filename, exact size, and a delivered record. The identifier binds the opaque catalog book ID to the indexed content hash so replacement bytes cannot inherit prior delivery evidence.
 3. Exact embedded identifier plus normalized title and author.
 4. Exact normalized title/author/size agreement.

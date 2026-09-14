@@ -1,7 +1,9 @@
-# Kindle Bridge backlog implementation audit
+# ShelfSend backlog implementation audit
+
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
 
 This document is the release-candidate omission audit for the backlog program in
-[`kindle-bridge-backlog-build-plan.md`](kindle-bridge-backlog-build-plan.md). It separates software evidence from evidence that can only be collected with the household deployment, a provider credential, or the physical Kindle.
+[backlog build plan](kindle-bridge-backlog-build-plan.md). It separates software evidence from evidence that can only be collected with the household deployment, a provider credential, or the physical Kindle.
 
 ## Evidence rules
 

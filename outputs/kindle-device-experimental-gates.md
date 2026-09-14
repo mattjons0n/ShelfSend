@@ -1,4 +1,6 @@
-# Kindle Bridge device experimental gates
+# ShelfSend experimental gates — Kindle
+
+These protocol, cache, reading-sidecar, and replacement gates apply to Kindle. Shared reader behavior and Kobo support are described in the [device guide](../docs/devices.md).
 
 Last updated: 2026-09-04
 
@@ -8,7 +10,7 @@ This note records the software foundations and the physical evidence still requi
 
 | Capability | Current default | Production effect |
 | --- | --- | --- |
-| One-click managed replacement | Integrated for eligible edited EPUBs | The action is shown only for one exact current stale KindleBridge-managed presentation and runs the guarded upload-first transaction from an exact version-bound request. Physical replacement acceptance is still pending. |
+| One-click managed replacement | Integrated for eligible edited EPUBs | The action is shown only for one exact current stale ShelfSend-managed presentation and runs the guarded upload-first transaction from an exact version-bound request. Physical replacement acceptance is still pending. |
 | `GetPartialObject` (`0x101b`) | Off | Normal inventory never issues it. The Advanced activity panel can arm only the next clean connection in page memory; it then requires explicit selection and confirmation of one exact, unprotected readable book directly inside Documents. |
 | KFX/AZW8 sidecar metadata | `kfxSidecarMetadata: false` | KFX/AZW8 stays visible but metadata-incomplete unless a caller deliberately enables the internal gate. |
 | Reading sidecars and presentation | `readingSidecars: false`; browser presentation gate `{ version: 1, enabled: false }` | No progress, timestamp, or Read/Unread state is read or presented in normal operation. Format sub-gates and the separate presentation gate remain off pending format-by-format acceptance. |
@@ -20,14 +22,14 @@ None of these internal experiments belongs in ordinary Settings or container env
 
 The device/core transaction accepts only a derivative already fetched, source/edit-revalidated, overlaid, converted, PDOC-prepared, bounded, and hashed by its caller. It then owns one device-operation lock and performs: current-connection write proof; fresh complete hierarchy inventory; exact managed-old ObjectInfo and parent/type/size/protection/token revalidation; coexistence capacity check; collision-resistant no-overwrite upload; fresh new-object verification; durable delivery callback; a second exact old-object revalidation; exact-handle deletion and absence verification; and one final inventory/reconciliation callback.
 
-The public controller hook accepts opaque profile/book IDs plus the UI-observed source hash, metadata revision, and presentation version. Before entering the device transaction it requires one unique live stale KindleBridge-managed presentation, refetches the book, overlay, optional cover, and source, binds the source size/hash/ETag/presentation, prepares the derivative locally, then repeats every mutable catalog and byte binding. Its delivery callback must verify either a bounded pending-delivery journal write or server acceptance under the same idempotent operation ID before it returns and permits old-copy deletion. Every explicit result installs or safely downgrades the freshest available inventory; non-`updated` outcomes retain queue intent and revoke further mutation authority until reconciliation/recovery.
+The public controller hook accepts opaque profile/book IDs plus the UI-observed source hash, metadata revision, and presentation version. Before entering the device transaction it requires one unique live stale ShelfSend-managed presentation, refetches the book, overlay, optional cover, and source, binds the source size/hash/ETag/presentation, prepares the derivative locally, then repeats every mutable catalog and byte binding. Its delivery callback must verify either a bounded pending-delivery journal write or server acceptance under the same idempotent operation ID before it returns and permits old-copy deletion. Every explicit result installs or safely downgrades the freshest available inventory; non-`updated` outcomes retain queue intent and revoke further mutation authority until reconciliation/recovery.
 
 Delivery-record failure retains both copies and returns `new-copy-kept-old-recording-required`. Old-copy deletion or absence-verification failure retains the verified new copy and returns `new-copy-kept-old-cleanup-required`. Both paths attempt to persist a bounded local v1 intervention record before reconciliation, and journal failure remains separately visible. The journal is explanatory evidence only: it cannot authorize deletion without a new complete live inventory and exact ObjectInfo checks. A final reconciliation failure after proven replacement returns `updated-reconciliation-required` without obscuring the verified update. Edited AZW3 remains rejected before device locking or mutation.
 
 Physical acceptance still requires:
 
 - Edit metadata and a cover on a real EPUB; retain the mounted source's exact pre/post hash and bytes.
-- Start from one current exact KindleBridge-managed old presentation, confirm temporary capacity for both, run Update, and inspect operation timing/order.
+- Start from one current exact ShelfSend-managed old presentation, confirm temporary capacity for both, run Update, and inspect operation timing/order.
 - Verify the replacement handle, direct Documents parent, collision-resistant filename, managed token, size, readable/openable PDOC, cover, and chapter navigation.
 - Verify the old exact handle is absent, one current presentation remains after reconnect, and the delivery/reconciliation state is current.
 - Exercise insufficient capacity and disconnect immediately before upload, after upload, before deletion, during deletion/absence verification, and before final reconciliation. At every point confirm either the old copy or the verified new copy remains and the UI reports the precise retry/intervention state.

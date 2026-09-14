@@ -1,6 +1,6 @@
 # Docker/OCI release evidence
 
-Record the image digest, data-volume snapshot, date, operator, target host, browser version, and physical Kindle used. Do not check a line based only on mocks when it explicitly calls for a real host or device.
+Record the image digest, data-volume snapshot, date, operator, target host, browser version, and physical reader model used. Record separate evidence for Kindle and Kobo. Do not check a line based only on mocks when it explicitly calls for a real host or device.
 
 ## Build and supply chain
 
@@ -42,15 +42,15 @@ Record the image digest, data-volume snapshot, date, operator, target host, brow
 - [ ] Source streaming, scans, and Settings changes honor configured rate/concurrency/body bounds.
 - [ ] Startup-root validation, Settings path validation, source responses, and cover reads honor their configured deadlines and release capacity after timeout/disconnect.
 - [ ] Logs contain no storage credentials, raw source bytes, conversion output, host paths where prohibited, or raw device serials.
-- [ ] No analytics, cloud conversion, or cloud book storage request occurs. When optional lookup is disabled, no provider request occurs; when enabled, egress is limited to the documented Google Books/Open Library/validated Archive.org hosts. Only normalized title/author/identifier terms leave the service—never source bytes, container paths, or arbitrary URLs—and selected cover bytes are copied into `/data`.
+- [ ] No analytics, cloud conversion, or cloud book storage request occurs. When optional lookup is disabled, no provider request occurs; when enabled, egress is limited to the documented Google Books/Open Library/validated Archive.org and Hardcover hosts. Only normalized title/author/identifier terms leave the service—never source bytes, container paths, or arbitrary URLs—and selected cover bytes are copied into `/data`.
 - [ ] Google Books add/replace/test/remove works through Settings, respects read-only mode and revision conflicts, and a missing key points back to Settings without attempting an upstream request.
 - [ ] A live Open Library preview/import follows the current validated Archive.org redirect chain; unrelated hosts, paths, IDs, schemes, ports, credentials, and excessive redirects remain rejected.
 - [ ] Provider metadata lookup remains explicit and review-before-apply; partial field/cover import is atomic under source-hash/revision checks and a failed import leaves no referenced or orphaned partial overlay.
 - [ ] Bulk lookup enforces two concurrent provider calls, four request starts per second, three bounded transient attempts, pause/cancel/explicit retry, per-book results, and coalesced event hints.
 - [ ] Catalog health covers missing covers, incomplete/parser failures, unavailable roots/sources, low-confidence provider results, and suspected duplicates. Accepted or superseded provider evidence retires low-confidence issues.
-- [ ] Duplicate review can choose/clear a preferred current group member or reject/undo rejection; the preference survives rebuild, changes no source file, and never implies Kindle presence for another edition.
+- [ ] Duplicate review can choose/clear a preferred current group member or reject/undo rejection; the preference survives rebuild, changes no source file, and never implies device presence for another edition.
 
-## Physical secure-origin acceptance
+## Physical secure-origin acceptance — Kindle
 
 - [ ] Desktop Chromium trusts the real household certificate and reports a secure context.
 - [ ] A user gesture opens the WebUSB chooser. On a clean connection the exact-byte self-test runs first and automatic inventory follows in the same session; pending exact cleanup stays read-only until acknowledgement plus a fresh self-test, inventory, and reconciliation.
@@ -58,3 +58,12 @@ Record the image digest, data-volume snapshot, date, operator, target host, brow
 - [ ] Send prepares only a derivative, transfers and verifies it, then the exact book opens, navigates chapters, and displays its cover. An edited EPUB shows the selected title/author/cover while its mounted source hash remains unchanged.
 - [ ] A physical multi-book Send keeps `Book X of Y`, marks each returned object verified, reports the exact batch summary, leaves only unsent books selected after an induced failure, and reconciles once when the batch ends.
 - [ ] A second household profile and its real mounted roots remain scoped correctly across restart.
+
+## Physical secure-origin acceptance — Kobo
+
+- [ ] Desktop Chrome or Edge trusts the intended HTTPS origin and exposes user-initiated folder access.
+- [ ] Connect eReader → Kobo selects the main mounted drive containing `.kobo`; no server-side device mount is used.
+- [ ] Single and batch DRM-free EPUB transfers, Send later, and metadata/cover derivatives are byte-verified; originals remain unchanged.
+- [ ] Verified current managed copies receive confirmed badges; ambiguous/unmanaged files do not become confirmed or authorize replacement/removal.
+- [ ] Cancellation, unplug, permission loss, reconnect, and interrupted-write inspection/recovery preserve existing books and device system/database files.
+- [ ] After OS safe eject and unplug, the reader imports the exact files, opens them, navigates chapters, and shows the intended covers.

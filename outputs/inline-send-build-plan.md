@@ -1,5 +1,7 @@
 # Inline single-book sending
 
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
+
 ## Scope
 
 1. Replace the single-book progress dialog with a faded, color-filling Send button in grid and list cards. Show preparation, sending, verification and verified completion in place. Retain the existing dialog for multi-book batches.

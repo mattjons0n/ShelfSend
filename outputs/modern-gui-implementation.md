@@ -1,8 +1,10 @@
 # Approved modern GUI — implementation and acceptance
 
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
+
 ## Scope and build units
 
-Integrate the approved Kindle Bridge Next mockup into the real application, validate, and publish to main. No simulated catalog or transfer behavior ships.
+Integrate the approved ShelfSend Next mockup into the real application, validate, and publish to main. No simulated catalog or transfer behavior ships.
 
 1. Warm canvas, soft sidebar, editorial headings, local line icons, cover spacing and responsive comfortable/compact grid.
 2. Sidebar brand; Settings below shelves; truthful activity, source health, queue and device controls.

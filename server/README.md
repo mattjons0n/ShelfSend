@@ -2,12 +2,14 @@
 
 The catalog service is a vendor-neutral Node.js HTTP service. SQLite stores durable profile/root configuration, delivery history, and user-authored metadata overlays plus a rebuildable search index. Original ebook directories are only read. Extracted cover files are derived cache entries written atomically under `/cache`; user-selected replacement covers are durable assets under `/data/metadata-covers`.
 
+The service supports the shared library for Kindle and Kobo. Conversion, device inventory, and transfer stay in the browser through the selected reader integration; the server never accesses an e-reader directly. See the [device guide](../docs/devices.md).
+
 ## Container run
 
 The repository-root `Dockerfile` and `compose.yaml` are the only canonical deployment artifacts. Build from the repository root:
 
 ```sh
-docker build -t kindle-bridge .
+docker build -t shelfsend .
 docker run --read-only --cap-drop=ALL --security-opt=no-new-privileges \
   -p 127.0.0.1:8080:8080 \
   -e CATALOG_ALLOWED_ROOTS=/libraries \
@@ -16,7 +18,7 @@ docker run --read-only --cap-drop=ALL --security-opt=no-new-privileges \
   -v kindle-bridge-data:/data \
   -v kindle-bridge-cache:/cache \
   -v /srv/ebooks:/libraries:ro \
-  kindle-bridge
+  shelfsend
 ```
 
 The example binds only to loopback. For household LAN/VPN use, put the service behind an authenticated HTTPS/VPN boundary and set `CATALOG_ALLOWED_HOSTS` to the exact public hostnames. Do not publish it directly to the internet.
@@ -52,8 +54,8 @@ Database schema version 19 preserves existing durable state while adding Hardcov
 The durable-state APIs are bounded and profile scoped:
 
 - A Send-later queue holds at most 1,000 stable book IDs. One add accepts at most 500 IDs, a full optimistic reorder accepts the complete 1,000-entry queue, and `POST /api/profiles/:profile/books/selection` resolves at most 5,000 filtered IDs or fails explicitly. Queue hydration reports changed, unavailable, unsupported, or retired sources without deleting the entry.
-- A profile holds at most 100 user smart shelves, eight pinned shelves, and 20,000 personal annotation records. Shelf names are at most 80 characters and their sole persisted query format is the version-1 codec capped at 8 KiB; it contains catalog/personal filters plus an optional Kindle constraint, never SQL, pagination, a device ID, or an MTP handle. Series summary/detail routes page at 200 rows and refuse a series detail above 20,000 books. Series sorts keep finite positive indices, including decimals, ahead of unnumbered books with stable title/book-ID tie-breaks.
-- `GET /api/profiles/:profile/issues` derives at most 20,000 current missing-cover, incomplete/parser-failure, low-confidence-provider, unavailable-source/root, and suspected-duplicate facts. Only bounded optimistic disposition/retry state is durable. Ignoring a duplicate rejects that grouping; `PATCH .../issues/:signature/preferred-book` chooses or clears one current group member for catalog presentation only. It never merges files or supplies Kindle-presence evidence.
+- A profile holds at most 100 user smart shelves, eight pinned shelves, and 20,000 personal annotation records. Shelf names are at most 80 characters and their sole persisted query format is the version-1 codec capped at 8 KiB; it contains catalog/personal filters plus an optional device-presence constraint (stored using the existing shelf codec), never SQL, pagination, a device ID, or an MTP handle. Series summary/detail routes page at 200 rows and refuse a series detail above 20,000 books. Series sorts keep finite positive indices, including decimals, ahead of unnumbered books with stable title/book-ID tie-breaks.
+- `GET /api/profiles/:profile/issues` derives at most 20,000 current missing-cover, incomplete/parser-failure, low-confidence-provider, unavailable-source/root, and suspected-duplicate facts. Only bounded optimistic disposition/retry state is durable. Ignoring a duplicate rejects that grouping; `PATCH .../issues/:signature/preferred-book` chooses or clears one current group member for catalog presentation only. It never merges files or supplies device-presence evidence.
 - An explicit metadata search returns at most 12 normalized candidates. A reviewed import accepts at most 12 explicitly selected fields plus an optional cover and checks both metadata revision and immutable source hash. The overlay row, optional cover reference, and durable lookup acceptance commit in one SQLite transaction; an uncommitted cover asset is removed on failure.
 - A bulk metadata-lookup job contains at most 100 unique books and the service retains at most 100 jobs per profile. Collection reads return summaries; an individual read returns its bounded entries. Work advances only after explicit resume/run calls, processes at most two provider requests concurrently at four starts per second, retries transient failures up to three times with backoff, and stops at review-ready candidates. Pause/cancel wins over late results. A restart returns in-flight entries to pending and changes running jobs to paused; completed failures can be explicitly retried. No lookup automatically writes an overlay.
 
@@ -67,7 +69,7 @@ Hardcover requests run only on the backend at a maximum of one request start per
 
 Queue, shelf, annotation, issue, and lookup mutations emit one typed, compact SSE hint per accepted operation. Candidate bodies, full selections, provider responses, secrets, and source paths are never placed on the event stream.
 
-The profile match-index response is deliberately non-paginated because reconciliation requires one coherent snapshot. It includes only currently available source/book rows, fails before loading rows when a profile exceeds 20,000 books or 40,000 current-presentation delivery-evidence rows, and refuses JSON above 32 MiB; it never returns a silently truncated index. Each active book may also expose at most 16 distinct valid prior KindleBridge presentation tokens as compact removal-only evidence. Those tokens cannot produce a green current-presentation match and do not expand into historical delivery rows. A fixed-width cross-profile collision summary remains computed in the same read transaction for wire compatibility and diagnostics, but current Calibre-compatible matching is intentionally scoped to the selected profile and does not let another household profile downgrade its exact matches. Ordinary catalog pages use the same 32 MiB ceiling. Both paths preflight selected SQLite text bytes, iterate rows without retaining a full raw row set, measure the exact JSON encoding, and only then allocate one exactly sized response buffer. The browser applies the same ceiling while streaming bounded catalog JSON.
+The profile match-index response is deliberately non-paginated because reconciliation requires one coherent snapshot. It includes only currently available source/book rows, fails before loading rows when a profile exceeds 20,000 books or 40,000 current-presentation delivery-evidence rows, and refuses JSON above 32 MiB; it never returns a silently truncated index. Each active book may also expose at most 16 distinct valid prior ShelfSend presentation tokens as compact Kindle-only removal evidence. Those tokens cannot produce a green current-presentation match and do not expand into historical delivery rows. A fixed-width cross-profile collision summary remains computed in the same read transaction for wire compatibility and diagnostics, but current Calibre-compatible matching is intentionally scoped to the selected profile and does not let another household profile downgrade its exact matches. Ordinary catalog pages use the same 32 MiB ceiling. Both paths preflight selected SQLite text bytes, iterate rows without retaining a full raw row set, measure the exact JSON encoding, and only then allocate one exactly sized response buffer. The browser applies the same ceiling while streaming bounded catalog JSON.
 
 Buffered JSON, single-book, cover, and static-file responses share a two-active-response FIFO gate. Additional requests wait without building their body, abort on client/shutdown close, and time out after ten seconds; the lease remains held until the HTTP response emits `finish` or `close`. Source books use their separate bounded streaming path.
 

@@ -1,26 +1,28 @@
-# Kindle Bridge — Implementation Build Plan
+# ShelfSend — Implementation Build Plan
+
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
 
 Date: 2026-08-30
 
 Status: Software implemented through Milestone 9; the root automated gate passes, prior schema-v13 local restore/rebuild plus dual-architecture OCI acceptance passed, and schema-v14 deployment plus Milestone 10 external acceptance remain pending
 
-Companion document: `outputs/kindle-bridge-service-design-plan.md`
+Companion document: [library service design](kindle-bridge-service-design-plan.md)
 
 ## 1. Implemented software end state
 
-Kindle Bridge is implemented as a private, self-hosted household ebook service. It runs as a platform-agnostic Docker container, notices new or changed books in host-provided mounted directories, indexes metadata and covers once, and exposes a responsive web library.
+ShelfSend is implemented as a private, self-hosted household ebook service. It runs as a platform-agnostic Docker container, notices new or changed books in host-provided mounted directories, indexes metadata and covers once, and exposes a responsive web library.
 
-The post-baseline metadata/cover editor and multi-book transfer-feedback work are tracked as two explicit, testable objects in [`kindle-bridge-implementation-objects.md`](kindle-bridge-implementation-objects.md).
+The post-baseline metadata/cover editor and multi-book transfer-feedback work are tracked as two explicit, testable objects in [implementation objects](kindle-bridge-implementation-objects.md).
 
 The normal user journey is:
 
-1. Open Kindle Bridge from a trusted computer on the household LAN or VPN.
+1. Open ShelfSend from a trusted computer on the household LAN or VPN.
 2. Select a household library such as **Your library** or **Wife's library**.
 3. Search or filter the real mounted-folder catalog.
 4. Connect a Kindle through the browser's user-initiated WebUSB chooser.
-5. On a clean connection, let Kindle Bridge run the exact-byte safe-write self-test immediately, then enumerate the device in the same retained session. Pending exact cleanup intentionally uses read-only recovery inventory first and remains fail-closed through acknowledgement plus fresh revalidation.
+5. On a clean connection, let ShelfSend run the exact-byte safe-write self-test immediately, then enumerate the device in the same retained session. Pending exact cleanup intentionally uses read-only recovery inventory first and remains fail-closed through acknowledgement plus fresh revalidation.
 6. See a green check only where the catalog and Kindle are strongly matched.
-7. Select **Send to Kindle**. Kindle Bridge fetches the source, converts a derivative in the browser when needed, and transfers it without altering the host-mounted original.
+7. Select **Send to Kindle**. ShelfSend fetches the source, converts a derivative in the browser when needed, and transfers it without altering the host-mounted original.
 
 No Calibre desktop session, cloud converter, or cloud book upload is part of this flow.
 
@@ -94,7 +96,7 @@ The backend never controls the USB device. The browser never receives an arbitra
 - **System of record:** original host book files, mounted into the container read-only.
 - **Durable application state:** profiles, root mappings, delivery records, migration history, and server settings. This state must be backed up.
 - **Rebuildable index state:** extracted book metadata, FTS rows, source fingerprints, and derived covers. This can be recreated from the mounted sources.
-- **Ephemeral state:** scan jobs, current Kindle inventory, self-test state, conversion bytes, and transfer progress.
+- **Ephemeral state:** scan jobs, current device inventory, self-test state, conversion bytes, and transfer progress.
 
 SQLite must live on a local persistent application volume, never inside a library root or remote SMB share.
 
@@ -140,7 +142,7 @@ Tasks:
 
 - Align project guidance around the final boundary: a private Docker catalog service is required; cloud conversion/storage and backend conversion remain prohibited.
 - Record the supported Docker runtime, target CPU architectures, intended hostname, certificate route, and mounted folder layout.
-- Keep host storage preparation outside Kindle Bridge. Local disks and host-mounted NAS/SMB/NFS paths are all equivalent once mapped into the container.
+- Keep host storage preparation outside ShelfSend. Local disks and host-mounted NAS/SMB/NFS paths are all equivalent once mapped into the container.
 - Choose one or more server-side allowed mount parents, for example `/libraries`, and a separate writable data volume, for example `/data`.
 - Decide how the private origin is restricted to the household: VPN or reverse-proxy access control plus firewall rules. Profiles remain no-login selectors, not accounts.
 - Record the maximum supported source size and a conservative browser-memory planning allowance before testing large EPUBs. Treat a real peak-memory measurement on the intended client as external acceptance rather than inferring it from allocation caps.
@@ -262,7 +264,7 @@ Exit gate:
 - Both household profiles show only their configured books.
 - Search, counts, filters, sort, and pagination agree under concurrent indexing.
 - The grid stays responsive for the representative large-library dataset.
-- Normal mode contains no simulated Kindle status or catalog records.
+- Normal mode contains no simulated device status or catalog records.
 
 ### Milestone 6 — Live Kindle inventory and automatic self-test — Implemented; physical acceptance pending
 
@@ -293,7 +295,7 @@ Exit gate:
 
 Tasks:
 
-- Add a stable, non-secret, source-version-scoped managed token to every Kindle Bridge filename and store it in a durable delivery record. Bind it to both the opaque book ID and indexed content hash so replaced bytes cannot inherit an old delivery's green state.
+- Add a stable, non-secret, source-version-scoped managed token to every ShelfSend filename and store it in a durable delivery record. Bind it to both the opaque book ID and indexed content hash so replaced bytes cannot inherit an old delivery's green state.
 - Keep session-local MTP handles out of durable identity decisions.
 - Implement the matcher as pure, exhaustively tested browser code using the shared catalog contracts, with three results: `confirmed`, `possible`, and `absent`.
 - Use evidence in this order: managed token plus delivery record; proven persistent object identity; exact embedded identifier with Calibre-compatible title/author; exact Calibre-compatible title/author/size; fuzzy evidence as possible only. Calibre-compatible comparison removes punctuation from the title key and checks joined authors, `author_sort`, and each individual device author.
@@ -328,7 +330,7 @@ Tasks:
 Exit gate:
 
 - One click advances through **Preparing**, **Converting** when needed, **Sending**, and **Verifying**.
-- Existing Kindle objects are never overwritten, broadly deleted, moved, or renamed. A separate user-confirmed removal action may delete only exact current confirmed handles, or a bounded exact prior KindleBridge presentation as removal-only evidence, after live revalidation and exact absence verification.
+- Existing Kindle objects are never overwritten, broadly deleted, moved, or renamed. A separate user-confirmed removal action may delete only exact current confirmed handles, or a bounded exact prior ShelfSend presentation as removal-only evidence, after live revalidation and exact absence verification.
 - Host-mounted source hashes are identical before and after the operation.
 - Network loss, changed source, conversion failure, insufficient space, USB loss at every write phase, delivery-record failure, and retry are tested.
 - Actual checked-in WASM tests cover normal Epictetus conversion plus archive entry/inflation attacks, a 100,001-node wide DOM, 4,097 OPF itemrefs, excessive MathML depth, synthesized XHTML beyond 32 MiB, and resource-driven AZW3 output beyond 200 MiB without returning partial bytes.

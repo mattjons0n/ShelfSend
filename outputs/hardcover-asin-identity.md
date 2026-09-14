@@ -12,7 +12,7 @@ Use a local book's Amazon ASIN to look up its matching Hardcover edition and boo
 - Use ASIN identity in series ownership for the selected library. Resolve matching editions beyond the roster's first 20 editions in one additional bounded request, scoped to the displayed Hardcover work IDs and the selected library's ASINs.
 - Cache provider identity results for five minutes with credential and identifier-set keys; recompute local ownership against the current catalog. Preserve provider pacing, cancellation, response limits and errors. No per-book network loop.
 - Keep ISBN/title fallback for books whose ASIN is absent from Hardcover. An exact ASIN success does not need a title match or title cleanup.
-- Existing review/apply controls remain in charge of metadata overlays. No EPUB writes, new credentials, migrations or Kindle transfer/deletion matching changes.
+- Existing review/apply controls remain in charge of metadata overlays. No EPUB writes, new credentials, migrations or device transfer/matching changes (including Kindle-only deletion).
 
 ## Bounds and safety
 
@@ -30,7 +30,7 @@ Final validation on 2026-09-11:
 - The affected client ASIN workflow suite was rerun after the fixture correction and passed.
 - `git diff --check`: clean. Independent review found no remaining must-fix issues.
 
-Requirement audit: exact ASIN lookup, same-edition ISBN retrieval, ISBN-free work/series identity, individual/bulk lookup, series ownership, source/edited identifiers, profile isolation, ambiguity/error safeguards and bounded cached requests are covered. No source-file or Kindle matching changes; no additional credential setup. Validated on `codex/user-experience-polish`. Publishing the branch does not deploy the running server.
+Requirement audit: exact ASIN lookup, same-edition ISBN retrieval, ISBN-free work/series identity, individual/bulk lookup, series ownership, source/edited identifiers, profile isolation, ambiguity/error safeguards and bounded cached requests are covered. No source-file or device matching changes; no additional credential setup. Validated on `codex/user-experience-polish`. Publishing the branch does not deploy the running server.
 
 Fixture-backed tests do not establish whether Hardcover currently contains a particular user's ASIN. No live-account or physical Kindle validation is claimed.
 

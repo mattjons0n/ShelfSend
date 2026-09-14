@@ -1,5 +1,7 @@
 # Onboarding and reading history build plan
 
+> **Scope:** This implementation record predates Kobo support. Shared library features now serve the selected e-reader; protocol details, action labels, and device evidence here retain their original Kindle scope. See the current [device guide](../docs/devices.md).
+
 ## Scope
 
 Implement in the existing application, not the separate modern-GUI mockup.

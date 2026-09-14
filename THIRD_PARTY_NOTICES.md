@@ -5,7 +5,7 @@
 - Project: <https://github.com/zacharydenton/boko>
 - Version: 0.5.0
 - Upstream source base: `b148716498fdac70134555293a7405913988256a`
-- Downstream archive changes: Kindle Bridge adds a fail-closed EPUB central-directory
+- Downstream archive changes: ShelfSend adds a fail-closed EPUB central-directory
   preflight before boko's ZIP parser retains entries. The included source caps
   archives at 20,000 entries, 256 MiB aggregate inflated bytes, 2,048 bytes per
   entry name, 8 MiB of aggregate entry-name bytes, a 24 MiB central directory,
@@ -61,11 +61,11 @@ version 3 or later.
   recorded in the upstream source
 - License: GPL-3.0
 
-Kindle Bridge's separately written, bounded TypeScript reader uses Calibre's
+ShelfSend's separately written, bounded TypeScript reader uses Calibre's
 published descriptions of the CONT/ENTY/PackedIon framing, matching-relevant
 property numbers, and exact `<book stem>.sdr/assets/metadata.kfx` convention.
 It does not include or depend on Calibre at runtime, does not parse general KFX
-book content, and is distributed under Kindle Bridge's GPL-3.0 license.
+book content, and is distributed under ShelfSend's GPL-3.0 license.
 
 ## KRDS reading-sidecar format reference
 
@@ -78,9 +78,9 @@ book content, and is distributed under Kindle Bridge's GPL-3.0 license.
 - Supplemental observed-format documentation:
   <https://github.com/zevisvei/kindle-reading-dashboard/blob/main/docs/KRDS-format.md>
 
-Kindle Bridge's separately written bounded TypeScript reader uses the published
+ShelfSend's separately written bounded TypeScript reader uses the published
 KRDS signature, primitive/object framing, `timer.model`, and `lpr` structure
 descriptions. It retains only a validated percentage and last-read timestamp,
 never annotation text, positions, history, or arbitrary decoded objects. It has
-no KRDS runtime dependency and is distributed under Kindle Bridge's GPL-3.0
+no KRDS runtime dependency and is distributed under ShelfSend's GPL-3.0
 license.
