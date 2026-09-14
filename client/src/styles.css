@@ -1423,10 +1423,14 @@ details.diagnostics > summary { color: var(--muted); font-size: .8rem; font-weig
 .library-device-list article { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .library-device-review { padding: 6px 9px; font-size: .65rem; }
 .settings-provider-card { margin: 12px 0; border: 1px solid #d7dfd9; border-radius: 12px; background: #fff; }
-.settings-provider-card > summary, .settings-provider-card:not(details) { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; }
-.settings-provider-card > summary { cursor: pointer; list-style: none; }
-.settings-provider-card > summary::-webkit-details-marker { display: none; }
-.settings-provider-card > summary > span:first-child, .settings-provider-card:not(details) > div { display: grid; gap: 2px; }
+.settings-provider-head, .settings-provider-card:not([data-provider]) { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; }
+.settings-provider-heading, .settings-provider-card:not([data-provider]) > div { display: grid; gap: 2px; }
+.settings-provider-head-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 14px; }
+.settings-provider-toggle { min-height: 36px; padding: 7px 14px; }
+@media (max-width: 600px) {
+  .settings-provider-head { flex-wrap: wrap; gap: 12px; }
+  .settings-provider-head-actions { margin-left: auto; }
+}
 .settings-provider-card small, .settings-provider-card p, .settings-provider-card label small { color: #6f7d74; }
 .settings-provider-status { display: inline-flex; align-items: center; gap: 6px; font-size: .72rem; font-weight: 700; }
 .settings-provider-status i { width: 8px; height: 8px; border-radius: 50%; background: #99a49d; }
@@ -1434,6 +1438,7 @@ details.diagnostics > summary { color: var(--muted); font-size: .8rem; font-weig
 .settings-provider-card[data-status="warning"] .settings-provider-status i { background: #c68a26; }
 .settings-provider-card[data-status="error"] .settings-provider-status i { background: #b64a4a; }
 .settings-provider-body { display: grid; gap: 10px; padding: 0 14px 14px; border-top: 1px solid #e6ebe7; }
+.settings-provider-body[hidden] { display: none; }
 .settings-provider-body > p { margin: 12px 0 0; font-size: .75rem; }
 .settings-provider-body label { display: grid; gap: 5px; margin-top: 12px; font-size: .72rem; font-weight: 700; }
 .settings-provider-body input { width: 100%; }

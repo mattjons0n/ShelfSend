@@ -26,6 +26,7 @@ import {
 } from "./catalog-client";
 import { renderKindleDeviceContents, renderLibraryPrototype, renderLibraryResults } from "./library-prototype-view";
 import { bindLibraryDisplayControls, captureLibraryDisplayControl } from "./library-display-controls";
+import { bindSettingsProviderDisclosure, captureSettingsProviderDisclosure } from "./provider-settings-controls";
 import type { KindleFilter, LibraryFilters, LibrarySort, LibraryView, MetadataFilter } from "./library-prototype";
 import type { LibraryFolderDraft, LibrarySettingsDraft } from "./library-settings-prototype";
 import {
@@ -459,6 +460,7 @@ export class AppView {
   render(state: AppState): void {
     this.#state = state;
     const restoreDisplayControl = captureLibraryDisplayControl(this.#root);
+    const restoreProviderDisclosure = captureSettingsProviderDisclosure(this.#root);
     const readerMenuOpen = this.#root.querySelector('[data-ui-action="toggle-reader-picker"]')?.getAttribute("aria-expanded") === "true";
     const readerMenuFocus = document.activeElement instanceof HTMLElement && this.#root.contains(document.activeElement) && document.activeElement.closest(".library-reader-picker")
       ? document.activeElement.dataset.uiAction : undefined;
@@ -525,6 +527,7 @@ export class AppView {
     this.#renderAdvancedPartialObjectProbe();
     this.#bindEvents();
     restoreDisplayControl();
+    restoreProviderDisclosure();
     if (readerMenuOpen) {
       const trigger = this.#root.querySelector<HTMLButtonElement>('[data-ui-action="toggle-reader-picker"]');
       if (trigger && !trigger.disabled) {
@@ -984,6 +987,7 @@ export class AppView {
     this.#root.querySelector<HTMLButtonElement>('button[data-ui-action="retry-cover-provider-settings"]')?.addEventListener("click", () => {
       void this.#catalog.loadCoverProviderSettings(true);
     });
+    bindSettingsProviderDisclosure(this.#root);
     this.#root.querySelector<HTMLButtonElement>('button[data-ui-action="edit-google-books-key"]')?.addEventListener("click", () => {
       this.#catalog.editGoogleBooksCredential();
       window.queueMicrotask(() => this.#root.querySelector<HTMLInputElement>("#settings-google-books-key")?.focus());

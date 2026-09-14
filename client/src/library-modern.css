@@ -301,7 +301,6 @@ body { background: var(--page); }
 .library-app-shell :is(.metadata-format-note, .metadata-revision-chip) { background: var(--green-soft); color: var(--green); border-color: var(--border); }
 .library-app-shell .metadata-cover-dropzone.dragging { background: var(--green-soft); border-color: var(--green); }
 .library-app-shell .library-sheet-eyebrow { color: var(--green); }
-.library-app-shell .settings-provider-card summary span { color: var(--muted); }
 .library-app-shell .library-send-button.queue:not(:disabled) { background: var(--surface); border-color: var(--border); }
 .library-app-shell .library-send-button.queue:hover:not(:disabled) { background: var(--surface-raised); color: var(--green); border-color: var(--green); }
 .library-app-shell .library-book-row.selected { box-shadow: inset 3px 0 0 var(--green); border-radius: 8px; }
