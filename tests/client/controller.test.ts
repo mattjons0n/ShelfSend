@@ -14,6 +14,7 @@ import {
   initialAppState,
   persistPendingObjectCleanup,
   readPendingObjectCleanup,
+  type AppState,
   type PendingObjectCleanup,
 } from "../../client/src/state";
 import type { UsbDeviceLike } from "../../client/src/usb";
@@ -2090,6 +2091,24 @@ describe("AppController local conversion flow", () => {
     expect(app.root.querySelector<HTMLButtonElement>(
       '[data-book-id="book-1"] [data-ui-action="send-book"]',
     )?.disabled).toBe(false);
+  });
+
+  it("does not replace the page for an unchanged controller state during reconciliation", async () => {
+    const app = harness();
+    const render = vi.spyOn(AppView.prototype, "render");
+    await app.controller.connect();
+    expect(app.controller.state.catalogInventoryState).toBe("ready");
+    expect(app.catalogApi.getMatchIndex).toHaveBeenCalledOnce();
+    const states = render.mock.calls.map(([state]) => state);
+    const redundant = states.filter((state, index) => {
+      const previous = states[index - 1];
+      // Same-state catalog callbacks must still render changed catalog data.
+      // Only an identical *new* controller state is a redundant commit.
+      return previous && previous !== state
+        && (Object.keys({ ...previous, ...state }) as (keyof AppState)[])
+          .every((key) => previous[key] === state[key]);
+    });
+    expect(redundant).toEqual([]);
   });
 
   it("uses Calibre-style selected-profile matches without cross-profile downgrades", async () => {

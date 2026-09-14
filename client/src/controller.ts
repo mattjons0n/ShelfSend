@@ -3680,13 +3680,15 @@ export class AppController {
       },
     ] as const)));
     this.#manualMatchEvidence = new Map(reconciled.manualMatchEvidence);
-    this.#view.setCatalogKindleStatuses(reconciled.statuses, reconciled.statusCountsByProfile);
-    this.#view.setCatalogKindleInventory(presentedInventory);
     const comparisonReady = presentedInventory.matching.status !== "unavailable";
-    this.#catalogInventoryEpoch = comparisonReady ? epoch : undefined;
-    this.#commit({
-      ...this.#state,
-      catalogInventoryState: comparisonReady ? "ready" : "failed",
+    this.#view.batchUpdates(() => {
+      this.#view.setCatalogKindleStatuses(reconciled.statuses, reconciled.statusCountsByProfile);
+      this.#view.setCatalogKindleInventory(presentedInventory);
+      this.#catalogInventoryEpoch = comparisonReady ? epoch : undefined;
+      this.#commit({
+        ...this.#state,
+        catalogInventoryState: comparisonReady ? "ready" : "failed",
+      });
     });
     this.log.info("Kindle Documents inventory reconciled in the browser", {
       completeness: inventory.status,
@@ -4101,12 +4103,14 @@ export class AppController {
       this.#catalogInventory = safePresentation;
       // CatalogBrowser merges the verified association into its existing map;
       // fallback evidence remains Possible until a fresh full index confirms it.
-      this.#view.setCatalogKindleInventory(safePresentation);
-      this.#view.setCatalogKindleBookStatus(
-        profileId,
-        book.id,
-        connectionCurrent ? "possible" : "unknown",
-      );
+      this.#view.batchUpdates(() => {
+        this.#view.setCatalogKindleInventory(safePresentation);
+        this.#view.setCatalogKindleBookStatus(
+          profileId,
+          book.id,
+          connectionCurrent ? "possible" : "unknown",
+        );
+      });
     } catch (error) {
       // Retain raw evidence only while this exact connection still owns the
       // current epoch. A lifecycle-invalidated device may be shown as Last
@@ -4144,9 +4148,11 @@ export class AppController {
     this.#catalogInventoryEpoch = undefined;
     this.#catalogReadyProfileIds.clear();
     this.#catalogReconciledVersions.clear();
-    this.#view.setCatalogKindleStatuses(new Map(), new Map());
-    this.#view.setCatalogKindleInventory(presented);
-    this.#commit({ ...this.#state, catalogInventoryState: "failed" });
+    this.#view.batchUpdates(() => {
+      this.#view.setCatalogKindleStatuses(new Map(), new Map());
+      this.#view.setCatalogKindleInventory(presented);
+      this.#commit({ ...this.#state, catalogInventoryState: "failed" });
+    });
   }
 
   #synchronizePendingCleanupFromStorage(): PendingObjectCleanup | undefined {
@@ -4555,7 +4561,12 @@ export class AppController {
       this.#kindleIndexProgressRun = undefined;
       if (state.kindleIndexProgress !== undefined) state = { ...state, kindleIndexProgress: undefined };
     }
+    const previous = this.#state;
     this.#state = state;
+    // Reconciliation can already be loading. Do not rebuild the page for a
+    // no-op controller commit; catalog-only changes still render via AppView.
+    if ((Object.keys({ ...previous, ...state }) as (keyof AppState)[])
+      .every((key) => previous[key] === state[key])) return;
     this.#view.render(state);
   }
 }

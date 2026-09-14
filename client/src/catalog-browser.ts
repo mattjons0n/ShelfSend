@@ -700,6 +700,9 @@ export class CatalogBrowser {
   readonly #requestTimeoutMs: number;
   readonly #settingsMutationTimeoutMs: number;
   #snapshot: CatalogBrowserSnapshot;
+  #updateBatchDepth = 0;
+  #batchedRenderScope?: CatalogRenderScope;
+  #batchedKindleReload = false;
   #profileEpoch = 0;
   #bookEpoch = 0;
   #settingsEpoch = 0;
@@ -770,7 +773,15 @@ export class CatalogBrowser {
   ) {
     this.#api = api;
     this.#hooks = hooks;
-    this.#render = render;
+    this.#render = (scope) => {
+      if (this.#updateBatchDepth === 0) {
+        render(scope);
+        return;
+      }
+      const previous = this.#batchedRenderScope;
+      this.#batchedRenderScope = previous === undefined || previous === scope ? scope
+        : previous === "all" || scope === "all" ? "all" : "results-and-device";
+    };
     this.#storage = storage;
     this.#requestTimeoutMs = browserTimeout(options.requestTimeoutMs, DEFAULT_BROWSER_REQUEST_TIMEOUT_MS, "requestTimeoutMs");
     this.#settingsMutationTimeoutMs = browserTimeout(
@@ -837,6 +848,32 @@ export class CatalogBrowser {
 
   get snapshot(): CatalogBrowserSnapshot {
     return this.#snapshot;
+  }
+
+  /** Coalesce publication, not state: callers must finish all updates synchronously. */
+  batchUpdates(callback: () => void): void {
+    this.#updateBatchDepth += 1;
+    try {
+      callback();
+    } finally {
+      this.#updateBatchDepth -= 1;
+      if (this.#updateBatchDepth === 0) {
+        const scope = this.#batchedRenderScope;
+        const reload = this.#batchedKindleReload;
+        this.#batchedRenderScope = undefined;
+        this.#batchedKindleReload = false;
+        try {
+          if (scope !== undefined) this.#render(scope);
+        } finally {
+          if (reload) void this.reloadBooks(true);
+        }
+      }
+    }
+  }
+
+  #requestKindleReload(): void {
+    if (this.#updateBatchDepth > 0) this.#batchedKindleReload = true;
+    else void this.reloadBooks(true);
   }
 
   async start(): Promise<void> {
@@ -4996,7 +5033,7 @@ export class CatalogBrowser {
       kindleStatusCountsByProfile: new Map(countsByProfile),
     }, "all");
     if (this.#eventStreamExpected && !this.#snapshot.liveUpdatesConnected) this.#downgradeKindleEvidence(false);
-    void this.reloadBooks(true);
+    this.#requestKindleReload();
   }
 
   setKindleBookStatus(profileId: string, bookId: string, status: CatalogKindleStatus): void {
@@ -5023,7 +5060,7 @@ export class CatalogBrowser {
     }
     this.#set({ kindleStatus, kindleStatusCountsByProfile }, "all");
     if (this.#eventStreamExpected && !this.#snapshot.liveUpdatesConnected) this.#downgradeKindleEvidence(false);
-    void this.reloadBooks(true);
+    this.#requestKindleReload();
   }
 
   setKindleInventory(inventory: CatalogKindleInventory | undefined): void {
@@ -5063,7 +5100,7 @@ export class CatalogBrowser {
         bulkActionError: undefined,
         matchReview: undefined,
       }, "all");
-      void this.reloadBooks(true);
+      this.#requestKindleReload();
       return;
     }
     const maximumItems = 10_000;
@@ -5126,7 +5163,7 @@ export class CatalogBrowser {
       matchReview: retainedMatchReview,
     }, "all");
     if (this.#eventStreamExpected && !this.#snapshot.liveUpdatesConnected) this.#downgradeKindleEvidence(false);
-    void this.reloadBooks(true);
+    this.#requestKindleReload();
   }
 
   #confirmDiscardSettingsChanges(): boolean {

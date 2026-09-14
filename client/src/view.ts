@@ -337,6 +337,8 @@ export class AppView {
   #catalogDetailsScrollY = 0;
   #catalogContextRestoreToken = -1;
   #catalogScrollFrame?: number;
+  #publicationDepth = 0;
+  #publicationPending = false;
   #settingsDeleteReturnLibraryId?: string;
   #advancedPartialObjectProbe: AdvancedPartialObjectProbeViewState = { phase: "off" };
 
@@ -367,6 +369,10 @@ export class AppView {
       options.catalogApi ?? createCatalogClient(),
       catalogHooks,
       (scope) => {
+        if (this.#publicationDepth > 0) {
+          this.#publicationPending = true;
+          return;
+        }
         if (scope === "results") this.#refreshCatalogResults();
         else if (scope === "device") this.#refreshCatalogDeviceContents();
         else if (scope === "results-and-device") {
@@ -460,9 +466,28 @@ export class AppView {
     if (closingMatchReview && returnMatchItemId) this.#restoreMatchReviewOrigin(returnMatchItemId);
   }
 
+  // Synchronous only: state/authority changes take effect immediately, while
+  // one comparison's catalog and controller updates replace the DOM once.
+  batchUpdates(update: () => void): void {
+    this.#publicationDepth += 1;
+    try {
+      this.#catalog.batchUpdates(update);
+    } finally {
+      this.#publicationDepth -= 1;
+      if (this.#publicationDepth === 0 && this.#publicationPending) {
+        this.#publicationPending = false;
+        this.render(this.#state);
+      }
+    }
+  }
+
   render(state: AppState): void {
     const previous = this.#state;
     this.#state = state;
+    if (this.#publicationDepth > 0) {
+      this.#publicationPending = true;
+      return;
+    }
     // Measured USB counts can arrive frequently. Keep the rest of the page,
     // open disclosures, focused controls and scroll position intact.
     if (previous !== state && !isKoboReader(this.#catalog.snapshot)
