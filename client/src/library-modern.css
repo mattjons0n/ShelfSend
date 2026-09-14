@@ -44,6 +44,7 @@ body { background: var(--page); }
   box-shadow: none;
 }
 .library-topbar .library-device-button { order: 2; }
+.library-topbar .library-activity-button { order: 4; }
 .library-topbar .library-queue-button {
   order: 3; display: flex; gap: 8px; background: var(--modern-button);
   border-color: var(--modern-button); color: var(--modern-button-text);
@@ -420,7 +421,7 @@ body { background: var(--page); }
 /* Bounded cover sizing, independent of list-row density. The smaller
    viewport may reduce the column count, never squeeze the text to fit. */
 .library-layout .library-book-grid[data-layout="grid"] {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--library-card-min-width, 220px)), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--library-card-min-width, 180px)), 1fr));
   gap: 24px 20px;
 }
 .library-book-grid[data-layout="grid"] .library-card-copy {

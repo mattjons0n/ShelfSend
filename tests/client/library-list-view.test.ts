@@ -439,6 +439,14 @@ describe("library list view and Kindle actions", () => {
     expect(list.querySelector('[role="toolbar"][aria-label="Selected book actions"]')).not.toBeNull();
   });
 
+  it("defaults the cover grid and slider to the smallest card size", () => {
+    const root = render(renderLibraryResults(readyState(), snapshot({ cardSize: undefined })));
+    const slider = root.querySelector<HTMLInputElement>("#library-card-size")!;
+    expect(slider.value).toBe("180");
+    expect(slider.value).toBe(slider.min);
+    expect(root.querySelector<HTMLElement>(".library-book-grid")?.style.getPropertyValue("--library-card-min-width")).toBe("180px");
+  });
+
   it.each([180, 220, 280])("renders bounded card sizing at %i without removing book details", (cardSize) => {
     const root = render(renderLibraryResults(readyState(), snapshot({ cardSize })));
     const slider = root.querySelector<HTMLInputElement>("#library-card-size")!;

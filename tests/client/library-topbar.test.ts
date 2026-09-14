@@ -5,7 +5,7 @@ import { CatalogBrowser, type CatalogBrowserSnapshot } from "../../client/src/ca
 import type { CatalogApi, CatalogProfile, CatalogRoot, CatalogServiceStatus } from "../../client/src/catalog-client";
 import { initialLibraryFilters } from "../../client/src/library-prototype";
 import { renderLibraryPrototype } from "../../client/src/library-prototype-view";
-import { initialAppState } from "../../client/src/state";
+import { initialAppState, type AppState } from "../../client/src/state";
 
 const PROFILE: CatalogProfile = {
   id: "prf_mattias", name: "Mattias", description: "Personal collection", initial: "M",
@@ -19,13 +19,17 @@ const SERVICE: CatalogServiceStatus = {
   available: true, state: "ready", settingsMode: "read-write", database: "ready", cache: "ready",
 };
 
-function render(view: "all" | "settings", overrides: Partial<CatalogBrowserSnapshot> = {}): HTMLElement {
+function render(
+  view: "all" | "settings",
+  overrides: Partial<CatalogBrowserSnapshot> = {},
+  stateOverrides: Partial<AppState> = {},
+): HTMLElement {
   const browser = new CatalogBrowser({} as CatalogApi, {}, () => undefined);
   const initial = browser.snapshot;
   browser.dispose();
   const root = document.createElement("div");
   root.innerHTML = renderLibraryPrototype(
-    { ...initialAppState(), secureContext: true, webUsbAvailable: true },
+    { ...initialAppState(), secureContext: true, webUsbAvailable: true, ...stateOverrides },
     {
       ...initial, loadState: "ready", profiles: [PROFILE], serviceStatus: SERVICE,
       rootsByProfile: new Map([[PROFILE.id, [ROOT]]]),
@@ -58,6 +62,32 @@ describe("uncluttered library topbar", () => {
     const root = render("all");
     expect(root.querySelector("#library-heading")?.textContent).toBe(PROFILE.name);
     expect(root.querySelector(".library-brand")?.textContent).toContain("ShelfSend");
+  });
+
+  describe.each(["all", "settings"] as const)("header action order in %s", (view) => {
+    it.each<[string, Partial<CatalogBrowserSnapshot>, Partial<AppState>, string]>([
+      ["disconnected reader picker", {}, {}, "toggle-reader-picker"],
+      ["connected Kindle", {}, {
+        device: { kind: "ready", details: { vendorId: 0x1949, productId: 0x9981 } },
+      }, "show-kindle"],
+      ["connected Kobo", {
+        activeReader: "kobo",
+        kobo: { status: "ready", supported: true, statuses: new Map(), countsByProfile: new Map() },
+      }, {}, "show-kindle"],
+    ])("places Activity last in DOM and natural tab order with a %s", (_label, snapshot, state, connectionAction) => {
+      const topbar = render(view, snapshot, state).querySelector(".library-topbar")!;
+      const activity = topbar.querySelector<HTMLButtonElement>('[data-ui-action="open-activity-center"]')!;
+      expect(topbar.lastElementChild).toBe(activity);
+
+      // Native tab order must follow the visible order, without CSS-only
+      // rearrangement or positive tabindex values hiding an accessibility mismatch.
+      const visibleButtons = Array.from(topbar.querySelectorAll<HTMLButtonElement>("button"))
+        .filter((button) => !button.closest("[hidden]"));
+      expect(visibleButtons.map((button) => button.dataset.uiAction)).toEqual([
+        "refresh-library", connectionAction, "open-send-queue", "open-activity-center",
+      ]);
+      for (const button of visibleButtons) expect(button.tabIndex).toBe(0);
+    });
   });
 
   it.each(["all", "settings"] as const)("groups the index status and accessible refresh icon first in the %s topbar", (view) => {

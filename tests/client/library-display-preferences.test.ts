@@ -5,7 +5,7 @@ import { CatalogBrowser } from "../../client/src/catalog-browser";
 import { CatalogApiError } from "../../client/src/catalog-client";
 import type { CatalogApi, CatalogBook, CatalogBookPage, CatalogBookQuery, CatalogProfile } from "../../client/src/catalog-client";
 import { LIBRARY_BROWSER_CONTEXT_STORAGE_KEY, readLibraryBrowserContext, writeLibraryBrowserContext } from "../../client/src/library-browser-context";
-import { isLibraryCardSize, isLibraryPageSize, LIBRARY_CARD_SIZE_DEFAULT, LIBRARY_PAGE_SIZES, normalizeLibraryCardSize } from "../../client/src/library-display-preferences";
+import { isLibraryCardSize, isLibraryPageSize, LIBRARY_CARD_SIZE_DEFAULT, LIBRARY_CARD_SIZE_MIN, LIBRARY_PAGE_SIZES, normalizeLibraryCardSize } from "../../client/src/library-display-preferences";
 import { EMPTY_CATALOG_FILTERS, initialLibraryFilters } from "../../client/src/library-prototype";
 import { decodeLibraryRoute, encodeLibraryRoute } from "../../client/src/library-route";
 
@@ -44,6 +44,18 @@ function fakeApi() {
 }
 
 describe("bounded dashboard display preferences", () => {
+  it("defaults to the smallest supported card size for a new library view", async () => {
+    expect(LIBRARY_CARD_SIZE_DEFAULT).toBe(LIBRARY_CARD_SIZE_MIN);
+    expect(LIBRARY_CARD_SIZE_DEFAULT).toBe(180);
+    const storage = memoryStorage();
+    expect(readLibraryBrowserContext(storage, "one").cardSize).toBe(180);
+    const { api } = fakeApi();
+    const browser = new CatalogBrowser(api, {}, () => undefined, storage);
+    await browser.start();
+    expect(browser.snapshot.cardSize).toBe(180);
+    browser.dispose();
+  });
+
   it("accepts only supported widths and page sizes, without coercing unsafe input", () => {
     for (const width of [180, 200, 220, 240, 260, 280]) {
       expect(isLibraryCardSize(width)).toBe(true);
@@ -67,8 +79,8 @@ describe("bounded dashboard display preferences", () => {
     saved.entries[0]!.cardSize = 2;
     delete saved.entries[1]!.cardSize;
     storage.setItem(LIBRARY_BROWSER_CONTEXT_STORAGE_KEY, JSON.stringify(saved));
-    expect(readLibraryBrowserContext(storage, "one").cardSize).toBe(220);
-    expect(readLibraryBrowserContext(storage, "two").cardSize).toBe(220);
+    expect(readLibraryBrowserContext(storage, "one").cardSize).toBe(180);
+    expect(readLibraryBrowserContext(storage, "two").cardSize).toBe(180);
   });
 
   it("persists sizes on reload and keeps separate profile preferences and list density", async () => {
@@ -76,21 +88,21 @@ describe("bounded dashboard display preferences", () => {
     const { api } = fakeApi();
     const browser = new CatalogBrowser(api, {}, () => undefined, storage);
     await browser.start();
-    browser.setCardSize(180);
+    browser.setCardSize(220);
     browser.setPageSize(48);
     await vi.waitFor(() => expect(browser.snapshot.page?.limit).toBe(48));
     await browser.selectProfile("two");
-    expect(browser.snapshot).toMatchObject({ cardSize: 220, filters: { limit: 24 } });
+    expect(browser.snapshot).toMatchObject({ cardSize: 180, filters: { limit: 24 } });
     browser.setCardSize(280);
     browser.setDensity("compact");
     browser.setPageSize(96);
     await vi.waitFor(() => expect(browser.snapshot.page?.limit).toBe(96));
     await browser.selectProfile("one");
-    expect(browser.snapshot).toMatchObject({ cardSize: 180, density: "comfortable", filters: { limit: 48 } });
+    expect(browser.snapshot).toMatchObject({ cardSize: 220, density: "comfortable", filters: { limit: 48 } });
     browser.dispose();
     const reloaded = new CatalogBrowser(api, {}, () => undefined, storage);
     await reloaded.start();
-    expect(reloaded.snapshot).toMatchObject({ cardSize: 180, filters: { profileId: "one", limit: 48 } });
+    expect(reloaded.snapshot).toMatchObject({ cardSize: 220, filters: { profileId: "one", limit: 48 } });
     await reloaded.selectProfile("two");
     expect(reloaded.snapshot).toMatchObject({ cardSize: 280, density: "compact", filters: { limit: 96 } });
     reloaded.dispose();
@@ -129,13 +141,13 @@ describe("bounded dashboard display preferences", () => {
     const calls = listBooks.mock.calls.length;
     browser.setCardSize(90);
     browser.setPageSize(1000);
-    expect(browser.snapshot).toMatchObject({ cardSize: 220, filters: { limit: 24 } });
+    expect(browser.snapshot).toMatchObject({ cardSize: 180, filters: { limit: 24 } });
     expect(listBooks).toHaveBeenCalledTimes(calls);
     browser.openSend("one-0");
     expect(browser.snapshot.sendBusy).toBe(true);
     browser.setCardSize(280);
     browser.setPageSize(48);
-    expect(browser.snapshot).toMatchObject({ cardSize: 220, filters: { limit: 24 } });
+    expect(browser.snapshot).toMatchObject({ cardSize: 180, filters: { limit: 24 } });
     expect(listBooks).toHaveBeenCalledTimes(calls);
     finish();
     await vi.waitFor(() => expect(browser.snapshot.sendBusy).toBe(false));

@@ -36,8 +36,14 @@ describe("ShelfSend charcoal presentation", () => {
     expect(rule(".library-send-button:disabled").getPropertyValue("background")).toBe("var(--surface-soft)");
     expect(rule(".library-kindle-check.possible, .library-kindle-check.unknown").getPropertyValue("background")).toBe("var(--yellow-soft)");
     expect(rule(".library-book-menu > div").getPropertyValue("max-width")).toBe("100%");
+    expect(rule('.library-layout .library-book-grid[data-layout="grid"]').getPropertyValue("grid-template-columns"))
+      .toContain("var(--library-card-min-width, 180px)");
     expect(rule(".library-bulk-actions").getPropertyValue("flex-wrap")).toBe("wrap");
     expect(rule(".library-app-shell button.primary:hover:not(:disabled)").getPropertyValue("background")).toBe("var(--modern-button-hover)");
+    expect(rule(".library-topbar .library-device-button").getPropertyValue("order")).toBe("2");
+    expect(rule(".library-reader-picker").getPropertyValue("order")).toBe("2");
+    expect(rule(".library-topbar .library-queue-button").getPropertyValue("order")).toBe("3");
+    expect(rule(".library-topbar .library-activity-button").getPropertyValue("order")).toBe("4");
     style.remove();
   });
 

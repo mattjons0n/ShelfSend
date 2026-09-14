@@ -80,7 +80,7 @@ describe("library display control binding", () => {
     const { slider, page, grid, actions } = displayControls();
     slider.disabled = true;
     page.disabled = true;
-    slider.value = String(LIBRARY_CARD_SIZE_MIN);
+    slider.value = String(LIBRARY_CARD_SIZE_MAX);
     page.value = "96";
     slider.dispatchEvent(new Event("input", { bubbles: true }));
     slider.dispatchEvent(new Event("change", { bubbles: true }));

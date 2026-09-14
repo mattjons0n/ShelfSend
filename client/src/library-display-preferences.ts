@@ -2,7 +2,7 @@
 export const LIBRARY_CARD_SIZE_MIN = 180;
 export const LIBRARY_CARD_SIZE_MAX = 280;
 export const LIBRARY_CARD_SIZE_STEP = 20;
-export const LIBRARY_CARD_SIZE_DEFAULT = 220;
+export const LIBRARY_CARD_SIZE_DEFAULT = LIBRARY_CARD_SIZE_MIN;
 
 export const LIBRARY_PAGE_SIZES = [12, 24, 48, 96, 200] as const;
 
