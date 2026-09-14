@@ -1,10 +1,10 @@
 # ShelfSend — Backlog
 
-Detailed implementation sequence, dependencies, validation, rollout, and omission audit: [backlog build plan](outputs/kindle-bridge-backlog-build-plan.md).
+This ledger records implemented work and remaining acceptance requirements. See the [project handoff](PROJECT_HANDOFF.md) for architecture and safety decisions, [Kindle experimental gates](docs/kindle-experiments.md) for device evidence, and [release checklist](deploy/docker/RELEASE_CHECKLIST.md) for the final per-release validation and omission audit.
 
 ## Device scope
 
-Shared catalog, queue, series, and browsing work applies to the selected e-reader. See [device support](docs/devices.md). Kindle-specific MTP probes, caches, sidecars, removal/update, and recorded physical results below apply only to that integration. Kobo uses browser folder access and EPUB delivery; see its [implementation and physical acceptance record](outputs/kobo-build-plan.md).
+Shared catalog, queue, series, and browsing work applies to the selected e-reader. See [device support](docs/devices.md). Kindle-specific MTP probes, caches, sidecars, removal/update, and recorded physical results below apply only to that integration. Kobo uses browser folder access and EPUB delivery; see its [workflow and physical acceptance requirements](docs/kobo.md).
 
 ## Reconsider automatic safe-write test cadence
 
@@ -44,7 +44,7 @@ Acceptance requires strict container/field/count/byte bounds, malformed and host
 
 ## Read Kindle progress and reading state from sidecars
 
-**Status:** Browser projection, grid/list UI, status filtering and durable Read books shelf integration implemented, default off for automatic reading detection. The physical format/state matrix still needs to establish trustworthy semantics, including an explicit Read/Unread field. See `outputs/onboarding-reading-build-plan.md`.
+**Status:** Browser projection, grid/list UI, status filtering and durable Read books shelf integration implemented, default off for automatic reading detection. The physical format/state matrix still needs to establish trustworthy semantics, including an explicit Read/Unread field. Read-only recorded activity is available separately and does not establish completion. See the [reading-data findings and remaining physical gate](docs/kindle-experiments.md#reading-data-and-semantic-status).
 
 Add best-effort, browser-local reading progress for books that have a strong exact association with an object in the current live Kindle inventory. MTP does not expose a standard semantic progress property; the implementation must selectively enumerate and download only the small Kindle reader-data sidecars associated with that exact book. Candidate reverse-engineered KRDS files are AZW3 `.azw3f`/`.azw3r`, KFX `.yjf`/`.yjr`, and legacy MOBI `.mbs`/`.mbp1`. Known fields can include last and furthest positions, an estimated percentage, a timestamp, and local reading-time data. See the [KRDS parser](https://github.com/K-R-D-S/KRDS/blob/9c8a0b0ec9cb6af72fba900a6f9b09f92de477de/krds.py) and the [current format observations](https://github.com/zevisvei/kindle-reading-dashboard/blob/main/docs/KRDS-format.md).
 

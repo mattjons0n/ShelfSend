@@ -115,7 +115,7 @@ The service creates its credential-bearing SQLite database and sidecars with own
 
 ## 6. Cold backup
 
-Back up all of `/data`; do not back up `/cache`. The archive must include both SQLite and `/data/metadata-covers`, otherwise restored metadata may reference missing user-selected images. SQLite contains the schema-v17 durable application state: profiles/roots, stable identities, deliveries, overlays, provider settings and mutation replays, queues, shelves, annotations, issue dispositions/preferences, and bulk lookup jobs/results. It also contains a configured Google Books key in plaintext appropriate to this private self-hosted threat model, so restrict backup ownership and mode just as carefully as the live volume. A consistent cold backup avoids copying SQLite while a migration or write transaction is active.
+Back up all of `/data`; do not back up `/cache`. The archive must include both SQLite and `/data/metadata-covers`, otherwise restored metadata may reference missing user-selected images. SQLite contains the schema-v21 durable application state: profiles/roots, stable identities, deliveries, overlays, provider settings and mutation replays, queues, shelves, annotations, issue dispositions/preferences, and bulk lookup jobs/results. It also contains any configured Google Books key and Hardcover token in plaintext appropriate to this private self-hosted threat model, so restrict backup ownership and mode just as carefully as the live volume. A consistent cold backup avoids copying SQLite while a migration or write transaction is active.
 
 1. Record the exact image digest and environment file in the backup log.
 2. Stop cleanly and wait for the container to exit.
@@ -153,7 +153,7 @@ Then set `KINDLE_BRIDGE_DATA_VOLUME=kindle-bridge-data-restored-YYYYMMDD`, start
 
 A lookup job that was `running` at shutdown is intentionally recovered as `paused` with any `searching` entry returned to `pending`; resume it explicitly after the restored service is ready. Candidate results are review material only and never apply themselves during recovery.
 
-For an application rollback, stop the service, select the previous immutable image digest and its pre-upgrade data-volume snapshot together, then start. Do not run an older image against a database already migrated by a newer one unless that release explicitly documents backward compatibility. The new queue, shelf, annotation, provider, issue, and lookup rows are additive/inert when their UI is disabled, but that does not by itself prove that an older binary accepts schema version 17; retain the paired snapshot and never delete this user intent merely to roll back a feature.
+For an application rollback, stop the service, select the previous immutable image digest and its pre-upgrade data-volume snapshot together, then start. Do not run an older image against a database already migrated by a newer one unless that release explicitly documents backward compatibility. The new queue, shelf, annotation, provider, issue, and lookup rows are additive/inert when their UI is disabled, but that does not by itself prove that an older binary accepts schema version 21; retain the paired snapshot and never delete this user intent merely to roll back a feature.
 
 ## 8. Cache and catalog rebuild
 
@@ -179,7 +179,7 @@ Before a household upgrade:
 1. Run `npm run check` and build the exact release image.
 2. Validate both OCI architectures and inspect SBOM/provenance attestations.
 3. Make a cold `/data` backup and keep the old image digest.
-4. Start the new image on a restored copy of the data volume first; verify schema version 17, wait for readiness, and reconcile roots.
+4. Start the new image on a restored copy of the data volume first; verify schema version 21, wait for readiness, and reconcile roots.
 5. Stop and start that restored copy twice more. Each restart must remain ready without reapplying migration side effects; compare profile/root/book/delivery/overlay/provider/queue/shelf/annotation/issue/job counts with the pre-upgrade record.
 6. Exercise search, series pagination/order, queue and shelf mutations, issue review, metadata candidate review/import, cover/source fetch, Settings lock, mount loss/recovery, and restart persistence.
 7. Rehearse a cache/catalog rebuild against a second restored copy and confirm the durable intent above survives while only derived catalog/cache data is reconstructed.

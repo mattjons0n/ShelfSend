@@ -205,13 +205,13 @@ The server indexes and serves source files. The browser prepares derived copies 
 | --- | --- |
 | [Device guide](docs/devices.md) | Shared workflow, supported readers, connection methods, formats, and device-specific limits |
 | [Technical guide](docs/technical-guide.md) | Catalog architecture, device workflows, safety, caching, and diagnostics |
-| [Kobo transfer notes](outputs/kobo-build-plan.md) | Browser requirements, supported formats, recovery, and physical acceptance status |
-| [Series discovery](outputs/hardcover-discovery.md) | Hardcover integration, library comparison, and matching behavior |
+| [Kobo transfer guide](docs/kobo.md) | Browser requirements, supported formats, recovery, and physical acceptance status |
+| [Series discovery](docs/hardcover.md) | Hardcover setup, library comparison, and matching behavior |
 | [Docker deployment](deploy/docker/README.md) | Installation, private HTTPS, storage, backups, restore, and rollback |
 | [Server reference](server/README.md) | Catalog service configuration and environment variables |
 | [Project handoff](PROJECT_HANDOFF.md) | Architecture decisions, implementation state, and remaining acceptance work |
 | [Backlog](BACKLOG.md) | Implementation and acceptance ledger |
-| [Release-candidate audit](outputs/kindle-bridge-backlog-feature-audit.md) | Requirement-by-requirement coverage and validation evidence |
+| [Release checklist](deploy/docker/RELEASE_CHECKLIST.md) | Deployment checks, device acceptance, and release evidence |
 
 ## 🙏 Acknowledgements and licensing
 

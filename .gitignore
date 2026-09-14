@@ -22,6 +22,8 @@ coverage/
 /data/
 /cache/
 /backups/
+# Local working notes and generated review artifacts.
+/outputs/
 .kindle-poc-tmp/
 .kindle-bridge-dev/
 DerivedData/

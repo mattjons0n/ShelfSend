@@ -4,12 +4,11 @@
 # The per-platform digests and verification date are recorded in
 # deploy/docker/base-image.lock.
 ARG NODE_IMAGE="node:24.21.0-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
-ARG BUILDPLATFORM
 
 # Build/test outputs are architecture-neutral JavaScript, CSS, and WebAssembly.
 # Keep this stage native so a cross-build never runs timing-sensitive tests
 # through CPU emulation; the runtime stage below still targets each requested
-# platform.
+# platform. BUILDPLATFORM is supplied by BuildKit in the global scope.
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
 
 WORKDIR /app
@@ -26,7 +25,7 @@ COPY scripts ./scripts
 COPY tests ./tests
 COPY third_party/boko ./third_party/boko
 COPY deploy ./deploy
-COPY outputs ./outputs
+COPY docs ./docs
 
 # Assemble a release image only after the repository's test and build gate.
 # Bound test parallelism for memory-constrained Docker builders; all tests and
@@ -104,7 +103,7 @@ COPY --from=build --chown=1000:1000 /app/scripts /usr/share/kindle-bridge/source
 COPY --from=build --chown=1000:1000 /app/tests /usr/share/kindle-bridge/source/tests
 COPY --from=build --chown=1000:1000 /app/third_party/boko /usr/share/kindle-bridge/source/third_party/boko
 COPY --from=build --chown=1000:1000 /app/deploy /usr/share/kindle-bridge/source/deploy
-COPY --from=build --chown=1000:1000 /app/outputs /usr/share/kindle-bridge/source/outputs
+COPY --from=build --chown=1000:1000 /app/docs /usr/share/kindle-bridge/source/docs
 
 USER 1000:1000
 EXPOSE 8080

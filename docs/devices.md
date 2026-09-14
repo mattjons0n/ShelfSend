@@ -45,7 +45,7 @@ Choose **Connect** on the reader's screen so the USB drive mounts on your comput
 
 ShelfSend writes prepared EPUBs into its own folder. It does not overwrite existing books, alter `.kobo`, or edit the reader's database. Its recovery flow identifies exact interrupted files for inspection; do not delete unrelated files. Existing-copy removal and update controls are unavailable.
 
-After verification, eject the drive through your operating system and unplug it so the reader can import the books. ShelfSend's **Disconnect** button is not an OS eject. See the [Kobo implementation record](../outputs/kobo-build-plan.md) for limits and recovery details.
+After verification, eject the drive through your operating system and unplug it so the reader can import the books. ShelfSend's **Disconnect** button is not an OS eject. See the [Kobo transfer guide](kobo.md) for limits and recovery details.
 
 ## Library ownership and device presence
 

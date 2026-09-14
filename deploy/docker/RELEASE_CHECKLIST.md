@@ -23,9 +23,9 @@ Record the image digest, data-volume snapshot, date, operator, target host, brow
 ## Storage lifecycle
 
 - [ ] Graceful stop during an active scan/source response closes SSE and the listener first, drains work, and exits inside 30 seconds with no corrupted migration/database state.
-- [ ] A restored copy upgrades additively to schema version 17; two further restarts remain ready without duplicate migration effects, and recorded profile/root/book/delivery/overlay/provider/queue/shelf/annotation/issue/job counts are preserved as intended.
+- [ ] A restored copy upgrades additively to schema version 21; two further restarts remain ready without duplicate migration effects, and recorded profile/root/book/delivery/overlay/provider/queue/shelf/annotation/issue/job counts are preserved as intended.
 - [ ] Restart preserves installation identity, profiles, roots, Settings mode, delivery history, metadata overrides, provider configuration, Send-later order, shelves/pins, annotations, issue dispositions/preferences, bulk lookup jobs/results, and user-selected replacement covers.
-- [ ] Restart and cold restore preserve only the masked public state and working behavior of a configured Google Books key; API responses, logs, and browser storage never contain the key.
+- [ ] Restart and cold restore preserve only the masked public state and working behavior of configured Google Books and Hardcover credentials; API responses, logs, and browser storage never contain the unmasked credentials.
 - [ ] The `/data` backup is treated as a secret-bearing archive because it contains provider credentials; restored ownership/mode remain restrictive.
 - [ ] Removing a source mount reports unavailable without mass deletion; restoring it reconciles normally.
 - [ ] Cold backup produces a checksum-valid archive.

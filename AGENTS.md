@@ -42,6 +42,7 @@ Maintain and complete the private, self-hosted Kindle Bridge household ebook lib
 
 ## Working expectations
 
+- Keep temporary plans, diagnostic logs, screenshots, and working audit records in the ignored `outputs/` directory. Publish maintained documentation under `docs/`; builds and tests must work without `outputs/`. Do not force-add local working artifacts to Git.
 - Read `README.md` and `PROJECT_HANDOFF.md` before making architectural changes.
 - Preserve the no-Calibre and no-cloud boundary. The private Docker catalog service is required; conversion and Kindle USB/MTP activity remain browser-local.
 - Add or update tests with behavior changes.

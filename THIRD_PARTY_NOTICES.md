@@ -49,7 +49,7 @@
   Rebuilding the patched lockfile with the exact toolchain above reproduced
   both checked-in JavaScript and WASM hashes unchanged. The browser artifacts
   therefore remain byte-for-byte identical. Native library and focused
-  integration tests passed; [rebuild evidence](outputs/security-hardening-2026-09-14-boko.md)
+  integration tests passed; [rebuild evidence](docs/security-maintenance.md#converter-rebuild)
   records the commands, results, and dependency rescan.
 
 The checked-in browser artifacts are generated from the included downstream

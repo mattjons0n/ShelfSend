@@ -17,6 +17,7 @@ libraries
 data
 cache
 backups
+/outputs/
 *.sqlite
 *.sqlite-*
 *.zip
