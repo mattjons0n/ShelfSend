@@ -37,7 +37,7 @@ function scannedTime(value: string): string {
 
 function renderItem(item: CatalogKindleInventoryItem): string {
   return `<li class="kindle-library-item" data-kindle-object-id="${escapeHtml(item.id)}">
-    <span class="kindle-library-icon" aria-hidden="true">${libraryIcon("book")}</span>
+    <span class="kindle-library-icon" data-kindle-cover aria-hidden="true">${libraryIcon("book")}</span>
     <div class="kindle-library-book"><h2>${escapeHtml(itemTitle(item))}</h2><p>${escapeHtml(itemAuthors(item))}</p><small>${escapeHtml(itemFormat(item))} · ${escapeHtml(formatCatalogBytes(item.size))}</small></div>
     <details class="kindle-library-file-details"><summary>File details<span class="sr-only"> for ${escapeHtml(itemTitle(item))}</span></summary><dl><div><dt>Filename</dt><dd>${escapeHtml(item.filename)}</dd></div>${item.path ? `<div><dt>Location on Kindle</dt><dd>${escapeHtml(item.path)}</dd></div>` : ""}</dl></details>
   </li>`;

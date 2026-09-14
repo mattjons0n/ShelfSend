@@ -26,6 +26,8 @@ import {
 } from "./catalog-client";
 import { renderKindleDeviceContents, renderLibraryPrototype, renderLibraryResults } from "./library-prototype-view";
 import { renderKindleLibraryView } from "./kindle-library-view";
+import { KindleCoverPresenter } from "./kindle-cover-presenter";
+import type { KindleBookCover } from "./kindle/book-cover";
 import { kindleConnectionProgress, renderKindleIndexProgressContent } from "./kindle-connection-progress";
 import { bindLibraryDisplayControls, captureLibraryDisplayControl } from "./library-display-controls";
 import { bindSettingsProviderDisclosure, captureSettingsProviderDisclosure } from "./provider-settings-controls";
@@ -50,6 +52,7 @@ import {
 } from "./state";
 
 export interface AppViewHandlers {
+  readonly onKindleCoverRequested?: (itemId: string) => Promise<KindleBookCover | undefined>;
   readonly onKoboConnect?: () => void | Promise<void>;
   readonly onKoboDisconnect?: () => void | Promise<void>;
   readonly onKoboRefresh?: () => void | Promise<void>;
@@ -325,6 +328,9 @@ export class AppView {
   readonly #handlers: AppViewHandlers;
   readonly #debugLog: DebugLog;
   readonly #catalog: CatalogBrowser;
+  readonly #kindleCovers: KindleCoverPresenter;
+  readonly #viewCleanup: (() => void)[] = [];
+  #disposed = false;
   #state: AppState;
   #profileDraft: TargetProfile;
   #diagnosticsDeviceQuery = "";
@@ -379,21 +385,27 @@ export class AppView {
           this.#refreshCatalogResults();
           this.#refreshCatalogDeviceContents();
         } else this.render(this.#state);
+        this.refreshKindleCovers();
       },
       options.catalogStorage,
     );
+    this.#kindleCovers = new KindleCoverPresenter(root, (itemId) => handlers.onKindleCoverRequested?.(itemId) ?? Promise.resolve(undefined));
     this.render(state);
-    debugLog.subscribe(() => this.#renderLog());
-    window.addEventListener("scroll", () => {
+    this.#viewCleanup.push(debugLog.subscribe(() => this.#renderLog()));
+    const onScroll = () => {
       if (!this.#root.isConnected || this.#catalog.snapshot.bookDetails || this.#catalogScrollFrame !== undefined) return;
       this.#catalogScrollFrame = window.requestAnimationFrame(() => {
         this.#catalogScrollFrame = undefined;
         this.#catalog.setScrollPosition(window.scrollY);
       });
-    }, { passive: true });
-    window.addEventListener("popstate", () => {
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    const onPopState = () => {
       if (this.#root.isConnected) void this.#restoreCatalogRoute(true);
-    });
+    };
+    window.addEventListener("popstate", onPopState);
+    this.#viewCleanup.push(() => window.removeEventListener("scroll", onScroll),
+      () => window.removeEventListener("popstate", onPopState));
     if (options.autoStartCatalog !== false) {
       void this.#catalog.start().then(() => this.#restoreCatalogRoute());
     }
@@ -482,8 +494,10 @@ export class AppView {
   }
 
   render(state: AppState): void {
+    if (this.#disposed) return;
     const previous = this.#state;
     this.#state = state;
+    this.refreshKindleCovers();
     if (this.#publicationDepth > 0) {
       this.#publicationPending = true;
       return;
@@ -564,6 +578,7 @@ export class AppView {
     this.#root.innerHTML = `<div class="app-shell library-app-shell">
       ${renderLibraryPrototype(state, this.#catalog.snapshot, globalAlerts, diagnostics)}
     </div>`;
+    this.refreshKindleCovers();
     this.#root.querySelectorAll<HTMLDetailsElement>("details[data-diagnostic-panel]").forEach((details) => {
       details.open = openDiagnostics.has(details.dataset.diagnosticPanel);
     });
@@ -622,6 +637,37 @@ export class AppView {
   #renderLog(): void {
     const element = this.#root.querySelector<HTMLPreElement>("#debug-log");
     if (element) element.textContent = this.#debugLog.format() || "Application ready";
+  }
+
+  /** Restart lazy presentation after the device operation lane becomes idle. */
+  refreshKindleCovers(): void {
+    const snapshot = this.#catalog.snapshot;
+    if (!this.#handlers.onKindleCoverRequested || snapshot.filters.view !== "on-kindle" || isKoboReader(snapshot)) {
+      this.#kindleCovers.pause();
+      return;
+    }
+    const inventory = snapshot.kindleInventory;
+    const enabled = this.#state.device.kind === "ready" && this.#state.selfTest.kind === "passed"
+      && this.#state.postConnectStage === "idle" && this.#state.catalogInventoryState !== "loading"
+      && this.#state.integratedTransfer.kind !== "sending"
+      && !this.#state.pendingObjectCleanup && !this.#state.pendingReplacementCleanups?.length
+      && !snapshot.sendBusy && !snapshot.bulkActionBusy
+      && inventory?.completeness === "complete" && !inventory.truncated;
+    this.#kindleCovers.update(inventory?.items ?? [], enabled,
+      JSON.stringify([snapshot.filters.view, snapshot.kindleInventoryQuery, snapshot.kindleInventoryOffset]));
+  }
+
+  resetKindleCovers(): void {
+    this.#kindleCovers.reset();
+  }
+
+  dispose(): void {
+    this.#disposed = true;
+    this.#kindleCovers.dispose();
+    for (const cleanup of this.#viewCleanup.splice(0)) cleanup();
+    this.#readerMenuCleanup?.();
+    this.#catalog.dispose();
+    if (this.#catalogScrollFrame !== undefined) window.cancelAnimationFrame(this.#catalogScrollFrame);
   }
 
   #renderAdvancedPartialObjectProbe(): void {

@@ -55,6 +55,9 @@ import {
 import type { DeviceDetails } from "./state";
 import { isFatalTransportFailure } from "./error-diagnostics";
 import { collectReadingDiagnostic, type ReadingDiagnosticReport } from "./kindle/reading-diagnostic";
+import type { KindleBookCover } from "./kindle/book-cover";
+import { createKindleCoverCache, type KindleCoverCache } from "./kindle/cover-cache";
+import { KindleDeviceCoverReader } from "./kindle/device-cover-reader";
 import {
   WebUsbBulkTransport,
   captureDescriptorSnapshot,
@@ -131,6 +134,8 @@ export interface OpenKindleOptions extends MtpOperationOptions {
   readonly kindleOptions?: KindleDeviceOptions;
   /** Injectable browser-local acceleration; raw Kindle inventory never leaves the browser. */
   readonly metadataCache?: KindleMetadataCache;
+  /** Extracted device-file raster covers remain browser-local and non-authoritative. */
+  readonly coverCache?: KindleCoverCache;
   /** Injectable, page-local aggregate probe; it never persists or logs raw device values. */
   readonly modificationDateProbe?: KindleModificationDateProbe;
   /** Explicit development-session opt-in; normal application connections leave this disabled. */
@@ -202,6 +207,7 @@ export interface KindleReplacementCleanupResult {
 }
 
 const defaultKindleMetadataCache = createKindleMetadataCache();
+const defaultKindleCoverCache = createKindleCoverCache();
 const defaultKindleModificationDateProbe = createKindleModificationDateProbe();
 const MAX_UPDATE_PARENT_HANDLES = 10_000;
 
@@ -451,6 +457,9 @@ export class ConnectedKindle {
   readonly #kindle: KindleDevice;
   readonly #lease: KindleDeviceLease;
   readonly #developmentPartialObjectProbeEnabled: boolean;
+  readonly #coverReader: KindleDeviceCoverReader;
+  #coverRead?: Promise<KindleBookCover | undefined>;
+  #coverInventory?: KindleInventorySnapshot;
   #developmentPartialObjectProbeRuns = 0;
   #closed = false;
   #closePromise?: Promise<void>;
@@ -468,6 +477,7 @@ export class ConnectedKindle {
     identityKey?: string,
     identityKeyStability?: KindleIdentityStability,
     developmentPartialObjectProbeEnabled = false,
+    coverCache: KindleCoverCache = defaultKindleCoverCache,
   ) {
     this.device = device;
     this.details = Object.freeze({ ...details });
@@ -478,6 +488,9 @@ export class ConnectedKindle {
     this.identityKey = identityKey;
     this.identityKeyStability = identityKeyStability;
     this.#developmentPartialObjectProbeEnabled = developmentPartialObjectProbeEnabled;
+    this.#coverReader = new KindleDeviceCoverReader(kindle.store, coverCache,
+      identityKey !== undefined && identityKeyStability !== undefined
+        ? { key: identityKey, stability: identityKeyStability } : undefined);
   }
 
   get closed(): boolean {
@@ -494,6 +507,19 @@ export class ConnectedKindle {
 
   get successfulSelfTest(): KindleSelfTestResult | undefined {
     return this.#selfTestResult;
+  }
+
+  /** Optional, read-only device covers; callers retry busy work after foreground operations. */
+  async readBookCover(handle: number, options: SendBookOptions = {}): Promise<KindleBookCover | undefined> {
+    if (this.#closed || !this.#session.isOpen) return undefined;
+    if (this.#operationActive || this.#coverRead) throw new KindleRuntimeBusyError();
+    const inventory = this.#inventory;
+    if (!inventory || inventory !== this.#coverInventory || inventory.status !== "complete") return undefined;
+    const pending = this.#coverReader.read(inventory, handle, options,
+      () => !this.#closed && !this.#operationActive && this.#session.isOpen && this.#inventory === inventory);
+    this.#coverRead = pending;
+    try { return await pending; }
+    finally { if (this.#coverRead === pending) this.#coverRead = undefined; }
   }
 
   /** Local Vite development page only; no self-test or cache writes are needed for read-only collection. */
@@ -633,6 +659,7 @@ export class ConnectedKindle {
 
   refreshInventory(options: KindleInventoryRefreshOptions = {}): Promise<KindleInventorySnapshot> {
     return this.#runExclusive(async () => {
+      this.#coverInventory = undefined;
       if (options.deviceMetadataCache === "read-write" && !this.#selfTestResult?.cleanedUp) {
         throw new KindleDeviceError(
           "MTP_SELF_TEST_REQUIRED",
@@ -650,6 +677,7 @@ export class ConnectedKindle {
     options: KindlePostConnectOptions = {},
   ): Promise<KindlePostConnectResult> {
     return this.#runExclusive(async () => {
+      this.#coverInventory = undefined;
       // The byte proof is deliberately first so a large inventory cannot delay
       // the required current-connection write-safety gate.
       this.#selfTestResult = undefined;
@@ -684,11 +712,14 @@ export class ConnectedKindle {
     originalFilename: string,
     options: SendBookOptions = {},
   ): Promise<KindleBookTransferResult> {
-    return this.#runExclusive(() => operationWithAggregateDeadline(
-      "Kindle book transfer",
-      options,
-      (operationOptions) => this.#kindle.sendAzW3(blob, originalFilename, operationOptions),
-    ));
+    return this.#runExclusive(() => {
+      this.#coverInventory = undefined;
+      return operationWithAggregateDeadline(
+        "Kindle book transfer",
+        options,
+        (operationOptions) => this.#kindle.sendAzW3(blob, originalFilename, operationOptions),
+      );
+    });
   }
 
   /**
@@ -703,6 +734,7 @@ export class ConnectedKindle {
     inventoryOptions: KindleInventoryRefreshOptions = {},
   ): Promise<KindleSendAndRefreshResult> {
     return this.#runExclusive(async () => {
+      this.#coverInventory = undefined;
       if (!this.#selfTestResult?.cleanedUp) {
         throw new KindleDeviceError(
           "MTP_SELF_TEST_REQUIRED",
@@ -820,7 +852,10 @@ export class ConnectedKindle {
         artifactHash: prepared.artifactHash,
         value: prepared.blob,
       }),
-      withDeviceLock: (operation) => this.#runExclusive(operation),
+      withDeviceLock: (operation) => this.#runExclusive(() => {
+        this.#coverInventory = undefined;
+        return operation();
+      }),
       ensureCurrentConnectionWriteProof: async () => {
         if (!this.#selfTestResult?.cleanedUp) {
           throw new KindleDeviceError(
@@ -998,6 +1033,7 @@ export class ConnectedKindle {
       return Promise.reject(new TypeError("The replacement cleanup record is invalid"));
     }
     return this.#runExclusive(async () => {
+      this.#coverInventory = undefined;
       if (!this.#selfTestResult?.cleanedUp) {
         throw new KindleDeviceError(
           "MTP_SELF_TEST_REQUIRED",
@@ -1162,6 +1198,7 @@ export class ConnectedKindle {
     inventoryOptions: KindleInventoryRefreshOptions = {},
   ): Promise<KindleRemoveBooksAndRefreshResult> {
     return this.#runExclusive(async () => {
+      this.#coverInventory = undefined;
       if (!this.#selfTestResult?.cleanedUp) {
         throw new KindleDeviceError(
           "MTP_SELF_TEST_REQUIRED",
@@ -1223,6 +1260,9 @@ export class ConnectedKindle {
 
   async #performDisconnect(): Promise<void> {
     const failures: unknown[] = [];
+    // Cover reads are optional, but their MTP response must drain before a
+    // protocol CloseSession. Their error already belongs to the read caller.
+    if (this.#coverRead) await this.#coverRead.catch(() => undefined);
     if (this.#session.isOpen) {
       try {
         await this.#session.close();
@@ -1257,6 +1297,7 @@ export class ConnectedKindle {
       } catch (error) {
         failures.push(error);
       }
+      if (this.#coverRead) await this.#coverRead.catch(() => undefined);
       try {
         await releaseLeaseAfterUsbQuiesces(this.#transport, this.#lease);
       } catch (error) {
@@ -1273,7 +1314,20 @@ export class ConnectedKindle {
     if (this.#operationActive) throw new KindleRuntimeBusyError();
     this.#operationActive = true;
     try {
-      return await operation();
+      // Reserve foreground priority immediately, then let the current optional
+      // read drain. No later cover can enter ahead of a transfer or scan.
+      if (this.#coverRead) {
+        await this.#coverRead;
+        this.#assertOpen();
+      }
+      const priorInventory = this.#inventory;
+      const result = await operation();
+      // A failed scan or a mutation without a completed refresh cannot leave
+      // the former hierarchy eligible for optional cached cover lookups.
+      if (this.#inventory !== priorInventory && this.#inventory?.status === "complete") {
+        this.#coverInventory = this.#inventory;
+      }
+      return result;
     } finally {
       this.#operationActive = false;
     }
@@ -1297,6 +1351,7 @@ export async function openKindle(
     identitySecretProvider,
     kindleOptions,
     metadataCache = defaultKindleMetadataCache,
+    coverCache = defaultKindleCoverCache,
     modificationDateProbe = defaultKindleModificationDateProbe,
     enableDevelopmentPartialObjectProbe = false,
     ...operationOptions
@@ -1372,6 +1427,7 @@ export async function openKindle(
       identity?.key,
       identity?.stability,
       enableDevelopmentPartialObjectProbe,
+      coverCache,
     );
   } catch (error) {
     if (session?.isOpen) {

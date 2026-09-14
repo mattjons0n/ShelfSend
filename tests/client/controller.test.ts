@@ -38,6 +38,72 @@ import { AppView } from "../../client/src/view";
 import { KoboCatalogSession, type KoboCatalogDevice } from "../../client/src/kobo/catalog-session";
 import type { KindleInventoryProgress } from "../../client/src/kindle/inventory";
 
+describe("device-only Kindle inventory covers", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  async function coverHarness() {
+    vi.spyOn(AppView.prototype, "activeCatalogProfileId", "get").mockReturnValue("profile-1");
+    const app = harness(false);
+    const inventory = await exactPartialProbeInventory();
+    vi.mocked(app.connection.refreshInventory).mockResolvedValue(inventory);
+    const cover = { bytes: Uint8Array.from([1, 2, 3]), mediaType: "image/png" as const };
+    const readBookCover = vi.fn(async () => cover);
+    app.connection.readBookCover = readBookCover;
+    return { ...app, inventory, cover, readBookCover };
+  }
+
+  it("reads the exact device file without catalog matches or a library cover fallback", async () => {
+    const app = await coverHarness();
+    vi.mocked(app.catalogApi.getMatchIndex).mockRejectedValue(new Error("Catalog unavailable"));
+    await app.controller.connect("catalog");
+    expect(app.controller.state.catalogInventoryState).toBe("failed");
+    expect(await app.controller.readKindleInventoryCover("mtp-00000051")).toBe(app.cover);
+    expect(app.readBookCover).toHaveBeenCalledWith(0x51, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(app.catalogApi.getBook).not.toHaveBeenCalled();
+    expect(app.catalogApi.getBookSource).not.toHaveBeenCalled();
+    await app.controller.disconnect();
+  });
+
+  it("does not read absent handles or disconnected snapshots", async () => {
+    const app = await coverHarness();
+    expect(await app.controller.readKindleInventoryCover("mtp-00000051")).toBeUndefined();
+    await app.controller.connect("catalog");
+    expect(await app.controller.readKindleInventoryCover("mtp-00009999")).toBeUndefined();
+    await app.controller.disconnect();
+    expect(await app.controller.readKindleInventoryCover("mtp-00000051")).toBeUndefined();
+    expect(app.readBookCover).not.toHaveBeenCalled();
+  });
+
+  it("does not read covers from an incomplete device scan", async () => {
+    const app = await coverHarness();
+    vi.mocked(app.connection.refreshInventory).mockResolvedValue({ ...app.inventory, status: "partial" });
+    await app.controller.connect("catalog");
+    expect(await app.controller.readKindleInventoryCover("mtp-00000051")).toBeUndefined();
+    expect(app.readBookCover).not.toHaveBeenCalled();
+    await app.controller.disconnect();
+  });
+
+  it("discards a late device cover when its connection is retired", async () => {
+    const app = await coverHarness();
+    let resolve!: (cover: typeof app.cover) => void;
+    app.readBookCover.mockImplementation(() => new Promise((done) => { resolve = done; }));
+    await app.controller.connect("catalog");
+    const pending = app.controller.readKindleInventoryCover("mtp-00000051");
+    await app.controller.disconnect();
+    resolve(app.cover);
+    expect(await pending).toBeUndefined();
+  });
+
+  it("retires a faulted transport instead of treating it as a missing cover", async () => {
+    const app = await coverHarness();
+    app.readBookCover.mockRejectedValue(new AppError("USB_DEVICE_DISCONNECTED", "Device unplugged"));
+    await app.controller.connect("catalog");
+    expect(await app.controller.readKindleInventoryCover("mtp-00000051")).toBeUndefined();
+    expect(app.connection.closeAfterPhysicalDisconnect).toHaveBeenCalledOnce();
+    expect(app.controller.state.device.kind).toBe("error");
+  });
+});
+
 describe("Kobo controller routing", () => {
   afterEach(() => vi.restoreAllMocks());
   function kobo() {

@@ -47,6 +47,7 @@ import {
 } from "./delivery-journal";
 import {
   ConnectedKindle,
+  KindleRuntimeBusyError,
   openKindle,
   type DeviceRuntimeHooks,
   type KindlePostConnectResult,
@@ -86,6 +87,7 @@ import {
 } from "./kindle";
 import { DebugLog } from "./log";
 import { isFatalTransportFailure } from "./error-diagnostics";
+import type { KindleBookCover } from "./kindle/book-cover";
 import type { MtpObjectCreationState } from "./mtp";
 import {
   clearPendingObjectCleanup,
@@ -126,6 +128,8 @@ export interface ConnectedKindlePort {
   readonly identityKeyStability?: KindleIdentityStability;
   readonly readyForSend: boolean;
   readonly latestInventory?: KindleInventorySnapshot;
+  /** Optional, read-only device-file art. Never uses catalog matching or cover providers. */
+  readBookCover?(handle: number, options?: SendBookOptions): Promise<KindleBookCover | undefined>;
   runSelfTest(options?: SendBookOptions): Promise<KindleSelfTestResult>;
   prepareAfterConnect(options?: {
     readonly inventory?: Parameters<ConnectedKindle["refreshInventory"]>[0];
@@ -727,6 +731,7 @@ export class AppController {
       onCatalogChanged: () => this.#queueConnectedCatalogReconciliation(),
       onCatalogProfileChanged: () => this.#queueConnectedCatalogReconciliation(),
       onCatalogManualMatchDecision: (request) => this.#applyManualMatchDecision(request),
+      onKindleCoverRequested: (itemId) => this.readKindleInventoryCover(itemId),
       onAdvancedPartialObjectProbeArm: () => this.armAdvancedPartialObjectProbeForNextConnection(),
       onAdvancedPartialObjectProbeRun: (request) => this.runAdvancedPartialObjectProbe(request),
       onAdvancedPartialObjectProbeExport: () => this.exportAdvancedPartialObjectProbeResult(),
@@ -4124,6 +4129,39 @@ export class AppController {
     }
   }
 
+  /** Presentation only: library availability and match authority are deliberately irrelevant. */
+  async readKindleInventoryCover(itemId: string): Promise<KindleBookCover | undefined> {
+    const connection = this.#connection;
+    const epoch = this.#deviceEpoch;
+    const inventory = this.#rawCatalogInventory;
+    if (this.#hardwareBusy) throw new KindleRuntimeBusyError();
+    if (!connection?.readBookCover || connection.closed
+      || this.#state.device.kind !== "ready" || this.#state.postConnectStage !== "idle"
+      || this.#state.selfTest.kind !== "passed" || inventory?.status !== "complete"
+      || this.#state.pendingObjectCleanup || this.#state.pendingReplacementCleanups?.length
+      || this.#catalogInventory?.completeness !== "complete") return undefined;
+    const item = this.#catalogInventory.items.find((candidate) => candidate.id === itemId);
+    const object = inventory.objects.find((candidate) =>
+      `mtp-${candidate.handle.toString(16).padStart(8, "0")}` === itemId);
+    if (!item || !object || object.kind !== "file" || object.metadataAdjusted
+      || item.path !== object.relativePath || item.size !== object.size
+      || item.objectFormat !== object.objectFormat
+      || (item.modificationDate ?? "") !== (object.modificationDate ?? "")) return undefined;
+    try {
+      const cover = await connection.readBookCover(object.handle, { signal: this.#deviceAbort?.signal });
+      return this.#isActiveConnection(epoch, connection) && this.#rawCatalogInventory === inventory
+        ? cover : undefined;
+    } catch (error) {
+      if (this.#isActiveConnection(epoch, connection) && isFatalTransportFailure(error)) {
+        await this.#retireFaultedConnection(connection, toAppError(error, "The Kindle connection was interrupted"));
+        return undefined;
+      }
+      // Optional image work must not turn malformed artwork into a device error.
+      // Keep temporary busy failures distinguishable from an absent embedded cover.
+      throw error;
+    }
+  }
+
   #markCatalogInventoryLastSeen(): void {
     this.#catalogInventory = asLastSeenInventory(this.#catalogInventory);
     this.#view.setCatalogKindleInventory(this.#catalogInventory);
@@ -4192,6 +4230,7 @@ export class AppController {
   }
 
   #clearCurrentCatalogInventoryAuthority(): void {
+    this.#view.resetKindleCovers();
     this.#rawCatalogInventory = undefined;
     this.#catalogInventoryEpoch = undefined;
     this.#catalogReadyProfileIds.clear();
@@ -4332,6 +4371,7 @@ export class AppController {
     }
     for (const resolve of this.#hardwareIdleWaiters) resolve();
     this.#hardwareIdleWaiters.clear();
+    this.#view.refreshKindleCovers();
     if (this.#catalogEventReconciliationQueued && !this.#catalogSendBatch) {
       void this.#queueConnectedCatalogReconciliation();
     }

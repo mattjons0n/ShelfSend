@@ -510,6 +510,10 @@ body { background: var(--page); }
 .library-kobo-recovery { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
 .library-kobo-recovery ul { padding-left: 18px; overflow-wrap: anywhere; }
 .library-kobo-recovery code { color: var(--text); }
+.kindle-library-icon[data-kindle-cover] { position: relative; overflow: hidden; }
+.kindle-library-icon[data-kindle-cover] img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; }
+.kindle-library-icon[data-kindle-cover].has-cover img { opacity: 1; }
+.kindle-library-icon[data-kindle-cover].has-cover svg { visibility: hidden; }
 @media (max-width: 760px) {
   .library-kobo-connection { flex-wrap: wrap; margin: 10px; }
   .library-kobo-actions { width: 100%; padding-left: 46px; }

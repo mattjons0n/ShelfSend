@@ -102,6 +102,8 @@ Choose your reader from **Connect eReader**. Connect one device at a time, using
 4. **Transfer.** The browser validates the source, converts EPUBs locally, prepares the Kindle copy, and uploads and verifies each book. Batch progress identifies completed titles and keeps unsent titles selected after a failure.
 5. **Read.** Open the transferred title on your Kindle. Prepared sideloads use personal-document metadata so embedded covers can appear in the library; Kindle classifies them under **Documents**.
 
+**On Kindle** shows covers extracted from the device files themselves—not matching library artwork. Covers load as you browse after a complete device scan and are cached only in your browser. Missing, encrypted, unsupported, or oversized files keep a placeholder; cover previews never change your books or library matching.
+
 ### Kobo
 
 1. **Connect.** Plug Kobo into your computer and choose **Connect** on the reader so its drive appears.
