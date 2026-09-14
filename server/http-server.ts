@@ -40,6 +40,7 @@ import {
   type RootInput,
   type ProfileBookAnnotationPatchInput,
   type SendQueueAddInput,
+  type ShelfSidebarOrderInput,
   type SmartShelfCreateInput,
   type SmartShelfPatchInput,
   type SmartShelfPinnedOrderInput,
@@ -54,6 +55,7 @@ import {
   type CatalogIssueType,
 } from "../shared/catalog-issues.js";
 import { normalizeSmartShelfQuery, SmartShelfQueryError } from "../shared/shelf-query.js";
+import { BUILT_IN_SHELF_IDS, MAX_SIDEBAR_SHELF_IDS } from "../shared/shelf-order.js";
 import { canonicalSeriesKey } from "../shared/series.js";
 import type { HardcoverBookLookup, HardcoverSeriesPage } from "../shared/hardcover-contracts.js";
 import { hardcoverLookupIdentifiers } from "../shared/hardcover-identifiers.js";
@@ -997,6 +999,20 @@ export class CatalogHttpServer {
       }
       sendJson(response, 200, { items: result.shelves }, this.options.maxCatalogJsonResponseBytes);
       return;
+    }
+    if (segments.length === 1 && segments[0] === "sidebar-order") {
+      if (method === "GET") {
+        sendJson(response, 200, this.database.getShelfSidebarOrder(profileId), this.options.maxCatalogJsonResponseBytes);
+        return;
+      }
+      if (method === "PATCH") {
+        const input = validateShelfSidebarOrder(await readJson(request, this.options.maxJsonBodyBytes));
+        const result = this.database.reorderShelfSidebar(profileId, input);
+        if (result.applied) this.events.publish({ type: "shelf.updated", profileId, data: { sidebarReordered: true } });
+        sendJson(response, 200, result.order, this.options.maxCatalogJsonResponseBytes);
+        return;
+      }
+      throw new HttpError(405, "method_not_allowed", "Method not allowed.");
     }
     if (segments.length === 1) {
       const shelfId = opaqueSegment(segments[0], "shelf");
@@ -3024,6 +3040,26 @@ function validateSmartShelfPatch(value: unknown): SmartShelfPatchInput {
     ...(object.name === undefined ? {} : { name: requiredString(object.name, "name", 80) }),
     ...(object.query === undefined ? {} : { query: normalizeShelfQueryForRequest(object.query) }),
     ...(object.pinned === undefined ? {} : { pinned: optionalBoolean(object.pinned, "pinned") }),
+  };
+}
+
+function validateShelfSidebarOrder(value: unknown): ShelfSidebarOrderInput {
+  const object = objectValue(value);
+  requireOnlyFields(object, ["expectedRevision", "shelfIds"]);
+  if (!Array.isArray(object.shelfIds) || object.shelfIds.length > MAX_SIDEBAR_SHELF_IDS
+    || object.shelfIds.length < BUILT_IN_SHELF_IDS.length) {
+    throw new HttpError(400, "invalid_request", "shelfIds must contain the bounded complete sidebar order.");
+  }
+  const shelfIds = object.shelfIds.map((value) => {
+    const id = requiredString(value, "shelfId", 100);
+    return BUILT_IN_SHELF_IDS.some((builtin) => builtin === id) ? id : opaqueSegment(id, "shelf");
+  });
+  if (new Set(shelfIds).size !== shelfIds.length) {
+    throw new HttpError(400, "invalid_request", "Shelf order contains duplicates.");
+  }
+  return {
+    expectedRevision: boundedInteger(object.expectedRevision, "expectedRevision", 0, Number.MAX_SAFE_INTEGER),
+    shelfIds,
   };
 }
 

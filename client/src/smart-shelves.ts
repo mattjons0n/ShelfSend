@@ -1,5 +1,6 @@
 import type { SmartShelf, SmartShelfQuery } from "../../shared/catalog-contracts.js";
 import { normalizeSmartShelfQuery } from "../../shared/shelf-query.js";
+import { normalizeShelfSidebarOrder } from "../../shared/shelf-order.js";
 import { initialLibraryFilters, type LibraryFilters } from "./library-prototype";
 
 export interface BuiltInSmartShelf {
@@ -91,4 +92,19 @@ export function orderedPinnedSmartShelves(shelves: readonly SmartShelf[]): reado
     .sort((left, right) => (left.pinnedRank ?? Number.MAX_SAFE_INTEGER) - (right.pinnedRank ?? Number.MAX_SAFE_INTEGER)
       || left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
       || left.id.localeCompare(right.id)));
+}
+
+/** The Read shelf remains stored, but is not a navigation destination until validated. */
+export function visibleBuiltInSmartShelves(readingEnabled = false): readonly BuiltInSmartShelf[] {
+  return BUILT_IN_SMART_SHELVES.filter((shelf) => readingEnabled || shelf.id !== "builtin-read-books");
+}
+
+export function orderedSidebarShelves(
+  shelves: readonly SmartShelf[],
+  savedIds: readonly string[] = [],
+  readingEnabled = false,
+): readonly (BuiltInSmartShelf | SmartShelf)[] {
+  const available = [...visibleBuiltInSmartShelves(readingEnabled), ...orderedPinnedSmartShelves(shelves)];
+  const byId = new Map<string, BuiltInSmartShelf | SmartShelf>(available.map((shelf) => [shelf.id, shelf]));
+  return Object.freeze(normalizeShelfSidebarOrder(savedIds, available.map(({ id }) => id)).map((id) => byId.get(id)!));
 }

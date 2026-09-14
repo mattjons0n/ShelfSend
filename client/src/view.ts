@@ -27,6 +27,7 @@ import {
 import { renderKindleDeviceContents, renderLibraryPrototype, renderLibraryResults } from "./library-prototype-view";
 import { bindLibraryDisplayControls, captureLibraryDisplayControl } from "./library-display-controls";
 import { bindSettingsProviderDisclosure, captureSettingsProviderDisclosure } from "./provider-settings-controls";
+import { bindShelfOrderControls } from "./shelf-order-controls";
 import type { KindleFilter, LibraryFilters, LibrarySort, LibraryView, MetadataFilter } from "./library-prototype";
 import type { LibraryFolderDraft, LibrarySettingsDraft } from "./library-settings-prototype";
 import {
@@ -860,9 +861,16 @@ export class AppView {
       this.#catalog.clearSmartShelf();
       this.#writeCatalogRoute({ bookId: null, seriesKey: null }, "replace");
     });
-    this.#root.querySelector<HTMLButtonElement>('button[data-ui-action="manage-smart-shelves"]')?.addEventListener("click", () => {
+    this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="manage-smart-shelves"]').forEach((button) => button.addEventListener("click", () => {
       this.#writeCatalogRoute({ shelfManagerOpen: true }, "push", { kindleBridgeShelves: true });
       this.#catalog.toggleShelfManager(true);
+    }));
+    bindShelfOrderControls(this.#root, {
+      move: (id, direction) => this.#catalog.moveSidebarShelf(id, direction),
+      reorder: (sourceId, targetId) => this.#catalog.reorderSidebarShelf(sourceId, targetId),
+    });
+    this.#root.querySelector<HTMLButtonElement>('button[data-ui-action="retry-shelf-order"]')?.addEventListener("click", () => {
+      void this.#catalog.retryShelfSidebarOrder();
     });
     this.#root.querySelectorAll<HTMLElement>('[data-ui-action="close-smart-shelves"]').forEach((element) => element.addEventListener("click", () => this.#closeSmartShelfDialog()));
     this.#root.querySelector<HTMLFormElement>("form.smart-shelf-save-form")?.addEventListener("submit", (event) => {
@@ -931,6 +939,14 @@ export class AppView {
           ?? this.#root.querySelector<HTMLButtonElement>('button[data-ui-action="add-settings-folder"]'))?.focus();
       });
     }));
+    this.#root.querySelector<HTMLButtonElement>('button[data-ui-action="refresh-library"]')?.addEventListener("click", () => {
+      const profileId = this.#catalog.snapshot.filters.profileId;
+      void this.#catalog.refreshLibrary().then(() => {
+        if (this.#catalog.snapshot.filters.profileId === profileId && document.activeElement === document.body) {
+          this.#root.querySelector<HTMLButtonElement>('button[data-ui-action="refresh-library"]:not(:disabled)')?.focus({ preventScroll: true });
+        }
+      });
+    });
     this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="rescan-settings-folder"]').forEach((button) => button.addEventListener("click", () => {
       const folderId = button.dataset.folderId;
       if (folderId) void this.#catalog.rescanRoot(folderId).then(() => window.queueMicrotask(() => {

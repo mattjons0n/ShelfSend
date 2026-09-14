@@ -14,6 +14,8 @@ const paths = {
   send: '<path d="m3 10 18-7-7 18-4-7-7-4Zm7 4L21 3"/>',
   queue: '<path d="M3 6h12M3 12h9M3 18h12M18 9v6m-3-3h6"/>',
   search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
+  refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1a8 8 0 0 1 13.2 3.2L20 12M4 12l.7 2.7a8 8 0 0 0 13.2 3.2"/>',
+  grip: '<circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/>',
   device: '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M10 18h4"/>',
 } as const;
 

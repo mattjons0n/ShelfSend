@@ -73,6 +73,8 @@ import {
   type RootStatus,
   type SendQueue,
   type SendQueueEntry,
+  type ShelfSidebarOrder,
+  type ShelfSidebarOrderInput,
   type SmartShelf,
   type SmartShelfCreateInput,
   type SmartShelfPatchInput,
@@ -98,6 +100,7 @@ import {
   smartShelfQueryToBookQuery,
   SmartShelfQueryError,
 } from "../shared/shelf-query.js";
+import { BUILT_IN_SHELF_IDS, MAX_SIDEBAR_SHELF_IDS, normalizeShelfSidebarOrder } from "../shared/shelf-order.js";
 import {
   CATALOG_SCHEMA_VERSION,
   MAX_CONFIGURATION_WRITES_PER_PROFILE,
@@ -1373,6 +1376,83 @@ export class CatalogDatabase {
     return rows.map((row) => this.mapSmartShelf(row));
   }
 
+  private sidebarShelfIds(profileId: string): string[] {
+    const pinned = this.database.prepare(
+      `SELECT id FROM smart_shelves WHERE profile_id = ? AND pinned_rank IS NOT NULL
+       ORDER BY pinned_rank, name COLLATE NOCASE, id LIMIT ?`,
+    ).all(profileId, MAX_PINNED_SMART_SHELVES_PER_PROFILE + 1) as Row[];
+    if (pinned.length > MAX_PINNED_SMART_SHELVES_PER_PROFILE) {
+      throw new CatalogDatabaseError("invalid_state", "The pinned shelf collection exceeds its durable limit.");
+    }
+    return [...BUILT_IN_SHELF_IDS, ...pinned.map((row) => String(row.id))];
+  }
+
+  getShelfSidebarOrder(profileId: string): ShelfSidebarOrder {
+    this.assertDurableProfile(profileId);
+    const row = this.database.prepare(
+      "SELECT revision, shelf_ids_json FROM shelf_sidebar_order WHERE profile_id = ?",
+    ).get(profileId) as Row | undefined;
+    const saved: unknown = row ? JSON.parse(String(row.shelf_ids_json)) : [];
+    if (!Array.isArray(saved) || saved.length > MAX_SIDEBAR_SHELF_IDS
+      || saved.some((id) => typeof id !== "string" || id.length > 100)) {
+      throw new CatalogDatabaseError("invalid_state", "The saved shelf order is invalid.");
+    }
+    return {
+      profileId,
+      revision: Number(row?.revision ?? 0),
+      shelfIds: normalizeShelfSidebarOrder(saved, this.sidebarShelfIds(profileId)),
+    };
+  }
+
+  reorderShelfSidebar(
+    profileId: string,
+    input: ShelfSidebarOrderInput,
+  ): { order: ShelfSidebarOrder; applied: boolean } {
+    return this.transaction(() => {
+      const current = this.getShelfSidebarOrder(profileId);
+      if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) {
+        throw new RangeError("Shelf order revision is invalid.");
+      }
+      if (!Array.isArray(input.shelfIds) || input.shelfIds.length > MAX_SIDEBAR_SHELF_IDS
+        || input.shelfIds.some((id) => typeof id !== "string" || id.length > 100)
+        || new Set(input.shelfIds).size !== input.shelfIds.length) {
+        throw new RangeError("Shelf order must contain bounded, unique shelf IDs.");
+      }
+      if (input.expectedRevision !== current.revision) {
+        throw new CatalogDatabaseError("conflict", "Your shelves changed in another browser. Reload before reordering.");
+      }
+      if (input.shelfIds.length !== current.shelfIds.length
+        || input.shelfIds.some((id) => !current.shelfIds.includes(id))) {
+        throw new CatalogDatabaseError("conflict", "The sidebar shelf selection changed. Reload before reordering.");
+      }
+      if (input.shelfIds.every((id, index) => id === current.shelfIds[index])) {
+        return { order: current, applied: false };
+      }
+      return { order: this.writeShelfSidebarOrder(current, input.shelfIds), applied: true };
+    });
+  }
+
+  private writeShelfSidebarOrder(current: ShelfSidebarOrder, shelfIds: string[]): ShelfSidebarOrder {
+    if (current.revision >= Number.MAX_SAFE_INTEGER) {
+      throw new CatalogDatabaseError("invalid_state", "The shelf order revision limit has been reached.");
+    }
+    const revision = current.revision + 1;
+    this.database.prepare(
+      `INSERT INTO shelf_sidebar_order(profile_id, revision, shelf_ids_json) VALUES (?, ?, ?)
+       ON CONFLICT(profile_id) DO UPDATE SET revision = excluded.revision, shelf_ids_json = excluded.shelf_ids_json`,
+    ).run(current.profileId, revision, JSON.stringify(shelfIds));
+    return { profileId: current.profileId, revision, shelfIds: [...shelfIds] };
+  }
+
+  /** Membership changes advance the same revision so stale browsers cannot erase new pins. */
+  private reconcileShelfSidebarOrder(previous: ShelfSidebarOrder): void {
+    const shelfIds = normalizeShelfSidebarOrder(previous.shelfIds, this.sidebarShelfIds(previous.profileId));
+    if (shelfIds.length !== previous.shelfIds.length
+      || shelfIds.some((id, index) => id !== previous.shelfIds[index])) {
+      this.writeShelfSidebarOrder(previous, shelfIds);
+    }
+  }
+
   getSmartShelf(profileId: string, shelfId: string): SmartShelf | null {
     this.assertDurableProfile(profileId);
     const row = this.database.prepare(
@@ -1405,6 +1485,7 @@ export class CatalogDatabase {
         throw new CatalogDatabaseError("too_large", "This profile has reached its smart-shelf limit.");
       }
       this.assertShelfNameAvailable(profileId, name);
+      const sidebarOrder = this.getShelfSidebarOrder(profileId);
       const pinnedRank = pinned ? this.nextPinnedShelfRank(profileId) : null;
       const timestamp = now();
       const shelfId = opaqueId("shelf");
@@ -1413,6 +1494,7 @@ export class CatalogDatabase {
            id, profile_id, name, query_version, query_json, pinned_rank, revision, created_at, updated_at
          ) VALUES (?, ?, ?, 1, ?, ?, 1, ?, ?)`,
       ).run(shelfId, profileId, name, queryJson, pinnedRank, timestamp, timestamp);
+      this.reconcileShelfSidebarOrder(sidebarOrder);
       this.writeDurableMutationReplay(
         profileId,
         "smart-shelf-create",
@@ -1448,12 +1530,14 @@ export class CatalogDatabase {
         || queryJson !== String(current.query_json)
         || pinnedRank !== (current.pinned_rank === null ? null : Number(current.pinned_rank));
       if (!changed) return { shelf: this.mapSmartShelf(current), applied: false };
+      const sidebarOrder = this.getShelfSidebarOrder(profileId);
       const timestamp = now();
       const updated = this.database.prepare(
         `UPDATE smart_shelves SET name = ?, query_json = ?, pinned_rank = ?, revision = revision + 1, updated_at = ?
          WHERE profile_id = ? AND id = ? AND revision = ?`,
       ).run(name, queryJson, pinnedRank, timestamp, profileId, shelfId, input.expectedRevision);
       if (updated.changes !== 1) throw new CatalogDatabaseError("conflict", "The smart shelf changed in another browser.");
+      this.reconcileShelfSidebarOrder(sidebarOrder);
       return { shelf: this.getSmartShelf(profileId, shelfId) as SmartShelf, applied: true };
     });
   }
@@ -1500,10 +1584,14 @@ export class CatalogDatabase {
   deleteSmartShelf(profileId: string, shelfId: string, expectedRevision: number): boolean {
     return this.transaction(() => {
       this.assertDurableProfile(profileId);
+      const sidebarOrder = this.getShelfSidebarOrder(profileId);
       const result = this.database.prepare(
         "DELETE FROM smart_shelves WHERE profile_id = ? AND id = ? AND revision = ?",
       ).run(profileId, shelfId, expectedRevision);
-      if (result.changes > 0) return true;
+      if (result.changes > 0) {
+        this.reconcileShelfSidebarOrder(sidebarOrder);
+        return true;
+      }
       const exists = this.database.prepare(
         "SELECT 1 AS present FROM smart_shelves WHERE profile_id = ? AND id = ?",
       ).get(profileId, shelfId);

@@ -10,7 +10,7 @@ import { CoverProviderClient, CoverProviderError } from "../../server/cover-prov
 import { CatalogEventHub } from "../../server/event-hub.js";
 import { CatalogHttpServer } from "../../server/http-server.js";
 import { MetadataLookupWorker } from "../../server/metadata-lookup-worker.js";
-import { CATALOG_MIGRATIONS, migrateCatalogDatabase } from "../../server/migrations.js";
+import { CATALOG_MIGRATIONS, CATALOG_SCHEMA_VERSION, migrateCatalogDatabase } from "../../server/migrations.js";
 import { AllowedRootPolicy } from "../../server/root-policy.js";
 import type { CatalogMetadataCandidate, MetadataLookupJob } from "../../shared/catalog-contracts.js";
 
@@ -59,7 +59,7 @@ describe("Hardcover persistence and HTTP integration", () => {
         INSERT INTO metadata_lookup_entries VALUES ('lookup_old', 'book_old', 0, 'ready', 1, '[{"provider":"open-library","candidateId":"OL1W"}]', NULL, 'accepted', 'now');
         INSERT INTO metadata_lookup_job_replays VALUES ('prf_old', 'job-key', 'job-hash', 'lookup_old', 'now');
       `);
-      expect(migrateCatalogDatabase(database)).toBe(19);
+      expect(migrateCatalogDatabase(database)).toBe(CATALOG_SCHEMA_VERSION);
       expect(database.prepare("SELECT api_key, revision, last_test_status FROM cover_provider_credentials").get())
         .toEqual({ api_key: "existing-key", revision: 3, last_test_status: "working" });
       expect(database.prepare("SELECT result_revision FROM cover_provider_mutation_replays").get()).toEqual({ result_revision: 3 });

@@ -38,6 +38,7 @@ import {
   type ProfileBookAnnotation,
   type SmartShelf,
   type SmartShelfQuery,
+  type ShelfSidebarOrder,
 } from "./catalog-client";
 import {
   catalogQuery,
@@ -71,8 +72,11 @@ import {
   BUILT_IN_SMART_SHELVES,
   libraryFiltersToSmartShelfQuery,
   orderedPinnedSmartShelves,
+  orderedSidebarShelves,
   smartShelfQueryToLibraryFilters,
+  visibleBuiltInSmartShelves,
 } from "./smart-shelves";
+import { normalizeShelfSidebarOrder } from "../../shared/shelf-order.js";
 import {
   appendKindleBridgeActivity,
   buildKindleBridgeActivityHistory,
@@ -92,6 +96,7 @@ import {
   MAX_MATCH_INDEX_ENTRIES,
   MAX_METADATA_LOOKUP_JOBS_PER_PROFILE,
   MAX_PINNED_SMART_SHELVES_PER_PROFILE,
+  MAX_CATALOG_ROOTS_PER_PROFILE,
 } from "../../shared/catalog-contracts.js";
 
 export type CatalogLoadState = "idle" | "loading" | "ready" | "error";
@@ -128,6 +133,9 @@ export interface CatalogBrowserSnapshot {
   readonly settingsError?: string;
   readonly confirmDeleteLibraryId?: string;
   readonly rescanningRootIds: ReadonlySet<string>;
+  /** Requesting a fresh scan for the currently browsed library, not a device sync. */
+  readonly libraryRefreshing?: boolean;
+  readonly libraryRefreshError?: string;
   readonly pendingBookId?: string;
   /** Immutable card snapshot retained while a live catalog refresh changes pages. */
   readonly pendingBook?: CatalogBook;
@@ -172,6 +180,10 @@ export interface CatalogBrowserSnapshot {
   readonly seriesSort: "name" | "count";
   readonly smartShelves: readonly SmartShelf[];
   readonly smartShelvesState: CatalogLoadState;
+  readonly sidebarShelfOrder?: ShelfSidebarOrder;
+  readonly sidebarShelfOrderState?: CatalogLoadState;
+  readonly sidebarShelfOrderBusy?: boolean;
+  readonly sidebarShelfOrderError?: string;
   readonly activeShelf?: { readonly id: string; readonly name: string; readonly query: SmartShelfQuery; readonly builtIn: boolean };
   readonly shelfManagerOpen: boolean;
   readonly annotations: ReadonlyMap<string, ProfileBookAnnotation>;
@@ -720,6 +732,7 @@ export class CatalogBrowser {
   #settingsMutationOperation?: CatalogOperationLease;
   #eventRefreshOperation?: CatalogOperationLease;
   #rescanOperations = new Map<string, CatalogOperationLease>();
+  #libraryRefreshOperation?: CatalogOperationLease;
   #metadataEditorEpoch = 0;
   #metadataEditorOperation?: CatalogOperationLease;
   #bookDetailsEpoch = 0;
@@ -734,6 +747,11 @@ export class CatalogBrowser {
   #queueOperation?: CatalogOperationLease;
   #seriesOperation?: CatalogOperationLease;
   #shelfOperation?: CatalogOperationLease;
+  #sidebarOrderLoadOperation?: CatalogOperationLease;
+  #sidebarOrderMutationOperation?: CatalogOperationLease;
+  #sidebarOrderTask?: Promise<void>;
+  #sidebarOrderReloadRequested = false;
+  #sidebarOrderEpoch = 0;
   #healthOperation?: CatalogOperationLease;
   #metadataLookupOperation?: CatalogOperationLease;
   #metadataLookupRunEpoch = 0;
@@ -799,6 +817,8 @@ export class CatalogBrowser {
       seriesSort: "name",
       smartShelves: [],
       smartShelvesState: "idle",
+      sidebarShelfOrderState: "idle",
+      sidebarShelfOrderBusy: false,
       shelfManagerOpen: false,
       annotations: new Map(),
       healthState: "idle",
@@ -818,6 +838,7 @@ export class CatalogBrowser {
 
   async start(): Promise<void> {
     if (this.#snapshot.loadState === "loading" || this.#snapshot.loadState === "ready") return;
+    this.#cancelSidebarShelfOrder();
     this.#profileOperation?.abort();
     const operation = createCatalogOperation("Catalog startup", this.#requestTimeoutMs);
     this.#profileOperation = operation;
@@ -834,6 +855,7 @@ export class CatalogBrowser {
       pendingBookId: undefined,
       pendingBook: undefined,
       pendingUpdate: undefined,
+      sidebarShelfOrderBusy: false,
     }, "all");
     const epoch = ++this.#profileEpoch;
     try {
@@ -919,6 +941,7 @@ export class CatalogBrowser {
   }
 
   dispose(): void {
+    this.#cancelLibraryRefresh();
     this.#hardcoverBulkEpoch += 1;
     this.#hardcoverBulkOperation?.abort();
     this.#onboardingOperation?.abort();
@@ -948,6 +971,7 @@ export class CatalogBrowser {
     this.#queueOperation?.abort(new DOMException("Catalog browser disposed", "AbortError"));
     this.#seriesOperation?.abort(new DOMException("Catalog browser disposed", "AbortError"));
     this.#shelfOperation?.abort(new DOMException("Catalog browser disposed", "AbortError"));
+    this.#cancelSidebarShelfOrder();
     this.#healthOperation?.abort(new DOMException("Catalog browser disposed", "AbortError"));
     this.#metadataLookupOperation?.abort(new DOMException("Catalog browser disposed", "AbortError"));
     for (const operation of this.#rescanOperations.values()) {
@@ -981,6 +1005,7 @@ export class CatalogBrowser {
 
   async retry(): Promise<void> {
     if (this.#kindleActionBusy()) return;
+    this.#cancelLibraryRefresh();
     this.#snapshot = {
       ...this.#snapshot,
       loadState: "idle",
@@ -1005,6 +1030,7 @@ export class CatalogBrowser {
     if (!profile || profile.id === this.#snapshot.filters.profileId) return;
     if (this.#snapshot.settingsSaving || this.#snapshot.settingsRefreshing) return;
     if (this.#snapshot.filters.view === "settings" && !this.#confirmDiscardSettingsChanges()) return;
+    this.#cancelLibraryRefresh();
     this.#persistBrowsingContext();
     this.#cancelHardcoverDiscovery();
     this.#bookDetailsEpoch += 1;
@@ -1018,6 +1044,7 @@ export class CatalogBrowser {
     this.#settingsLoadOperation?.abort();
     this.#queueOperation?.abort();
     this.#shelfOperation?.abort();
+    this.#cancelSidebarShelfOrder();
     this.#healthOperation?.abort();
     this.#metadataLookupOperation?.abort();
     this.#extrasEpoch += 1;
@@ -1047,6 +1074,10 @@ export class CatalogBrowser {
       sendQueueError: undefined,
       smartShelves: [],
       smartShelvesState: "loading",
+      sidebarShelfOrder: undefined,
+      sidebarShelfOrderState: "loading",
+      sidebarShelfOrderBusy: false,
+      sidebarShelfOrderError: undefined,
       activeShelf: undefined,
       shelfManagerOpen: browsingContext.shelfManagerOpen ?? false,
       annotations: new Map(),
@@ -1195,7 +1226,7 @@ export class CatalogBrowser {
     const shelvesSettled = this.#snapshot.smartShelvesState === "ready"
       || this.#snapshot.smartShelvesState === "error";
     const routedBuiltInShelf = shelvesSettled
-      ? BUILT_IN_SMART_SHELVES.find(({ id }) => id === route.activeShelfId)
+      ? visibleBuiltInSmartShelves(this.#snapshot.readingEnabled === true).find(({ id }) => id === route.activeShelfId)
       : undefined;
     const routedCustomShelf = this.#snapshot.smartShelvesState === "ready"
       ? this.#snapshot.smartShelves.find(({ id }) => id === route.activeShelfId)
@@ -1763,7 +1794,8 @@ export class CatalogBrowser {
   async applySmartShelf(shelfId: string): Promise<void> {
     const profileId = this.#snapshot.filters.profileId;
     if (!profileId || this.#kindleActionBusy()) return;
-    const builtIn = BUILT_IN_SMART_SHELVES.find(({ id }) => id === shelfId);
+    if (shelfId === "builtin-read-books" && this.#snapshot.readingEnabled !== true) return;
+    const builtIn = visibleBuiltInSmartShelves(this.#snapshot.readingEnabled === true).find(({ id }) => id === shelfId);
     const custom = this.#snapshot.smartShelves.find(({ id }) => id === shelfId);
     const shelf = builtIn ?? custom;
     if (!shelf) return;
@@ -1801,6 +1833,75 @@ export class CatalogBrowser {
     this.#persistBrowsingContext();
   }
 
+  async retryShelfSidebarOrder(): Promise<void> {
+    this.#set({ sidebarShelfOrderError: undefined }, "all");
+    await this.#loadSidebarShelfOrder();
+  }
+
+  async moveSidebarShelf(shelfId: string, direction: -1 | 1): Promise<void> {
+    const visible = orderedSidebarShelves(this.#snapshot.smartShelves, this.#snapshot.sidebarShelfOrder?.shelfIds, this.#snapshot.readingEnabled === true);
+    const index = visible.findIndex(({ id }) => id === shelfId);
+    const target = index >= 0 && (direction === -1 || direction === 1) ? visible[index + direction] : undefined;
+    if (target) await this.reorderSidebarShelf(shelfId, target.id);
+  }
+
+  /** Reorders navigation only; it never changes a shelf query, books, or device content. */
+  async reorderSidebarShelf(sourceId: string, targetId: string): Promise<void> {
+    const profileId = this.#snapshot.filters.profileId;
+    const order = this.#snapshot.sidebarShelfOrder;
+    if (!profileId || !order || order.profileId !== profileId || !this.#api.reorderShelfSidebar
+      || !this.#api.getShelfSidebarOrder || this.#snapshot.sidebarShelfOrderState !== "ready"
+      || this.#snapshot.smartShelvesState !== "ready" || this.#snapshot.sidebarShelfOrderBusy
+      || this.#kindleActionBusy()) return;
+    const visible = [...orderedSidebarShelves(this.#snapshot.smartShelves, order.shelfIds, this.#snapshot.readingEnabled === true)];
+    const sourceIndex = visible.findIndex(({ id }) => id === sourceId);
+    const targetIndex = visible.findIndex(({ id }) => id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+    const moved = visible.splice(sourceIndex, 1)[0]!;
+    visible.splice(targetIndex, 0, moved);
+    const visibleIds = new Set(visible.map(({ id }) => id));
+    const completeIds = normalizeShelfSidebarOrder(order.shelfIds, [
+      ...BUILT_IN_SMART_SHELVES.map(({ id }) => id),
+      ...orderedPinnedSmartShelves(this.#snapshot.smartShelves).map(({ id }) => id),
+    ]);
+    let index = 0;
+    const shelfIds = completeIds.map((id) => visibleIds.has(id) ? visible[index++]!.id : id);
+    this.#cancelSidebarShelfOrder();
+    const epoch = this.#sidebarOrderEpoch;
+    const profileEpoch = this.#profileEpoch;
+    const operation = createCatalogOperation("Shelf order save", this.#requestTimeoutMs);
+    this.#sidebarOrderMutationOperation = operation;
+    const current = (): boolean => profileId === this.#snapshot.filters.profileId
+      && profileEpoch === this.#profileEpoch && epoch === this.#sidebarOrderEpoch;
+    let failure: string | undefined;
+    let conflict = false;
+    this.#set({ sidebarShelfOrderBusy: true, sidebarShelfOrderError: undefined }, "all");
+    try {
+      const updated = await operation.wait(this.#api.reorderShelfSidebar(profileId, { expectedRevision: order.revision, shelfIds }, operation.signal));
+      if (!current()) return;
+      if (updated.profileId !== profileId) throw new CatalogApiError(502, "INVALID_SHELF_SIDEBAR_ORDER", "The shelf order belongs to another library.");
+      this.#set({ sidebarShelfOrder: updated, sidebarShelfOrderState: "ready", announcement: `“${moved.name}” moved in Your shelves.` }, "all");
+    } catch (error) {
+      if (!current()) return;
+      conflict = error instanceof CatalogApiError && error.status === 409;
+      failure = conflict
+        ? "The shelf order changed elsewhere. Review the latest order and try again."
+        : "The shelf order could not be saved. Check your connection and try again.";
+      // A lost response can hide a successful save; fetch current state rather than
+      // blindly replaying a mutation or overwriting another browser's changes.
+      this.#sidebarOrderReloadRequested = true;
+    } finally {
+      operation.dispose();
+      if (current()) {
+        this.#sidebarOrderMutationOperation = undefined;
+        this.#set({ sidebarShelfOrderBusy: false }, "all");
+        if (conflict) await this.#loadProfileExtras(profileId);
+        else if (this.#sidebarOrderReloadRequested) await this.#loadSidebarShelfOrder();
+        if (current() && failure) this.#set({ sidebarShelfOrderError: failure, announcement: failure }, "all");
+      }
+    }
+  }
+
   async saveCurrentQueryAsShelf(name: string): Promise<void> {
     const profileId = this.#snapshot.filters.profileId;
     const trimmed = name.trim();
@@ -1817,6 +1918,7 @@ export class CatalogBrowser {
         smartShelvesState: "ready",
         announcement: `Smart shelf “${created.name}” saved.`,
       }, "all");
+      void this.#loadSidebarShelfOrder();
     } catch (error) {
       this.#set({ smartShelvesState: "error", error: errorMessage(error, "The smart shelf could not be saved.") }, "all");
     }
@@ -1832,6 +1934,7 @@ export class CatalogBrowser {
         pinned: shelf.pinnedRank === null,
       });
       this.#set({ smartShelves: this.#snapshot.smartShelves.map((candidate) => candidate.id === shelfId ? updated : candidate) }, "all");
+      void this.#loadSidebarShelfOrder();
     } catch (error) {
       this.#set({ error: errorMessage(error, "The shelf pin could not be changed.") }, "all");
     }
@@ -1921,6 +2024,7 @@ export class CatalogBrowser {
       }, "all");
       this.#persistBrowsingContext(0);
       if (wasActive) void this.reloadBooks();
+      void this.#loadSidebarShelfOrder();
     } catch (error) {
       this.#set({ error: errorMessage(error, "The smart shelf could not be deleted.") }, "all");
     }
@@ -2683,6 +2787,7 @@ export class CatalogBrowser {
   async rescanRoot(rootId: string): Promise<void> {
     const profileId = this.#snapshot.settingsLibraryId;
     if (!profileId || rootId.startsWith("draft-") || this.#snapshot.settingsSaving || this.#snapshot.settingsRefreshing) return;
+    if (this.#libraryRefreshOperation && profileId === this.#snapshot.filters.profileId) return;
     const settingsEpoch = this.#settingsEpoch;
     const operationKey = `${profileId}\0${rootId}`;
     this.#rescanOperations.get(operationKey)?.abort();
@@ -2730,6 +2835,103 @@ export class CatalogBrowser {
       next.delete(rootId);
       this.#set({ rescanningRootIds: next }, "all");
     }
+  }
+
+  /** Queue read-only source scans without resetting the current catalog view.
+   * Scan events retain responsibility for fresh books and device reconciliation. */
+  async refreshLibrary(): Promise<void> {
+    const profileId = this.#snapshot.filters.profileId;
+    const profile = this.#snapshot.profiles.find((candidate) => candidate.id === profileId && candidate.enabled);
+    if (!profileId || !profile || this.#snapshot.loadState !== "ready" || this.#libraryRefreshOperation
+      || this.#kindleActionBusy() || this.#snapshot.settingsSaving || this.#snapshot.settingsRefreshing
+      || this.#configurationMutationRunning || this.#snapshot.serviceStatus?.available === false
+      || this.#snapshot.serviceStatus?.database === "error" || this.#snapshot.serviceStatus?.state === "unavailable") return;
+    const roots = [...new Map((this.#snapshot.rootsByProfile.get(profileId) ?? [])
+      .filter((root) => root.enabled && !root.id.startsWith("draft-") && root.profileId === profileId)
+      .map((root) => [root.id, root])).values()];
+    if (!roots.length || roots.some((root) => root.status === "scanning" || this.#snapshot.rescanningRootIds.has(root.id))) return;
+    if (roots.length > MAX_CATALOG_ROOTS_PER_PROFILE) {
+      this.#set({ libraryRefreshError: "This library has too many folders to check at once. Review its folders in Settings.", announcement: "The library check could not start. Review its folders in Settings." }, "all");
+      return;
+    }
+    const operation = createCatalogOperation("Library check request", this.#requestTimeoutMs);
+    this.#libraryRefreshOperation = operation;
+    const profileEpoch = this.#profileEpoch;
+    const current = (): boolean => this.#libraryRefreshOperation === operation
+      && profileEpoch === this.#profileEpoch && profileId === this.#snapshot.filters.profileId;
+    const activityId = `manual-library-check-${Date.now().toString(36)}`;
+    let accepted = 0;
+    let failed = 0;
+    let interrupted = false;
+    let statusUnavailable = false;
+    this.#set({ libraryRefreshing: true, libraryRefreshError: undefined, announcement: "Checking this library for new and changed books…" }, "all");
+    try {
+      for (const root of roots) {
+        if (!current()) return;
+        if (this.#kindleActionBusy() || this.#snapshot.settingsSaving || this.#snapshot.settingsRefreshing || this.#configurationMutationRunning) {
+          interrupted = true;
+          break;
+        }
+        // Re-check current root evidence between requests; never queue a root
+        // that a concurrent server update has disabled or started scanning.
+        const latestRoot = this.#snapshot.rootsByProfile.get(profileId)?.find(({ id }) => id === root.id);
+        if (!latestRoot?.enabled || latestRoot.status === "scanning" || this.#snapshot.rescanningRootIds.has(root.id)) {
+          interrupted = true;
+          continue;
+        }
+        try {
+          await operation.wait(this.#api.rescanRoot(profileId, root.id, operation.signal));
+          if (!current()) return;
+          accepted += 1;
+        } catch {
+          if (!current()) return;
+          failed += 1;
+          if (operation.signal.aborted) break;
+        }
+      }
+      if (!current()) return;
+      // Refresh only source status here. Replacing books or matching evidence
+      // prematurely makes On Kindle pages disappear during a background scan.
+      if (accepted > 0 && !operation.signal.aborted) {
+        const generation = this.#rootDataGenerations.get(profileId) ?? 0;
+        try {
+          const updatedRoots = await operation.wait(this.#api.listRoots(profileId, operation.signal));
+          if (!current()) return;
+          if (generation === (this.#rootDataGenerations.get(profileId) ?? 0)) {
+            this.#noteRootDataUpdate(profileId);
+            this.#snapshot = { ...this.#snapshot, rootsByProfile: rootsMapWith(this.#snapshot.rootsByProfile, profileId, updatedRoots) };
+          }
+        } catch {
+          if (!current()) return;
+          statusUnavailable = true;
+        }
+      }
+      if (!current()) return;
+      const uncertain = failed > 0 || interrupted || statusUnavailable;
+      const detail = operation.signal.aborted
+        ? `The library check request timed out. ${accepted > 0 ? `${accepted} of ${roots.length} folders were queued. ` : ""}A check may still be running; wait a moment before trying again.`
+        : accepted === roots.length && !statusUnavailable
+          ? "Library check started. New and changed books will appear automatically."
+          : accepted > 0
+            ? statusUnavailable && failed === 0 && !interrupted
+              ? "Library check started, but its status could not be refreshed. Updates will appear when the connection returns."
+              : `Library check started for ${accepted} of ${roots.length} folders. Some folders could not be queued; try again when the current check finishes.`
+            : "The library check could not start. Try again in a moment, or check your folders in Settings.";
+      this.#recordActivity({ id: activityId, kind: "catalog-scan", tone: uncertain ? accepted > 0 ? "warning" : "error" : "neutral", title: uncertain ? "Library check needs attention" : "Library check started", detail, profileId, ...(uncertain ? { action: "open-settings" as const } : {}) });
+      this.#set({ libraryRefreshError: uncertain ? detail : undefined, announcement: detail }, "all");
+    } finally {
+      operation.dispose();
+      if (this.#libraryRefreshOperation === operation) {
+        this.#libraryRefreshOperation = undefined;
+        this.#set({ libraryRefreshing: false }, "all");
+      }
+    }
+  }
+
+  #cancelLibraryRefresh(): void {
+    this.#libraryRefreshOperation?.abort(new DOMException("Library context changed", "AbortError"));
+    this.#libraryRefreshOperation = undefined;
+    this.#snapshot = { ...this.#snapshot, libraryRefreshing: false, libraryRefreshError: undefined };
   }
 
   setLayout(layout: LibraryLayout): void {
@@ -5253,6 +5455,64 @@ export class CatalogBrowser {
     }
   }
 
+  #cancelSidebarShelfOrder(): void {
+    this.#sidebarOrderEpoch += 1;
+    this.#sidebarOrderLoadOperation?.abort();
+    this.#sidebarOrderMutationOperation?.abort();
+    this.#sidebarOrderLoadOperation = undefined;
+    this.#sidebarOrderMutationOperation = undefined;
+    this.#sidebarOrderTask = undefined;
+    this.#sidebarOrderReloadRequested = false;
+  }
+
+  #loadSidebarShelfOrder(): Promise<void> {
+    const profileId = this.#snapshot.filters.profileId;
+    if (!profileId) return Promise.resolve();
+    if (!this.#api.getShelfSidebarOrder || !this.#api.reorderShelfSidebar) {
+      this.#set({
+        sidebarShelfOrderState: "error",
+        sidebarShelfOrderError: "Update the server to arrange your shelves. You can still browse them.",
+      }, "all");
+      return Promise.resolve();
+    }
+    // Keep at most one active GET and one pending refresh when shelf events burst.
+    this.#sidebarOrderReloadRequested = true;
+    if (this.#sidebarOrderMutationOperation) return Promise.resolve();
+    if (this.#sidebarOrderTask) return this.#sidebarOrderTask;
+    const profileEpoch = this.#profileEpoch;
+    const epoch = this.#sidebarOrderEpoch;
+    const current = (): boolean => profileId === this.#snapshot.filters.profileId
+      && profileEpoch === this.#profileEpoch && epoch === this.#sidebarOrderEpoch;
+    const task = (async (): Promise<void> => {
+      while (this.#sidebarOrderReloadRequested && current()) {
+        this.#sidebarOrderReloadRequested = false;
+        const operation = createCatalogOperation("Shelf order load", this.#requestTimeoutMs);
+        this.#sidebarOrderLoadOperation = operation;
+        this.#set({ sidebarShelfOrderState: "loading" }, "all");
+        try {
+          const order: ShelfSidebarOrder = await operation.wait(this.#api.getShelfSidebarOrder!(profileId, operation.signal));
+          if (!current()) return;
+          if (order.profileId !== profileId) throw new CatalogApiError(502, "INVALID_SHELF_SIDEBAR_ORDER", "The shelf order belongs to another library.");
+          this.#set({ sidebarShelfOrder: order, sidebarShelfOrderState: "ready", sidebarShelfOrderError: undefined }, "all");
+        } catch (error) {
+          if (!current()) return;
+          this.#set({
+            sidebarShelfOrderState: "error",
+            sidebarShelfOrderError: error instanceof CatalogApiError && error.status === 404
+              ? "Update the server to arrange your shelves. You can still browse them."
+              : "Your shelf order could not be loaded. Try again; you can still browse your shelves.",
+          }, "all");
+        } finally {
+          operation.dispose();
+          if (this.#sidebarOrderLoadOperation === operation) this.#sidebarOrderLoadOperation = undefined;
+        }
+      }
+    })();
+    this.#sidebarOrderTask = task;
+    void task.finally(() => { if (this.#sidebarOrderTask === task) this.#sidebarOrderTask = undefined; });
+    return task;
+  }
+
   async #loadProfileExtras(profileId: string): Promise<void> {
     if (profileId !== this.#snapshot.filters.profileId) return;
     this.#queueOperation?.abort();
@@ -5280,10 +5540,11 @@ export class CatalogBrowser {
             (error: unknown) => ({ ok: false as const, error }),
           )
         : Promise.resolve({ ok: false as const, error: new Error("Shelf API unavailable") }),
+      this.#loadSidebarShelfOrder(),
     ]);
     if (profileId !== this.#snapshot.filters.profileId || extrasEpoch !== this.#extrasEpoch) return;
     const restoredShelfId = this.#restoredShelfId;
-    const builtInShelf = BUILT_IN_SMART_SHELVES.find(({ id }) => id === restoredShelfId);
+    const builtInShelf = visibleBuiltInSmartShelves(this.#snapshot.readingEnabled === true).find(({ id }) => id === restoredShelfId);
     const customShelf = shelfResult.ok ? shelfResult.shelves.find(({ id }) => id === restoredShelfId) : undefined;
     const restoredShelf = builtInShelf ?? customShelf;
     this.#restoredShelfId = undefined;
@@ -5383,6 +5644,8 @@ export class CatalogBrowser {
           }
       : { ...initialLibraryFilters(), view: "settings" as const };
     if (profileChanged) {
+      this.#cancelLibraryRefresh();
+      this.#cancelSidebarShelfOrder();
       this.#readingHistoryOperation?.abort();
       this.#snapshot = { ...this.#snapshot, readingEvidence: new Map(), readingFilter: "any", readingHistoryError: undefined };
       this.#profileEpoch += 1;
@@ -5437,6 +5700,10 @@ export class CatalogBrowser {
         sendQueueError: undefined,
         smartShelves: [],
         smartShelvesState: selected ? "loading" as const : "idle" as const,
+        sidebarShelfOrder: undefined,
+        sidebarShelfOrderState: selected ? "loading" as const : "idle" as const,
+        sidebarShelfOrderBusy: false,
+        sidebarShelfOrderError: undefined,
         activeShelf: undefined,
         annotations: new Map(),
         seriesDetail: undefined,
@@ -5777,6 +6044,7 @@ export class CatalogBrowser {
   }
 
   #beginConfigurationMutation(): void {
+    this.#cancelLibraryRefresh();
     this.#configurationMutationRunning = true;
     this.#eventRefreshEpoch += 1;
     this.#eventRefreshOperation?.abort();

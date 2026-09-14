@@ -625,6 +625,18 @@ export interface SmartShelfPinnedOrderInput {
   shelves: Array<{ id: string; expectedRevision: number }>;
 }
 
+/** Durable order for built-in shelves and the profile's pinned custom shelves. */
+export interface ShelfSidebarOrder {
+  profileId: string;
+  revision: number;
+  shelfIds: string[];
+}
+
+export interface ShelfSidebarOrderInput {
+  expectedRevision: number;
+  shelfIds: string[];
+}
+
 export interface ProfileBookAnnotation {
   profileId: string;
   bookId: string;

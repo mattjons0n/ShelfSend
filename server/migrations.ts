@@ -6,7 +6,7 @@ interface Migration {
   sql: string;
 }
 
-export const CATALOG_SCHEMA_VERSION = 19;
+export const CATALOG_SCHEMA_VERSION = 20;
 /** Bounded replay window for Settings/configuration mutations per profile. */
 export const MAX_CONFIGURATION_WRITES_PER_PROFILE = 1_000;
 /** Unreferenced stable identities retained per root after confirmed scans. */
@@ -769,6 +769,21 @@ export const CATALOG_MIGRATIONS: readonly Migration[] = [
         ON metadata_lookup_jobs(profile_id, updated_at DESC, id);
       CREATE INDEX metadata_lookup_entries_status_idx
         ON metadata_lookup_entries(job_id, status, rank, book_id);
+    `,
+  },
+  {
+    version: 20,
+    name: "durable combined sidebar shelf order",
+    sql: `
+      CREATE TABLE shelf_sidebar_order (
+        profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 9007199254740991),
+        shelf_ids_json TEXT NOT NULL CHECK(
+          json_valid(shelf_ids_json) AND json_type(shelf_ids_json) = 'array'
+          AND json_array_length(shelf_ids_json) <= 14
+          AND length(CAST(shelf_ids_json AS BLOB)) <= 2048
+        )
+      ) STRICT;
     `,
   },
 ];

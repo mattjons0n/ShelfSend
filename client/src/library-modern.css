@@ -37,9 +37,6 @@ body { background: var(--page); }
   border-color: var(--border); border-radius: 0 18px 0 0;
   background: var(--modern-canvas);
 }
-.library-breadcrumb { margin-right: auto; color: var(--muted); font-size: 12px; }
-.library-breadcrumb > span { margin: 0 8px; opacity: .5; }
-.library-topbar-status { display: none; } /* Same live status is in the sidebar. */
 .library-global-alerts { grid-column: 2; grid-row: 2; min-width: 0; }
 .library-topbar :is(.library-device-button, .library-queue-button, .library-activity-button) {
   width: auto; min-width: 0; min-height: 40px; padding: 8px 12px;
@@ -311,7 +308,6 @@ body { background: var(--page); }
   .library-workspace { grid-template-columns: 188px minmax(0, 1fr); }
   .library-main { padding: 26px 22px; }
   .library-topbar { padding: 14px 22px; }
-  .library-breadcrumb { flex-basis: 100%; }
   .library-hero { align-items: flex-start; flex-direction: column; gap: 12px; }
   .library-stat-row span:first-child { border: 0; padding-left: 0; }
   .library-book-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 26px 18px; }
@@ -336,7 +332,6 @@ body { background: var(--page); }
   .library-topbar { grid-column: 1; grid-row: 2; border-radius: 0; padding: 14px; gap: 8px; }
   .library-global-alerts { grid-column: 1; grid-row: 3; }
   .library-main { grid-column: 1; grid-row: 4; padding: 22px 16px; }
-  .library-breadcrumb { display: none; }
   .library-topbar .library-device-button { flex: 1; }
   .library-topbar .library-activity-button { min-width: 0; }
   .library-toolbar { grid-template-columns: minmax(0, 1fr) auto; }

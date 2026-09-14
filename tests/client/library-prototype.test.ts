@@ -363,7 +363,7 @@ describe("catalog-backed library model", () => {
     expect(root.querySelector(".library-topbar .library-brand")).toBeNull();
     expect(root.querySelectorAll('[data-ui-view="settings"]')).toHaveLength(1);
     expect(root.querySelector('.library-sidebar-bottom [data-ui-view="settings"]')).not.toBeNull();
-    expect(root.querySelector('[data-shelf-id="builtin-read-books"]')).not.toBeNull();
+    expect(root.querySelector('[data-shelf-id="builtin-read-books"]')).toBeNull();
     for (const id of ["library-author", "library-language", "library-kindle-filter",
       "library-subject", "library-publisher", "library-series", "library-year",
       "library-format", "library-root-filter", "library-metadata"]) {
@@ -432,6 +432,73 @@ describe("catalog-backed library model", () => {
 
     click(reloadedRoot, '[data-ui-action="clear-smart-shelf"]');
     expect(decodeLibraryRoute(window.location.hash)?.activeShelfId).toBeUndefined();
+  });
+
+  it("saves built-in and custom shelf moves through the manager and updates both lists without touching books or the device", async () => {
+    const customShelf = {
+      id: "shelf-holiday", profileId: "prf_personal", name: "Holiday reading",
+      query: { version: 1 as const, catalog: { q: "holiday" } }, pinnedRank: 0, revision: 1, serverCount: 1,
+      createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:00Z",
+    };
+    const initialIds = ["builtin-read-books", "builtin-recent", "builtin-not-on-kindle", "builtin-favorites", "builtin-want-to-read", "builtin-missing-cover", customShelf.id];
+    let savedOrder = { profileId: "prf_personal", revision: 0, shelfIds: initialIds };
+    let releaseSave!: () => void;
+    const firstSave = new Promise<void>((resolve) => { releaseSave = resolve; });
+    const reorder = vi.fn<NonNullable<CatalogApi["reorderShelfSidebar"]>>(async (profileId, input) => {
+      if (savedOrder.revision === 0) await firstSave;
+      savedOrder = { profileId, revision: input.expectedRevision + 1, shelfIds: input.shelfIds };
+      return savedOrder;
+    });
+    const api = Object.assign(fakeApi(), {
+      listSmartShelves: vi.fn(async () => [customShelf]),
+      getShelfSidebarOrder: vi.fn(async () => savedOrder),
+      reorderShelfSidebar: reorder,
+    });
+    const callbacks = handlers();
+    const originalBooks = structuredClone(BOOKS);
+    const { root } = await loadedView(api, callbacks);
+    document.body.append(root);
+    await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>(`[data-sidebar-shelf-id="${customShelf.id}"] [data-shelf-drag-handle]`)?.disabled).toBe(false));
+    click(root, '.library-shelf-list > [data-ui-action="manage-smart-shelves"]');
+    const displayedIds = (kind: "sidebar" | "manager") => [...root.querySelectorAll<HTMLElement>(`[data-shelf-order-list="${kind}"] [data-sidebar-shelf-id]`)]
+      .map((row) => row.dataset.sidebarShelfId);
+    const expectedVisible = (ids: string[]) => ids.filter((id) => id !== "builtin-read-books");
+    expect(displayedIds("manager")).toEqual(expectedVisible(initialIds));
+    expect(displayedIds("sidebar")).toEqual(displayedIds("manager"));
+    expect(root.querySelector('[data-sidebar-shelf-id="builtin-read-books"]')).toBeNull();
+
+    click(root, `[data-shelf-order-list="manager"] [data-shelf-id="${customShelf.id}"][data-direction="-1"]`);
+    const afterCustomMove = ["builtin-read-books", "builtin-recent", "builtin-not-on-kindle", "builtin-favorites", "builtin-want-to-read", customShelf.id, "builtin-missing-cover"];
+    expect(reorder).toHaveBeenCalledExactlyOnceWith("prf_personal", { expectedRevision: 0, shelfIds: afterCustomMove }, expect.any(AbortSignal));
+    for (const kind of ["sidebar", "manager"]) {
+      const list = root.querySelector(`[data-shelf-order-list="${kind}"]`)!;
+      expect(list.getAttribute("aria-busy")).toBe("true");
+      expect([...list.querySelectorAll<HTMLButtonElement>('[data-shelf-drag-handle], [data-ui-action="move-sidebar-shelf"]')].every((button) => button.disabled)).toBe(true);
+    }
+    expect(root.querySelector(".shelf-order-feedback")?.textContent).toContain("Saving shelf order");
+    click(root, '[data-shelf-order-list="manager"] [data-shelf-id="builtin-favorites"][data-direction="1"]');
+    expect(reorder).toHaveBeenCalledTimes(1);
+    releaseSave();
+    await vi.waitFor(() => expect(displayedIds("manager")).toEqual(expectedVisible(afterCustomMove)));
+    await vi.waitFor(() => expect(root.querySelector('[data-shelf-order-list="manager"]')?.getAttribute("aria-busy")).toBe("false"));
+    expect(displayedIds("sidebar")).toEqual(expectedVisible(afterCustomMove));
+    expect(root.querySelector<HTMLButtonElement>('[data-shelf-order-list="manager"] [data-shelf-id="builtin-favorites"][data-direction="1"]')?.disabled).toBe(false);
+
+    click(root, '[data-shelf-order-list="manager"] [data-shelf-id="builtin-favorites"][data-direction="1"]');
+    const afterBuiltInMove = ["builtin-read-books", "builtin-recent", "builtin-not-on-kindle", "builtin-want-to-read", "builtin-favorites", customShelf.id, "builtin-missing-cover"];
+    await vi.waitFor(() => expect(displayedIds("manager")).toEqual(expectedVisible(afterBuiltInMove)));
+    expect(reorder).toHaveBeenLastCalledWith("prf_personal", { expectedRevision: 1, shelfIds: afterBuiltInMove }, expect.any(AbortSignal));
+    expect(displayedIds("sidebar")).toEqual(expectedVisible(afterBuiltInMove));
+    expect(api.getBookSource).not.toHaveBeenCalled();
+    expect(api.createDelivery).not.toHaveBeenCalled();
+    expect(api.rescanRoot).not.toHaveBeenCalled();
+    expect(api.saveConfiguration).not.toHaveBeenCalled();
+    expect(callbacks.onConnect).not.toHaveBeenCalled();
+    expect(callbacks.onDisconnect).not.toHaveBeenCalled();
+    expect(callbacks.onConvert).not.toHaveBeenCalled();
+    expect(callbacks.onSendIntegrated).not.toHaveBeenCalled();
+    expect(BOOKS).toEqual(originalBooks);
+    expect(customShelf.query).toEqual({ version: 1, catalog: { q: "holiday" } });
   });
 
   it("maps every discovery control, including publication year and pagination, to the API query", () => {
@@ -530,6 +597,48 @@ describe("catalog-backed library model", () => {
     expect(root.querySelector('[data-book-id="book_time"]')).toBeNull();
     expect(root.querySelector(".library-topbar-status")?.textContent).toContain("Library sources unavailable");
     expect(vi.mocked(api.listBooks)).toHaveBeenLastCalledWith("prf_wife", expect.any(Object), expect.any(AbortSignal));
+  });
+
+  it("refreshes the active library from the topbar without leaving or clearing its dashboard", async () => {
+    const api = fakeApi();
+    let finishScanRequest!: () => void;
+    vi.mocked(api.rescanRoot).mockImplementation(() => new Promise<void>((resolve) => { finishScanRequest = resolve; }));
+    const callbacks = handlers({
+      onCatalogConnectRequested: vi.fn(), onCatalogDisconnectRequested: vi.fn(),
+      onCatalogSendRequested: vi.fn(), onCatalogRemoveRequested: vi.fn(), onCatalogUpdateRequested: vi.fn(),
+    });
+    const { root } = await loadedView(api, callbacks);
+    click(root, 'button[data-ui-profile="prf_wife"]');
+    await vi.waitFor(() => expect(root.querySelector('[data-book-id="book_frankenstein"]')).not.toBeNull());
+    const bookQueriesBeforeRefresh = vi.mocked(api.listBooks).mock.calls.length;
+    const structuredQueriesBeforeRefresh = vi.mocked(api.queryBooks!).mock.calls.length;
+
+    click(root, 'button[data-ui-action="refresh-library"]');
+
+    expect(api.rescanRoot).toHaveBeenCalledExactlyOnceWith("prf_wife", "root_wife", expect.any(AbortSignal));
+    expect(root.querySelector("#library-heading")?.textContent).toBe("Wife's library");
+    expect(root.querySelector("#settings-heading")).toBeNull();
+    expect(root.querySelector('[data-book-id="book_frankenstein"]')).not.toBeNull();
+    expect(root.querySelector(".library-topbar-status")?.textContent).toContain("Checking library…");
+    expect(root.querySelector<HTMLButtonElement>('[data-ui-action="refresh-library"]')?.disabled).toBe(true);
+    click(root, 'button[data-ui-action="refresh-library"]');
+    expect(api.rescanRoot).toHaveBeenCalledTimes(1);
+
+    finishScanRequest();
+    await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-ui-action="refresh-library"]')?.disabled).toBe(false));
+
+    expect(root.querySelector("#library-heading")?.textContent).toBe("Wife's library");
+    expect(root.querySelector("#settings-heading")).toBeNull();
+    expect(root.querySelector('[data-book-id="book_frankenstein"]')).not.toBeNull();
+    expect(api.listBooks).toHaveBeenCalledTimes(bookQueriesBeforeRefresh);
+    expect(api.queryBooks).toHaveBeenCalledTimes(structuredQueriesBeforeRefresh);
+    expect(api.getBookSource).not.toHaveBeenCalled();
+    expect(api.createDelivery).not.toHaveBeenCalled();
+    expect(callbacks.onCatalogConnectRequested).not.toHaveBeenCalled();
+    expect(callbacks.onCatalogDisconnectRequested).not.toHaveBeenCalled();
+    expect(callbacks.onCatalogSendRequested).not.toHaveBeenCalled();
+    expect(callbacks.onCatalogRemoveRequested).not.toHaveBeenCalled();
+    expect(callbacks.onCatalogUpdateRequested).not.toHaveBeenCalled();
   });
 
   it("can enter, leave, and re-enter Settings without losing the editor", async () => {

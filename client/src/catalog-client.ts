@@ -9,6 +9,7 @@ import {
   METADATA_CLAIM_BITMAP_BYTES,
 } from "../../shared/catalog-contracts.js";
 import { normalizeSmartShelfQuery, SmartShelfQueryError } from "../../shared/shelf-query.js";
+import { BUILT_IN_SHELF_IDS, MAX_SIDEBAR_SHELF_IDS } from "../../shared/shelf-order.js";
 import type {
   BookCoverOverride,
   BookMetadataPatchInput,
@@ -40,6 +41,8 @@ import type {
   SmartShelfPatchInput,
   SmartShelfPinnedOrderInput,
   SmartShelfQuery,
+  ShelfSidebarOrder,
+  ShelfSidebarOrderInput,
 } from "../../shared/catalog-contracts.js";
 import type {
   CatalogHealthIssue,
@@ -84,6 +87,8 @@ export type {
   SmartShelfPatchInput,
   SmartShelfPinnedOrderInput,
   SmartShelfQuery,
+  ShelfSidebarOrder,
+  ShelfSidebarOrderInput,
 } from "../../shared/catalog-contracts.js";
 export type {
   CatalogHealthIssue,
@@ -512,6 +517,8 @@ export interface CatalogApi {
   ): Promise<CatalogSendQueue>;
   clearSendQueue?(profileId: string, expectedRevision: number, signal?: AbortSignal): Promise<CatalogSendQueue>;
   listSmartShelves?(profileId: string, signal?: AbortSignal): Promise<readonly SmartShelf[]>;
+  getShelfSidebarOrder?(profileId: string, signal?: AbortSignal): Promise<ShelfSidebarOrder>;
+  reorderShelfSidebar?(profileId: string, input: ShelfSidebarOrderInput, signal?: AbortSignal): Promise<ShelfSidebarOrder>;
   getSmartShelf?(profileId: string, shelfId: string, signal?: AbortSignal): Promise<SmartShelf>;
   createSmartShelf?(
     profileId: string,
@@ -1500,6 +1507,19 @@ function parseSmartShelf(value: unknown): SmartShelf {
   };
 }
 
+function parseShelfSidebarOrder(value: unknown, profileId: string): ShelfSidebarOrder {
+  const item = record(value);
+  const ids = item.shelfIds;
+  if (item.profileId !== profileId || !Number.isSafeInteger(item.revision) || (item.revision as number) < 0
+    || !Array.isArray(ids) || ids.length > MAX_SIDEBAR_SHELF_IDS
+    || ids.some((id) => typeof id !== "string" || id.length === 0 || id.length > 200)
+    || BUILT_IN_SHELF_IDS.some((id) => !ids.includes(id))
+    || new Set(ids).size !== ids.length) {
+    throw new CatalogApiError(502, "INVALID_SHELF_SIDEBAR_ORDER", "The catalog returned an invalid shelf order.");
+  }
+  return { profileId, revision: item.revision as number, shelfIds: [...ids] as string[] };
+}
+
 function parseBookAnnotation(value: unknown): ProfileBookAnnotation {
   const item = record(value);
   return {
@@ -2041,6 +2061,18 @@ export class HttpCatalogClient implements CatalogApi {
       await this.#json(`/profiles/${encodePath(profileId)}/shelves`, { signal }),
       "items",
     ).map(parseSmartShelf);
+  }
+
+  async getShelfSidebarOrder(profileId: string, signal?: AbortSignal): Promise<ShelfSidebarOrder> {
+    return parseShelfSidebarOrder(await this.#json(
+      `/profiles/${encodePath(profileId)}/shelves/sidebar-order`, { signal },
+    ), profileId);
+  }
+
+  async reorderShelfSidebar(profileId: string, input: ShelfSidebarOrderInput, signal?: AbortSignal): Promise<ShelfSidebarOrder> {
+    return parseShelfSidebarOrder(await this.#json(
+      `/profiles/${encodePath(profileId)}/shelves/sidebar-order`, this.#write("PATCH", input, signal),
+    ), profileId);
   }
 
   async getSmartShelf(profileId: string, shelfId: string, signal?: AbortSignal): Promise<SmartShelf> {
