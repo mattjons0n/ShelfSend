@@ -49,7 +49,8 @@ body { background: var(--page); }
   border-color: var(--modern-button); color: var(--modern-button-text);
 }
 .library-queue-button small { order: 1; color: inherit; font-size: 12px; }
-.library-queue-button strong { order: 2; padding: 0 5px; border-radius: 4px; background: #ffffff20; }
+.library-queue-button strong { order: 2; padding: 0 5px; border-radius: 4px; background: #00000020; }
+.library-topbar .library-queue-button:hover:not(:disabled) { background: var(--modern-button-hover); color: var(--modern-button-text); }
 .library-device-icon { width: auto; height: auto; background: transparent; color: inherit; }
 .library-topbar .library-device-button.connected { color: var(--green); background: var(--green-soft); }
 .library-topbar .library-device-button.connected .library-device-icon { background: transparent; color: inherit; }
@@ -164,6 +165,7 @@ body { background: var(--page); }
 .library-book-cover-trigger:hover .library-cover { filter: brightness(1.06); }
 .library-card-copy { padding: 13px 12px 12px; gap: 4px; }
 .library-card-copy h3 { color: var(--text); font-size: 13px; line-height: 1.4; font-weight: 600; }
+.library-book-title-trigger:hover { color: var(--green); }
 .library-card-copy p { color: var(--muted); font-size: 11px; }
 .library-book-meta { color: var(--muted); font-size: 11px; }
 .library-tags { margin-top: 3px; gap: 4px; }
@@ -215,12 +217,17 @@ body { background: var(--page); }
 .library-book-row .library-card-copy { padding: 0; }
 .library-bulk-actions { flex-wrap: wrap; background: var(--surface); border-color: var(--border); color: var(--text); border-radius: 10px; padding: 12px; box-shadow: none; }
 .library-bulk-actions button { flex-shrink: 0; }
+.library-bulk-actions button.primary > span { background: #00000020; color: var(--modern-button-text); }
 .library-bulk-selection, .library-bulk-selection strong { color: var(--green); }
 .library-pagination { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); }
 .library-app-shell :is(.library-active-filters span, .library-active-shelf) { background: var(--green-soft); border-color: var(--border); color: var(--green); }
+.library-active-shelf button { background: var(--surface-raised); color: var(--text); border-color: var(--border-strong); }
+.library-active-shelf button:hover:not(:disabled) { background: var(--surface-soft); color: var(--text); }
+.library-active-shelf small, .library-active-filters button { color: var(--muted); }
 .library-app-shell :is(.library-empty-state, .library-loading-state) { color: var(--muted); background: var(--surface); border-color: var(--border); border-radius: 12px; }
 .library-app-shell :is(.library-empty-state h2, .library-empty-state h1, .library-loading-state strong) { color: var(--text); }
 .library-app-shell :is(input, select, textarea) { accent-color: var(--green); }
+.library-app-shell :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
 .library-app-shell :is(button, summary, input, select, textarea, a):focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
 .library-app-shell button.danger { color: var(--red); }
 .library-app-shell .poc-lab { margin: 0; border-color: var(--border); background: var(--surface-soft); }
@@ -231,7 +238,7 @@ body { background: var(--page); }
   .library-activity-sheet, .library-match-review-sheet) { background: var(--modern-canvas); border-color: var(--border); }
 .library-app-shell :is(.settings-library-picker, .settings-editor,
   .metadata-fields-panel, .metadata-cover-panel, .book-details-section, .activity-current,
-  .activity-facts, .activity-history ol, .activity-advanced > div, .library-queue-item,
+  .activity-facts, .activity-history ol, .activity-advanced > div, .library-queue-item, .library-queue-list li,
   .library-device-contents, .attention-issue, .attention-jobs, .metadata-job-detail,
   .series-card, .series-detail, .poc-lab > details) {
   background: var(--surface); color: var(--text); border-color: var(--border);
@@ -239,7 +246,9 @@ body { background: var(--page); }
 .library-app-shell :is(.settings-editor-head, .settings-picker-note, .settings-folder-card,
   .settings-actions, .metadata-editor-head, .metadata-section-head, .metadata-editor-footer,
   .book-details-actions, .book-details-last-delivery, .library-update-files,
-  .library-update-plan li, .metadata-cover-drop, .library-queue-summary) {
+  .library-update-plan li, .metadata-cover-drop, .library-queue-summary,
+  .library-queue-totals, .metadata-cover-search-status,
+  .library-send-plan > div, .library-batch-book-results) {
   background: var(--surface-soft); color: var(--text); border-color: var(--border);
 }
 .library-app-shell :is(.settings-page, [class$="-sheet"], .library-device-contents,
@@ -268,6 +277,61 @@ body { background: var(--page); }
 .library-app-shell :is(.metadata-editor-rebase, .book-details-warning, .library-update-recovery) { background: var(--yellow-soft); color: var(--yellow); border-color: var(--yellow); }
 .library-app-shell .library-book-details-sheet .library-cover { color: #fff; }
 .library-app-shell .library-book-details-sheet .library-cover strong { color: inherit; }
+/* Pair every status surface with its foreground. Legacy light-only panels
+   must not inherit light text from the dark-theme drawer typography above. */
+.library-app-shell :is(.library-original-note, .library-transfer-status, .library-send-plan > div.active) {
+  background: var(--green-soft); color: var(--text); border-color: var(--border);
+}
+.library-app-shell :is(.library-original-note span, .library-queue-totals > span,
+  .book-details-last-delivery span, .metadata-cover-preview figcaption span,
+  .metadata-editor-footer code, .settings-actions > span, .settings-folders-head span,
+  .settings-empty-copy, .settings-section-label, .settings-library-chevron,
+  .library-sidebar-empty, .library-queue-list li > span, .activity-current span,
+  .library-match-review-sheet > footer, .activity-metadata-job dd > span,
+  .activity-partial-object-probe > header span) { color: var(--muted); }
+.library-app-shell :is(.metadata-format-note, .metadata-existing-copy-note) > span { opacity: 1; }
+.library-app-shell .activity-current > .activity-current-icon { background: var(--green-soft); color: var(--green); }
+.library-app-shell .activity-current[data-phase="needs-attention"] > .activity-current-icon { background: var(--red-soft); color: var(--red); }
+.library-app-shell .series-source-state { color: var(--green); }
+.library-app-shell .series-source-state[data-available="false"] { color: var(--red); }
+.library-app-shell :is(.library-stale-notice, .settings-locked-notice,
+  .settings-prototype-notice.warning, .metadata-format-note.warning) {
+  background: var(--yellow-soft); color: var(--yellow); border-color: var(--yellow);
+}
+.library-app-shell :is(.settings-delete-confirmation, .metadata-cover-search-status.error,
+  .library-transfer-status.failed) {
+  background: var(--red-soft); color: var(--red); border-color: var(--red);
+}
+.library-app-shell :is(.library-stale-notice, .settings-locked-notice,
+  .settings-prototype-notice.warning, .metadata-format-note.warning,
+  .library-update-recovery, .metadata-editor-rebase, .book-details-warning,
+  .settings-delete-confirmation, .metadata-cover-search-status.error,
+  .library-transfer-status.failed) :is(strong, p, small) { color: inherit; }
+.library-app-shell .settings-delete-confirmation > div { color: var(--red); }
+.library-app-shell .settings-provider-error { color: var(--red) !important; }
+.library-app-shell .library-bulk-actions button.danger > span { background: var(--red-soft); color: var(--red); }
+.library-app-shell :is(.book-details-kindle-status, .library-device-match,
+  .metadata-confidence, .metadata-job-status, .metadata-job-list em) {
+  background: var(--surface-soft); color: var(--muted);
+}
+.library-app-shell :is(.book-details-kindle-status[data-status="confirmed"],
+  .library-device-match[data-match="confirmed"], .metadata-confidence[data-confidence="high"],
+  .metadata-job-status[data-status="completed"], .metadata-job-list em[data-status="completed"],
+  .library-inventory-chip, .series-volume, .book-details-metadata dt span) {
+  background: var(--green-soft); color: var(--green);
+}
+.library-app-shell :is(.book-details-kindle-status[data-status="possible"],
+  .book-details-badges span.warning, .library-device-match[data-match="possible"],
+  .metadata-confidence[data-confidence="low"], .metadata-job-status[data-status="running"],
+  .metadata-job-list em[data-status="running"], .settings-unsaved-chip.dirty,
+  .library-inventory-chip[data-completeness="partial"], .library-inventory-chip[data-completeness="last-seen"],
+  .series-quality-hints span) { background: var(--yellow-soft); color: var(--yellow); }
+.library-app-shell .metadata-cover-results .metadata-cover-placeholder { background: var(--surface-soft); color: var(--muted); }
+.library-app-shell :is(.metadata-cover-preview img, .metadata-cover-results img, .library-cover-image) {
+  background: var(--surface-soft); color: var(--muted);
+}
+.library-cover-image img { color: var(--muted); }
+.library-app-shell .library-toast button { color: var(--text); }
 .library-app-shell .settings-layout { grid-template-columns: 170px minmax(0, 1fr); }
 .library-app-shell .settings-page.settings-onboarding .settings-layout { grid-template-columns: minmax(0, 1fr); }
 .library-book-row .library-card-actions { min-width: 0; }
