@@ -94,7 +94,7 @@ export async function prepareKoboArtifact(
       if (validation.hasObfuscatedFonts && overrides?.identifiers !== undefined) {
         throw new AppError("CONVERSION_INVALID_INPUT", "This EPUB uses its original identifier to unlock embedded fonts. Keep the source identifiers before sending it to Kobo.");
       }
-      const output = overrides ? await createEphemeralEpubDerivative(input, overrides) : input;
+      const output = overrides ? await createEphemeralEpubDerivative(input, overrides, checkpoint) : input;
       checkpoint();
       if (output.byteLength > MAX_BOOK_SOURCE_BYTES) {
         throw new AppError("CONVERSION_OUTPUT_TOO_LARGE", "The prepared EPUB exceeds the 200 MiB transfer limit");

@@ -10,6 +10,7 @@ import { CatalogEventHub } from "../../server/event-hub.js";
 import { CatalogHttpServer } from "../../server/http-server.js";
 import { MetadataCoverStore } from "../../server/metadata-cover-store.js";
 import { AllowedRootPolicy } from "../../server/root-policy.js";
+import type { MetadataLookupJob } from "../../shared/catalog-contracts.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -130,6 +131,7 @@ describe("catalog health and provider metadata HTTP contracts", () => {
         googleBooksApiKey: "settings-key",
         coverProviderFetch: providerFetch,
         requestsPerMinutePerAddress: 1_000,
+        maxCatalogJsonResponseBytes: 32_768,
       },
       metadataStore,
     );
@@ -271,6 +273,69 @@ describe("catalog health and provider metadata HTTP contracts", () => {
       expect(await durableImport.json()).toMatchObject({ revision: 3, book: { authors: ["Provider Author"] } });
       expect(running.revision).toBeGreaterThan(created.revision);
       expect(publish.mock.calls.filter(([event]) => event.type === "metadata-lookup.updated")).toHaveLength(4);
+
+      const paged = database.createMetadataLookupJob(profile.id, {
+        provider: "google-books", bookIds: [indexed.bookId, duplicate.bookId],
+      }, "paged-http").job;
+      database.controlMetadataLookupJob(profile.id, paged.id, "resume", paged.revision);
+      database.claimMetadataLookupEntries(profile.id, paged.id, 2);
+      for (const [rank, bookId] of [indexed.bookId, duplicate.bookId].entries()) {
+        database.completeMetadataLookupEntry(profile.id, paged.id, bookId, [{
+          provider: "google-books", candidateId: `paged_${rank}`, confidence: "low",
+          metadata: { title: `Paged title ${rank}`, description: "x".repeat(20_000) },
+        }], null);
+      }
+      const firstPageResponse = await fetch(`${base}/metadata-lookup-jobs/${paged.id}`);
+      expect(firstPageResponse.status).toBe(200);
+      const firstPage = await firstPageResponse.json() as MetadataLookupJob;
+      expect(firstPage.entries).toHaveLength(1);
+      expect(firstPage.nextEntryOffset).toBe(1);
+      const nextPageResponse = await fetch(`${base}/metadata-lookup-jobs/${paged.id}?entryOffset=1&expectedRevision=${firstPage.revision}`);
+      expect(nextPageResponse.status).toBe(200);
+      expect(await nextPageResponse.json()).toMatchObject({ entries: [{ bookId: duplicate.bookId }], nextEntryOffset: null });
+      expect((await fetch(`${base}/metadata-lookup-jobs/${paged.id}?entryOffset=101`)).status).toBe(400);
+      expect((await fetch(`${base}/metadata-lookup-jobs/${paged.id}?entryOffset=1&entryOffset=1`)).status).toBe(400);
+      const laterPageImport = await fetch(`${base}/books/${duplicate.bookId}/metadata-import`, {
+        method: "POST", headers: json,
+        body: JSON.stringify({
+          provider: "google-books", candidateId: "paged_1", lookupJobId: paged.id,
+          selectedFields: ["title"], includeCover: false, expectedRevision: 0, expectedContentHash: "a".repeat(64),
+        }),
+      });
+      expect(laterPageImport.status).toBe(200);
+      expect(await laterPageImport.json()).toMatchObject({ book: { title: "Paged title 1" } });
+      expect((await fetch(`${base}/metadata-lookup-jobs/${paged.id}?entryOffset=1&expectedRevision=${firstPage.revision}`)).status).toBe(409);
+
+      const delivery = server as unknown as {
+        acquireBufferedResponse(response: import("node:http").ServerResponse): Promise<() => void>;
+      };
+      for (const [endpoint, method] of [
+        [`metadata-lookup-jobs/${paged.id}`, "getMetadataLookupJob"],
+        ["issues", "listCatalogIssues"], ["send-queue", "getSendQueue"],
+        ["series", "listSeries"], ["shelves", "listSmartShelves"],
+      ] as const) {
+        let allowDelivery!: () => void;
+        const gate = new Promise<void>((resolve) => { allowDelivery = resolve; });
+        const acquire = delivery.acquireBufferedResponse.bind(delivery);
+        const reserve = vi.spyOn(delivery, "acquireBufferedResponse").mockImplementationOnce(async (response) => {
+          await gate;
+          return acquire(response);
+        });
+        const hydrate = vi.spyOn(database, method);
+        const requested = fetch(`${base}/${endpoint}`);
+        try {
+          await vi.waitFor(() => expect(reserve).toHaveBeenCalledOnce());
+          expect(hydrate).not.toHaveBeenCalled();
+        } finally {
+          allowDelivery();
+        }
+        const result = await requested;
+        expect(result.status).toBe(200);
+        await result.text();
+        expect(hydrate).toHaveBeenCalledOnce();
+        reserve.mockRestore();
+        hydrate.mockRestore();
+      }
     } finally {
       await server.close();
       events.close();

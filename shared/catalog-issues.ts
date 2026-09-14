@@ -259,24 +259,16 @@ export function deriveCatalogIssues(
       duplicateBuckets.set(key, bucket);
     }
   }
-  const emittedGroups = new Set<string>();
+  const emittedGroups = new Map<string, { priority: number; issueIndex: number }>();
   for (const bucket of duplicateBuckets.values()) {
     const uniqueBooks = [...new Map(bucket.books.map((book) => [book.bookId, book])).values()];
     if (uniqueBooks.length < 2) continue;
     const groupKey = uniqueBooks.map(({ bookId }) => bookId).sort().join("\u0000");
     // Prefer the strongest explanation for an identical group.
     const priority = bucket.evidence === "content-hash" ? 3 : bucket.evidence === "identifier" ? 2 : 1;
-    const current = [...emittedGroups].find((entry) => entry.endsWith(`\u0001${groupKey}`));
-    if (current) {
-      const currentPriority = Number(current.split("\u0001", 1)[0]);
-      if (currentPriority >= priority) continue;
-      emittedGroups.delete(current);
-      const priorIndex = issues.findIndex((issue) => issue.type === "suspected-duplicate"
-        && issue.bookIds.join("\u0000") === groupKey);
-      if (priorIndex >= 0) issues.splice(priorIndex, 1);
-    }
-    emittedGroups.add(`${priority}\u0001${groupKey}`);
-    add({
+    const current = emittedGroups.get(groupKey);
+    if (current && current.priority >= priority) continue;
+    const issue: Omit<DerivedCatalogIssue, "version" | "signature"> = {
       profileId,
       type: "suspected-duplicate",
       severity: "info",
@@ -287,7 +279,12 @@ export function deriveCatalogIssues(
       displayLabels: uniqueBooks.map(({ title }) => title),
       currentAvailable: uniqueBooks.every(({ sourceAvailable }) => sourceAvailable),
       lastObservedAt: uniqueBooks.map(({ lastObservedAt }) => lastObservedAt).sort().at(-1)!,
-    });
+    };
+    // Replace in place so stronger evidence needs neither a scan of previous
+    // groups nor a splice/reindex of the accumulated issue list.
+    if (current) issues[current.issueIndex] = makeIssue(issue);
+    else add(issue);
+    emittedGroups.set(groupKey, { priority, issueIndex: current?.issueIndex ?? issues.length - 1 });
   }
 
   return Object.freeze(issues.sort((left, right) => {

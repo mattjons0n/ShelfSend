@@ -40,13 +40,13 @@ export class MetadataLookupWorker {
     private readonly delay: Delay = defaultDelay,
   ) {}
 
-  async runStep(profileId: string, jobId: string): Promise<MetadataLookupJob> {
+  async runStep(profileId: string, jobId: string, maximumBytes?: number, includeEntries = true): Promise<MetadataLookupJob> {
     // One application process owns one worker. Wait for an overlapping step
     // to settle before returning this job's durable snapshot; otherwise two
     // browsers can form a hot loop around an unchanged `running` response.
     if (this.stepInProgress) {
       await this.stepInProgress;
-      return this.requiredJob(profileId, jobId);
+      return this.requiredJob(profileId, jobId, maximumBytes, includeEntries);
     }
     let releaseStep!: () => void;
     const stepLatch = new Promise<void>((resolve) => {
@@ -61,7 +61,7 @@ export class MetadataLookupWorker {
           try {
             await this.waitForProviderSlot();
             const candidates = await this.provider.searchMetadata(claim.provider, claim.terms, 12);
-            this.database.completeMetadataLookupEntry(profileId, jobId, claim.bookId, candidates, null);
+            this.database.completeMetadataLookupEntry(profileId, jobId, claim.bookId, candidates, null, false);
             return;
           } catch (error) {
             const failure = durableLookupFailure(error);
@@ -70,9 +70,9 @@ export class MetadataLookupWorker {
             await this.delay(250 * (2 ** attempt));
           }
         }
-        this.database.completeMetadataLookupEntry(profileId, jobId, claim.bookId, [], failureCode);
+        this.database.completeMetadataLookupEntry(profileId, jobId, claim.bookId, [], failureCode, false);
       }));
-      return this.requiredJob(profileId, jobId);
+      return this.requiredJob(profileId, jobId, maximumBytes, includeEntries);
     } finally {
       if (this.stepInProgress === stepLatch) this.stepInProgress = undefined;
       releaseStep();
@@ -87,8 +87,8 @@ export class MetadataLookupWorker {
     if (scheduled > current) await this.delay(scheduled - current);
   }
 
-  private requiredJob(profileId: string, jobId: string): MetadataLookupJob {
-    const job = this.database.getMetadataLookupJob(profileId, jobId);
+  private requiredJob(profileId: string, jobId: string, maximumBytes?: number, includeEntries = true): MetadataLookupJob {
+    const job = this.database.getMetadataLookupJob(profileId, jobId, includeEntries, { maximumBytes });
     if (!job) throw new Error("Metadata lookup job disappeared while its bounded step was running.");
     return job;
   }

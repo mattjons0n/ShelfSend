@@ -1,0 +1,3048 @@
+{
+  "date": "2026-09-14",
+  "applicationFindings": {
+    "Medium": 4,
+    "Low": 1
+  },
+  "validation": {
+    "node": "26.4.0",
+    "testFiles": 131,
+    "tests": 1589,
+    "checkExitCode": 0
+  },
+  "npmAudit": {
+    "auditReportVersion": 2,
+    "vulnerabilities": {},
+    "metadata": {
+      "vulnerabilities": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "dependencies": {
+        "prod": 1,
+        "dev": 129,
+        "optional": 47,
+        "peer": 0,
+        "peerOptional": 0,
+        "total": 129
+      }
+    }
+  },
+  "scanner": {
+    "version": "0.118.0",
+    "databaseBuilt": "2026-09-14T06:38:38Z",
+    "containerPackageAdvisoryMatches": 227,
+    "containerDistinctAdvisories": 107,
+    "containerAdvisories": [
+      {
+        "id": "CVE-2026-12087",
+        "severity": "Critical",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-12087",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-13221",
+        "severity": "Critical",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-13221",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-42496",
+        "severity": "Critical",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-42496",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-5450",
+        "severity": "Critical",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-5450",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-57433",
+        "severity": "Critical",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-57433",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-8376",
+        "severity": "Critical",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-8376",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2025-13151",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2025-13151",
+        "packages": [
+          "libtasn1-6 4.19.0-2+deb12u1"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libtasn1-6/copyright",
+          "/var/lib/dpkg/info/libtasn1-6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2025-69720",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2025-69720",
+        "packages": [
+          "libtinfo6 6.4-4",
+          "ncurses-base 6.4-4",
+          "ncurses-bin 6.4-4"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libtinfo6/copyright",
+          "/usr/share/doc/ncurses-base/copyright",
+          "/usr/share/doc/ncurses-bin/copyright",
+          "/var/lib/dpkg/info/libtinfo6:arm64.md5sums",
+          "/var/lib/dpkg/info/ncurses-base.conffiles",
+          "/var/lib/dpkg/info/ncurses-base.list",
+          "/var/lib/dpkg/info/ncurses-base.md5sums",
+          "/var/lib/dpkg/info/ncurses-bin.list",
+          "/var/lib/dpkg/info/ncurses-bin.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-41992",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-41992",
+        "packages": [
+          "gzip 1.12-1"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/gzip/copyright",
+          "/var/lib/dpkg/info/gzip.list",
+          "/var/lib/dpkg/info/gzip.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-42497",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-42497",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-48959",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-48959",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-48962",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-48962",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-5435",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-5435",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-54369",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-54369",
+        "packages": [
+          "libacl1 2.3.1-3"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libacl1/copyright",
+          "/var/lib/dpkg/info/libacl1:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-54370",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-54370",
+        "packages": [
+          "libacl1 2.3.1-3"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libacl1/copyright",
+          "/var/lib/dpkg/info/libacl1:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-57432",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-57432",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-5928",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-5928",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-7017",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-7017",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-76642",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-76642",
+        "packages": [
+          "bsdutils 1:2.38.1-5+deb12u3",
+          "libblkid1 2.38.1-5+deb12u3",
+          "libmount1 2.38.1-5+deb12u3",
+          "libsmartcols1 2.38.1-5+deb12u3",
+          "libuuid1 2.38.1-5+deb12u3",
+          "mount 2.38.1-5+deb12u3",
+          "util-linux 2.38.1-5+deb12u3",
+          "util-linux-extra 2.38.1-5+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/bsdutils/copyright",
+          "/usr/share/doc/libblkid1/copyright",
+          "/usr/share/doc/libmount1/copyright",
+          "/usr/share/doc/libsmartcols1/copyright",
+          "/usr/share/doc/libuuid1/copyright",
+          "/usr/share/doc/mount/copyright",
+          "/usr/share/doc/util-linux-extra/copyright",
+          "/usr/share/doc/util-linux/copyright",
+          "/var/lib/dpkg/info/bsdutils.list",
+          "/var/lib/dpkg/info/bsdutils.md5sums",
+          "/var/lib/dpkg/info/libblkid1:arm64.md5sums",
+          "/var/lib/dpkg/info/libmount1:arm64.md5sums",
+          "/var/lib/dpkg/info/libsmartcols1:arm64.md5sums",
+          "/var/lib/dpkg/info/libuuid1:arm64.md5sums",
+          "/var/lib/dpkg/info/mount.list",
+          "/var/lib/dpkg/info/mount.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.conffiles",
+          "/var/lib/dpkg/info/util-linux-extra.list",
+          "/var/lib/dpkg/info/util-linux-extra.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.postinst",
+          "/var/lib/dpkg/info/util-linux-extra.postrm",
+          "/var/lib/dpkg/info/util-linux-extra.preinst",
+          "/var/lib/dpkg/info/util-linux.conffiles",
+          "/var/lib/dpkg/info/util-linux.list",
+          "/var/lib/dpkg/info/util-linux.md5sums",
+          "/var/lib/dpkg/info/util-linux.postinst",
+          "/var/lib/dpkg/info/util-linux.postrm",
+          "/var/lib/dpkg/info/util-linux.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-78408",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-78408",
+        "packages": [
+          "bsdutils 1:2.38.1-5+deb12u3",
+          "libblkid1 2.38.1-5+deb12u3",
+          "libmount1 2.38.1-5+deb12u3",
+          "libsmartcols1 2.38.1-5+deb12u3",
+          "libuuid1 2.38.1-5+deb12u3",
+          "mount 2.38.1-5+deb12u3",
+          "util-linux 2.38.1-5+deb12u3",
+          "util-linux-extra 2.38.1-5+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/bsdutils/copyright",
+          "/usr/share/doc/libblkid1/copyright",
+          "/usr/share/doc/libmount1/copyright",
+          "/usr/share/doc/libsmartcols1/copyright",
+          "/usr/share/doc/libuuid1/copyright",
+          "/usr/share/doc/mount/copyright",
+          "/usr/share/doc/util-linux-extra/copyright",
+          "/usr/share/doc/util-linux/copyright",
+          "/var/lib/dpkg/info/bsdutils.list",
+          "/var/lib/dpkg/info/bsdutils.md5sums",
+          "/var/lib/dpkg/info/libblkid1:arm64.md5sums",
+          "/var/lib/dpkg/info/libmount1:arm64.md5sums",
+          "/var/lib/dpkg/info/libsmartcols1:arm64.md5sums",
+          "/var/lib/dpkg/info/libuuid1:arm64.md5sums",
+          "/var/lib/dpkg/info/mount.list",
+          "/var/lib/dpkg/info/mount.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.conffiles",
+          "/var/lib/dpkg/info/util-linux-extra.list",
+          "/var/lib/dpkg/info/util-linux-extra.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.postinst",
+          "/var/lib/dpkg/info/util-linux-extra.postrm",
+          "/var/lib/dpkg/info/util-linux-extra.preinst",
+          "/var/lib/dpkg/info/util-linux.conffiles",
+          "/var/lib/dpkg/info/util-linux.list",
+          "/var/lib/dpkg/info/util-linux.md5sums",
+          "/var/lib/dpkg/info/util-linux.postinst",
+          "/var/lib/dpkg/info/util-linux.postrm",
+          "/var/lib/dpkg/info/util-linux.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-78409",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-78409",
+        "packages": [
+          "bsdutils 1:2.38.1-5+deb12u3",
+          "libblkid1 2.38.1-5+deb12u3",
+          "libmount1 2.38.1-5+deb12u3",
+          "libsmartcols1 2.38.1-5+deb12u3",
+          "libuuid1 2.38.1-5+deb12u3",
+          "mount 2.38.1-5+deb12u3",
+          "util-linux 2.38.1-5+deb12u3",
+          "util-linux-extra 2.38.1-5+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/bsdutils/copyright",
+          "/usr/share/doc/libblkid1/copyright",
+          "/usr/share/doc/libmount1/copyright",
+          "/usr/share/doc/libsmartcols1/copyright",
+          "/usr/share/doc/libuuid1/copyright",
+          "/usr/share/doc/mount/copyright",
+          "/usr/share/doc/util-linux-extra/copyright",
+          "/usr/share/doc/util-linux/copyright",
+          "/var/lib/dpkg/info/bsdutils.list",
+          "/var/lib/dpkg/info/bsdutils.md5sums",
+          "/var/lib/dpkg/info/libblkid1:arm64.md5sums",
+          "/var/lib/dpkg/info/libmount1:arm64.md5sums",
+          "/var/lib/dpkg/info/libsmartcols1:arm64.md5sums",
+          "/var/lib/dpkg/info/libuuid1:arm64.md5sums",
+          "/var/lib/dpkg/info/mount.list",
+          "/var/lib/dpkg/info/mount.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.conffiles",
+          "/var/lib/dpkg/info/util-linux-extra.list",
+          "/var/lib/dpkg/info/util-linux-extra.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.postinst",
+          "/var/lib/dpkg/info/util-linux-extra.postrm",
+          "/var/lib/dpkg/info/util-linux-extra.preinst",
+          "/var/lib/dpkg/info/util-linux.conffiles",
+          "/var/lib/dpkg/info/util-linux.list",
+          "/var/lib/dpkg/info/util-linux.md5sums",
+          "/var/lib/dpkg/info/util-linux.postinst",
+          "/var/lib/dpkg/info/util-linux.postrm",
+          "/var/lib/dpkg/info/util-linux.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-78410",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-78410",
+        "packages": [
+          "bsdutils 1:2.38.1-5+deb12u3",
+          "libblkid1 2.38.1-5+deb12u3",
+          "libmount1 2.38.1-5+deb12u3",
+          "libsmartcols1 2.38.1-5+deb12u3",
+          "libuuid1 2.38.1-5+deb12u3",
+          "mount 2.38.1-5+deb12u3",
+          "util-linux 2.38.1-5+deb12u3",
+          "util-linux-extra 2.38.1-5+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/bsdutils/copyright",
+          "/usr/share/doc/libblkid1/copyright",
+          "/usr/share/doc/libmount1/copyright",
+          "/usr/share/doc/libsmartcols1/copyright",
+          "/usr/share/doc/libuuid1/copyright",
+          "/usr/share/doc/mount/copyright",
+          "/usr/share/doc/util-linux-extra/copyright",
+          "/usr/share/doc/util-linux/copyright",
+          "/var/lib/dpkg/info/bsdutils.list",
+          "/var/lib/dpkg/info/bsdutils.md5sums",
+          "/var/lib/dpkg/info/libblkid1:arm64.md5sums",
+          "/var/lib/dpkg/info/libmount1:arm64.md5sums",
+          "/var/lib/dpkg/info/libsmartcols1:arm64.md5sums",
+          "/var/lib/dpkg/info/libuuid1:arm64.md5sums",
+          "/var/lib/dpkg/info/mount.list",
+          "/var/lib/dpkg/info/mount.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.conffiles",
+          "/var/lib/dpkg/info/util-linux-extra.list",
+          "/var/lib/dpkg/info/util-linux-extra.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.postinst",
+          "/var/lib/dpkg/info/util-linux-extra.postrm",
+          "/var/lib/dpkg/info/util-linux-extra.preinst",
+          "/var/lib/dpkg/info/util-linux.conffiles",
+          "/var/lib/dpkg/info/util-linux.list",
+          "/var/lib/dpkg/info/util-linux.md5sums",
+          "/var/lib/dpkg/info/util-linux.postinst",
+          "/var/lib/dpkg/info/util-linux.postrm",
+          "/var/lib/dpkg/info/util-linux.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-85091",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-85091",
+        "packages": [
+          "zlib1g 1:1.2.13.dfsg-1"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/zlib1g/copyright",
+          "/var/lib/dpkg/info/zlib1g:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-86145",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-86145",
+        "packages": [
+          "libpcre2-8-0 10.42-1"
+        ],
+        "fixes": [
+          "10.42-1+deb12u1"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libpcre2-8-0/copyright",
+          "/var/lib/dpkg/info/libpcre2-8-0:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-89161",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-89161",
+        "packages": [
+          "libpcre2-8-0 10.42-1"
+        ],
+        "fixes": [
+          "10.42-1+deb12u1"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libpcre2-8-0/copyright",
+          "/var/lib/dpkg/info/libpcre2-8-0:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-9538",
+        "severity": "High",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-9538",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "GHSA-mh99-v99m-4gvg",
+        "severity": "High",
+        "url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+        "packages": [
+          "brace-expansion 5.0.7"
+        ],
+        "fixes": [
+          "5.0.8"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "npm"
+        ],
+        "locations": [
+          "/usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json"
+        ]
+      },
+      {
+        "id": "GHSA-mwp4-54f8-5fhr",
+        "severity": "High",
+        "url": "https://github.com/advisories/GHSA-mwp4-54f8-5fhr",
+        "packages": [
+          "ip-address 10.2.0"
+        ],
+        "fixes": [
+          "10.3.1"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "npm"
+        ],
+        "locations": [
+          "/usr/local/lib/node_modules/npm/node_modules/ip-address/package.json"
+        ]
+      },
+      {
+        "id": "GHSA-r292-9mhp-454m",
+        "severity": "High",
+        "url": "https://github.com/advisories/GHSA-r292-9mhp-454m",
+        "packages": [
+          "tar 7.5.19"
+        ],
+        "fixes": [
+          "7.5.21"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "npm"
+        ],
+        "locations": [
+          "/usr/local/lib/node_modules/npm/node_modules/tar/package.json"
+        ]
+      },
+      {
+        "id": "GHSA-rgw5-rvv9-x895",
+        "severity": "High",
+        "url": "https://github.com/advisories/GHSA-rgw5-rvv9-x895",
+        "packages": [
+          "brace-expansion 5.0.7"
+        ],
+        "fixes": [
+          "5.0.9"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "npm"
+        ],
+        "locations": [
+          "/usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json"
+        ]
+      },
+      {
+        "id": "CVE-2023-50495",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2023-50495",
+        "packages": [
+          "libtinfo6 6.4-4",
+          "ncurses-base 6.4-4",
+          "ncurses-bin 6.4-4"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libtinfo6/copyright",
+          "/usr/share/doc/ncurses-base/copyright",
+          "/usr/share/doc/ncurses-bin/copyright",
+          "/var/lib/dpkg/info/libtinfo6:arm64.md5sums",
+          "/var/lib/dpkg/info/ncurses-base.conffiles",
+          "/var/lib/dpkg/info/ncurses-base.list",
+          "/var/lib/dpkg/info/ncurses-base.md5sums",
+          "/var/lib/dpkg/info/ncurses-bin.list",
+          "/var/lib/dpkg/info/ncurses-bin.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2024-10041",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2024-10041",
+        "packages": [
+          "libpam-modules 1.5.2-6+deb12u2",
+          "libpam-modules-bin 1.5.2-6+deb12u2",
+          "libpam-runtime 1.5.2-6+deb12u2",
+          "libpam0g 1.5.2-6+deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libpam-modules-bin/copyright",
+          "/usr/share/doc/libpam-modules/copyright",
+          "/usr/share/doc/libpam-runtime/copyright",
+          "/usr/share/doc/libpam0g/copyright",
+          "/var/lib/dpkg/info/libpam-modules-bin.list",
+          "/var/lib/dpkg/info/libpam-modules-bin.md5sums",
+          "/var/lib/dpkg/info/libpam-modules:arm64.conffiles",
+          "/var/lib/dpkg/info/libpam-modules:arm64.md5sums",
+          "/var/lib/dpkg/info/libpam-runtime.conffiles",
+          "/var/lib/dpkg/info/libpam-runtime.list",
+          "/var/lib/dpkg/info/libpam-runtime.md5sums",
+          "/var/lib/dpkg/info/libpam-runtime.postinst",
+          "/var/lib/dpkg/info/libpam-runtime.postrm",
+          "/var/lib/dpkg/info/libpam-runtime.prerm",
+          "/var/lib/dpkg/info/libpam-runtime.templates",
+          "/var/lib/dpkg/info/libpam0g:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2025-15649",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2025-15649",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2025-30258",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2025-30258",
+        "packages": [
+          "gpgv 2.2.40-1.1+deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/gpgv/copyright",
+          "/var/lib/dpkg/info/gpgv.list",
+          "/var/lib/dpkg/info/gpgv.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2025-6141",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2025-6141",
+        "packages": [
+          "libtinfo6 6.4-4",
+          "ncurses-base 6.4-4",
+          "ncurses-bin 6.4-4"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libtinfo6/copyright",
+          "/usr/share/doc/ncurses-base/copyright",
+          "/usr/share/doc/ncurses-bin/copyright",
+          "/var/lib/dpkg/info/libtinfo6:arm64.md5sums",
+          "/var/lib/dpkg/info/ncurses-base.conffiles",
+          "/var/lib/dpkg/info/ncurses-base.list",
+          "/var/lib/dpkg/info/ncurses-base.md5sums",
+          "/var/lib/dpkg/info/ncurses-bin.list",
+          "/var/lib/dpkg/info/ncurses-bin.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2025-68972",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2025-68972",
+        "packages": [
+          "gpgv 2.2.40-1.1+deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/gpgv/copyright",
+          "/var/lib/dpkg/info/gpgv.list",
+          "/var/lib/dpkg/info/gpgv.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-13595",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-13595",
+        "packages": [
+          "bsdutils 1:2.38.1-5+deb12u3",
+          "libblkid1 2.38.1-5+deb12u3",
+          "libmount1 2.38.1-5+deb12u3",
+          "libsmartcols1 2.38.1-5+deb12u3",
+          "libuuid1 2.38.1-5+deb12u3",
+          "mount 2.38.1-5+deb12u3",
+          "util-linux 2.38.1-5+deb12u3",
+          "util-linux-extra 2.38.1-5+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/bsdutils/copyright",
+          "/usr/share/doc/libblkid1/copyright",
+          "/usr/share/doc/libmount1/copyright",
+          "/usr/share/doc/libsmartcols1/copyright",
+          "/usr/share/doc/libuuid1/copyright",
+          "/usr/share/doc/mount/copyright",
+          "/usr/share/doc/util-linux-extra/copyright",
+          "/usr/share/doc/util-linux/copyright",
+          "/var/lib/dpkg/info/bsdutils.list",
+          "/var/lib/dpkg/info/bsdutils.md5sums",
+          "/var/lib/dpkg/info/libblkid1:arm64.md5sums",
+          "/var/lib/dpkg/info/libmount1:arm64.md5sums",
+          "/var/lib/dpkg/info/libsmartcols1:arm64.md5sums",
+          "/var/lib/dpkg/info/libuuid1:arm64.md5sums",
+          "/var/lib/dpkg/info/mount.list",
+          "/var/lib/dpkg/info/mount.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.conffiles",
+          "/var/lib/dpkg/info/util-linux-extra.list",
+          "/var/lib/dpkg/info/util-linux-extra.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.postinst",
+          "/var/lib/dpkg/info/util-linux-extra.postrm",
+          "/var/lib/dpkg/info/util-linux-extra.preinst",
+          "/var/lib/dpkg/info/util-linux.conffiles",
+          "/var/lib/dpkg/info/util-linux.list",
+          "/var/lib/dpkg/info/util-linux.md5sums",
+          "/var/lib/dpkg/info/util-linux.postinst",
+          "/var/lib/dpkg/info/util-linux.postrm",
+          "/var/lib/dpkg/info/util-linux.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-13757",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-13757",
+        "packages": [
+          "libp11-kit0 0.24.1-2"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libp11-kit0/copyright",
+          "/var/lib/dpkg/info/libp11-kit0:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-15059",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-15059",
+        "packages": [
+          "libsystemd0 252.39-1~deb12u2",
+          "libudev1 252.39-1~deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libsystemd0/copyright",
+          "/usr/share/doc/libudev1/copyright",
+          "/var/lib/dpkg/info/libsystemd0:arm64.md5sums",
+          "/var/lib/dpkg/info/libudev1:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-15534",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-15534",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-16742",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-16742",
+        "packages": [
+          "libsystemd0 252.39-1~deb12u2",
+          "libudev1 252.39-1~deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libsystemd0/copyright",
+          "/usr/share/doc/libudev1/copyright",
+          "/var/lib/dpkg/info/libsystemd0:arm64.md5sums",
+          "/var/lib/dpkg/info/libudev1:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-18374",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-18374",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-18477",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-18477",
+        "packages": [
+          "tar 1.34+dfsg-1.2+deb12u1"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/tar/copyright",
+          "/var/lib/dpkg/info/tar.list",
+          "/var/lib/dpkg/info/tar.md5sums",
+          "/var/lib/dpkg/info/tar.postinst",
+          "/var/lib/dpkg/info/tar.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-18508",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-18508",
+        "packages": [
+          "tar 1.34+dfsg-1.2+deb12u1"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/tar/copyright",
+          "/var/lib/dpkg/info/tar.list",
+          "/var/lib/dpkg/info/tar.md5sums",
+          "/var/lib/dpkg/info/tar.postinst",
+          "/var/lib/dpkg/info/tar.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-18938",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-18938",
+        "packages": [
+          "libp11-kit0 0.24.1-2"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libp11-kit0/copyright",
+          "/var/lib/dpkg/info/libp11-kit0:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-19487",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-19487",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-27171",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-27171",
+        "packages": [
+          "zlib1g 1:1.2.13.dfsg-1"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/zlib1g/copyright",
+          "/var/lib/dpkg/info/zlib1g:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-27456",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-27456",
+        "packages": [
+          "bsdutils 1:2.38.1-5+deb12u3",
+          "libblkid1 2.38.1-5+deb12u3",
+          "libmount1 2.38.1-5+deb12u3",
+          "libsmartcols1 2.38.1-5+deb12u3",
+          "libuuid1 2.38.1-5+deb12u3",
+          "mount 2.38.1-5+deb12u3",
+          "util-linux 2.38.1-5+deb12u3",
+          "util-linux-extra 2.38.1-5+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/bsdutils/copyright",
+          "/usr/share/doc/libblkid1/copyright",
+          "/usr/share/doc/libmount1/copyright",
+          "/usr/share/doc/libsmartcols1/copyright",
+          "/usr/share/doc/libuuid1/copyright",
+          "/usr/share/doc/mount/copyright",
+          "/usr/share/doc/util-linux-extra/copyright",
+          "/usr/share/doc/util-linux/copyright",
+          "/var/lib/dpkg/info/bsdutils.list",
+          "/var/lib/dpkg/info/bsdutils.md5sums",
+          "/var/lib/dpkg/info/libblkid1:arm64.md5sums",
+          "/var/lib/dpkg/info/libmount1:arm64.md5sums",
+          "/var/lib/dpkg/info/libsmartcols1:arm64.md5sums",
+          "/var/lib/dpkg/info/libuuid1:arm64.md5sums",
+          "/var/lib/dpkg/info/mount.list",
+          "/var/lib/dpkg/info/mount.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.conffiles",
+          "/var/lib/dpkg/info/util-linux-extra.list",
+          "/var/lib/dpkg/info/util-linux-extra.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.postinst",
+          "/var/lib/dpkg/info/util-linux-extra.postrm",
+          "/var/lib/dpkg/info/util-linux-extra.preinst",
+          "/var/lib/dpkg/info/util-linux.conffiles",
+          "/var/lib/dpkg/info/util-linux.list",
+          "/var/lib/dpkg/info/util-linux.md5sums",
+          "/var/lib/dpkg/info/util-linux.postinst",
+          "/var/lib/dpkg/info/util-linux.postrm",
+          "/var/lib/dpkg/info/util-linux.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-3184",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-3184",
+        "packages": [
+          "bsdutils 1:2.38.1-5+deb12u3",
+          "libblkid1 2.38.1-5+deb12u3",
+          "libmount1 2.38.1-5+deb12u3",
+          "libsmartcols1 2.38.1-5+deb12u3",
+          "libuuid1 2.38.1-5+deb12u3",
+          "mount 2.38.1-5+deb12u3",
+          "util-linux 2.38.1-5+deb12u3",
+          "util-linux-extra 2.38.1-5+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/bsdutils/copyright",
+          "/usr/share/doc/libblkid1/copyright",
+          "/usr/share/doc/libmount1/copyright",
+          "/usr/share/doc/libsmartcols1/copyright",
+          "/usr/share/doc/libuuid1/copyright",
+          "/usr/share/doc/mount/copyright",
+          "/usr/share/doc/util-linux-extra/copyright",
+          "/usr/share/doc/util-linux/copyright",
+          "/var/lib/dpkg/info/bsdutils.list",
+          "/var/lib/dpkg/info/bsdutils.md5sums",
+          "/var/lib/dpkg/info/libblkid1:arm64.md5sums",
+          "/var/lib/dpkg/info/libmount1:arm64.md5sums",
+          "/var/lib/dpkg/info/libsmartcols1:arm64.md5sums",
+          "/var/lib/dpkg/info/libuuid1:arm64.md5sums",
+          "/var/lib/dpkg/info/mount.list",
+          "/var/lib/dpkg/info/mount.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.conffiles",
+          "/var/lib/dpkg/info/util-linux-extra.list",
+          "/var/lib/dpkg/info/util-linux-extra.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.postinst",
+          "/var/lib/dpkg/info/util-linux-extra.postrm",
+          "/var/lib/dpkg/info/util-linux-extra.preinst",
+          "/var/lib/dpkg/info/util-linux.conffiles",
+          "/var/lib/dpkg/info/util-linux.list",
+          "/var/lib/dpkg/info/util-linux.md5sums",
+          "/var/lib/dpkg/info/util-linux.postinst",
+          "/var/lib/dpkg/info/util-linux.postrm",
+          "/var/lib/dpkg/info/util-linux.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-41991",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-41991",
+        "packages": [
+          "gzip 1.12-1"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/gzip/copyright",
+          "/var/lib/dpkg/info/gzip.list",
+          "/var/lib/dpkg/info/gzip.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-42250",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-42250",
+        "packages": [
+          "libbz2-1.0 1.0.8-5+b1"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libbz2-1.0/copyright",
+          "/var/lib/dpkg/info/libbz2-1.0:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-54371",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-54371",
+        "packages": [
+          "libattr1 1:2.5.1-4"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libattr1/copyright",
+          "/var/lib/dpkg/info/libattr1:arm64.conffiles",
+          "/var/lib/dpkg/info/libattr1:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-54411",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-54411",
+        "packages": [
+          "libpam-modules 1.5.2-6+deb12u2",
+          "libpam-modules-bin 1.5.2-6+deb12u2",
+          "libpam-runtime 1.5.2-6+deb12u2",
+          "libpam0g 1.5.2-6+deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libpam-modules-bin/copyright",
+          "/usr/share/doc/libpam-modules/copyright",
+          "/usr/share/doc/libpam-runtime/copyright",
+          "/usr/share/doc/libpam0g/copyright",
+          "/var/lib/dpkg/info/libpam-modules-bin.list",
+          "/var/lib/dpkg/info/libpam-modules-bin.md5sums",
+          "/var/lib/dpkg/info/libpam-modules:arm64.conffiles",
+          "/var/lib/dpkg/info/libpam-modules:arm64.md5sums",
+          "/var/lib/dpkg/info/libpam-runtime.conffiles",
+          "/var/lib/dpkg/info/libpam-runtime.list",
+          "/var/lib/dpkg/info/libpam-runtime.md5sums",
+          "/var/lib/dpkg/info/libpam-runtime.postinst",
+          "/var/lib/dpkg/info/libpam-runtime.postrm",
+          "/var/lib/dpkg/info/libpam-runtime.prerm",
+          "/var/lib/dpkg/info/libpam-runtime.templates",
+          "/var/lib/dpkg/info/libpam0g:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-5704",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-5704",
+        "packages": [
+          "tar 1.34+dfsg-1.2+deb12u1"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/tar/copyright",
+          "/var/lib/dpkg/info/tar.list",
+          "/var/lib/dpkg/info/tar.md5sums",
+          "/var/lib/dpkg/info/tar.postinst",
+          "/var/lib/dpkg/info/tar.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-6238",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-6238",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-6791",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-6791",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-7010",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-7010",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-89092",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-89092",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-89157",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-89157",
+        "packages": [
+          "libpcre2-8-0 10.42-1"
+        ],
+        "fixes": [
+          "10.42-1+deb12u1"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libpcre2-8-0/copyright",
+          "/var/lib/dpkg/info/libpcre2-8-0:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-89158",
+        "severity": "Medium",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-89158",
+        "packages": [
+          "libpcre2-8-0 10.42-1"
+        ],
+        "fixes": [
+          "10.42-1+deb12u1"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libpcre2-8-0/copyright",
+          "/var/lib/dpkg/info/libpcre2-8-0:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "GHSA-22jq-vg5j-6vgg",
+        "severity": "Medium",
+        "url": "https://github.com/advisories/GHSA-22jq-vg5j-6vgg",
+        "packages": [
+          "ip-address 10.2.0"
+        ],
+        "fixes": [
+          "10.2.1"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "npm"
+        ],
+        "locations": [
+          "/usr/local/lib/node_modules/npm/node_modules/ip-address/package.json"
+        ]
+      },
+      {
+        "id": "GHSA-4xrf-jv44-h6hh",
+        "severity": "Medium",
+        "url": "https://github.com/advisories/GHSA-4xrf-jv44-h6hh",
+        "packages": [
+          "ip-address 10.2.0"
+        ],
+        "fixes": [
+          "10.2.2"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "npm"
+        ],
+        "locations": [
+          "/usr/local/lib/node_modules/npm/node_modules/ip-address/package.json"
+        ]
+      },
+      {
+        "id": "GHSA-8xcm-r25x-g524",
+        "severity": "Medium",
+        "url": "https://github.com/advisories/GHSA-8xcm-r25x-g524",
+        "packages": [
+          "undici 6.27.0"
+        ],
+        "fixes": [
+          "6.28.0"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "npm"
+        ],
+        "locations": [
+          "/usr/local/lib/node_modules/npm/node_modules/undici/package.json"
+        ]
+      },
+      {
+        "id": "GHSA-m8rv-5g2x-5cg5",
+        "severity": "Medium",
+        "url": "https://github.com/advisories/GHSA-m8rv-5g2x-5cg5",
+        "packages": [
+          "undici 6.27.0"
+        ],
+        "fixes": [
+          "6.28.0"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "npm"
+        ],
+        "locations": [
+          "/usr/local/lib/node_modules/npm/node_modules/undici/package.json"
+        ]
+      },
+      {
+        "id": "GHSA-v3r7-h72x-cjcm",
+        "severity": "Medium",
+        "url": "https://github.com/advisories/GHSA-v3r7-h72x-cjcm",
+        "packages": [
+          "undici 6.27.0"
+        ],
+        "fixes": [
+          "6.28.0"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "npm"
+        ],
+        "locations": [
+          "/usr/local/lib/node_modules/npm/node_modules/undici/package.json"
+        ]
+      },
+      {
+        "id": "CVE-2016-2781",
+        "severity": "Low",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2016-2781",
+        "packages": [
+          "coreutils 9.1-1"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/coreutils/copyright",
+          "/var/lib/dpkg/info/coreutils.list",
+          "/var/lib/dpkg/info/coreutils.md5sums",
+          "/var/lib/dpkg/info/coreutils.postinst",
+          "/var/lib/dpkg/info/coreutils.postrm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2024-56433",
+        "severity": "Low",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2024-56433",
+        "packages": [
+          "login 1:4.13+dfsg1-1+deb12u2",
+          "passwd 1:4.13+dfsg1-1+deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/login/copyright",
+          "/usr/share/doc/passwd/copyright",
+          "/var/lib/dpkg/info/login.conffiles",
+          "/var/lib/dpkg/info/login.list",
+          "/var/lib/dpkg/info/login.md5sums",
+          "/var/lib/dpkg/info/login.postinst",
+          "/var/lib/dpkg/info/login.postrm",
+          "/var/lib/dpkg/info/login.preinst",
+          "/var/lib/dpkg/info/login.prerm",
+          "/var/lib/dpkg/info/passwd.conffiles",
+          "/var/lib/dpkg/info/passwd.list",
+          "/var/lib/dpkg/info/passwd.md5sums",
+          "/var/lib/dpkg/info/passwd.postinst",
+          "/var/lib/dpkg/info/passwd.postrm",
+          "/var/lib/dpkg/info/passwd.preinst",
+          "/var/lib/dpkg/info/passwd.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-40228",
+        "severity": "Low",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-40228",
+        "packages": [
+          "libsystemd0 252.39-1~deb12u2",
+          "libudev1 252.39-1~deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libsystemd0/copyright",
+          "/usr/share/doc/libudev1/copyright",
+          "/var/lib/dpkg/info/libsystemd0:arm64.md5sums",
+          "/var/lib/dpkg/info/libudev1:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-57062",
+        "severity": "Low",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-57062",
+        "packages": [
+          "gpgv 2.2.40-1.1+deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/gpgv/copyright",
+          "/var/lib/dpkg/info/gpgv.list",
+          "/var/lib/dpkg/info/gpgv.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-6368",
+        "severity": "Low",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-6368",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-89156",
+        "severity": "Low",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-89156",
+        "packages": [
+          "libpcre2-8-0 10.42-1"
+        ],
+        "fixes": [
+          "10.42-1+deb12u1"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libpcre2-8-0/copyright",
+          "/var/lib/dpkg/info/libpcre2-8-0:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-89160",
+        "severity": "Low",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-89160",
+        "packages": [
+          "libpcre2-8-0 10.42-1"
+        ],
+        "fixes": [
+          "10.42-1+deb12u1"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libpcre2-8-0/copyright",
+          "/var/lib/dpkg/info/libpcre2-8-0:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2005-2541",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2005-2541",
+        "packages": [
+          "tar 1.34+dfsg-1.2+deb12u1"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/tar/copyright",
+          "/var/lib/dpkg/info/tar.list",
+          "/var/lib/dpkg/info/tar.md5sums",
+          "/var/lib/dpkg/info/tar.postinst",
+          "/var/lib/dpkg/info/tar.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2007-5686",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2007-5686",
+        "packages": [
+          "login 1:4.13+dfsg1-1+deb12u2",
+          "passwd 1:4.13+dfsg1-1+deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/login/copyright",
+          "/usr/share/doc/passwd/copyright",
+          "/var/lib/dpkg/info/login.conffiles",
+          "/var/lib/dpkg/info/login.list",
+          "/var/lib/dpkg/info/login.md5sums",
+          "/var/lib/dpkg/info/login.postinst",
+          "/var/lib/dpkg/info/login.postrm",
+          "/var/lib/dpkg/info/login.preinst",
+          "/var/lib/dpkg/info/login.prerm",
+          "/var/lib/dpkg/info/passwd.conffiles",
+          "/var/lib/dpkg/info/passwd.list",
+          "/var/lib/dpkg/info/passwd.md5sums",
+          "/var/lib/dpkg/info/passwd.postinst",
+          "/var/lib/dpkg/info/passwd.postrm",
+          "/var/lib/dpkg/info/passwd.preinst",
+          "/var/lib/dpkg/info/passwd.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2010-4756",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2010-4756",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2011-3374",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2011-3374",
+        "packages": [
+          "apt 2.6.1",
+          "libapt-pkg6.0 2.6.1"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/apt/copyright",
+          "/usr/share/doc/libapt-pkg6.0/copyright",
+          "/var/lib/dpkg/info/apt.conffiles",
+          "/var/lib/dpkg/info/apt.list",
+          "/var/lib/dpkg/info/apt.md5sums",
+          "/var/lib/dpkg/info/apt.postinst",
+          "/var/lib/dpkg/info/apt.postrm",
+          "/var/lib/dpkg/info/apt.preinst",
+          "/var/lib/dpkg/info/apt.prerm",
+          "/var/lib/dpkg/info/apt.shlibs",
+          "/var/lib/dpkg/info/apt.triggers",
+          "/var/lib/dpkg/info/libapt-pkg6.0:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2011-3389",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2011-3389",
+        "packages": [
+          "libgnutls30 3.7.9-2+deb12u7"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libgnutls30/copyright",
+          "/var/lib/dpkg/info/libgnutls30:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2011-4116",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2011-4116",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2013-4392",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2013-4392",
+        "packages": [
+          "libsystemd0 252.39-1~deb12u2",
+          "libudev1 252.39-1~deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libsystemd0/copyright",
+          "/usr/share/doc/libudev1/copyright",
+          "/var/lib/dpkg/info/libsystemd0:arm64.md5sums",
+          "/var/lib/dpkg/info/libudev1:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2017-18018",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2017-18018",
+        "packages": [
+          "coreutils 9.1-1"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/coreutils/copyright",
+          "/var/lib/dpkg/info/coreutils.list",
+          "/var/lib/dpkg/info/coreutils.md5sums",
+          "/var/lib/dpkg/info/coreutils.postinst",
+          "/var/lib/dpkg/info/coreutils.postrm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2018-20796",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2018-20796",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2018-6829",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2018-6829",
+        "packages": [
+          "libgcrypt20 1.10.1-3+deb12u1"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libgcrypt20/copyright",
+          "/var/lib/dpkg/info/libgcrypt20:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2019-1010022",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2019-1010022",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2019-1010023",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2019-1010023",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2019-1010024",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2019-1010024",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2019-1010025",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2019-1010025",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2019-9192",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2019-9192",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2022-0563",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2022-0563",
+        "packages": [
+          "bsdutils 1:2.38.1-5+deb12u3",
+          "libblkid1 2.38.1-5+deb12u3",
+          "libmount1 2.38.1-5+deb12u3",
+          "libsmartcols1 2.38.1-5+deb12u3",
+          "libuuid1 2.38.1-5+deb12u3",
+          "mount 2.38.1-5+deb12u3",
+          "util-linux 2.38.1-5+deb12u3",
+          "util-linux-extra 2.38.1-5+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/bsdutils/copyright",
+          "/usr/share/doc/libblkid1/copyright",
+          "/usr/share/doc/libmount1/copyright",
+          "/usr/share/doc/libsmartcols1/copyright",
+          "/usr/share/doc/libuuid1/copyright",
+          "/usr/share/doc/mount/copyright",
+          "/usr/share/doc/util-linux-extra/copyright",
+          "/usr/share/doc/util-linux/copyright",
+          "/var/lib/dpkg/info/bsdutils.list",
+          "/var/lib/dpkg/info/bsdutils.md5sums",
+          "/var/lib/dpkg/info/libblkid1:arm64.md5sums",
+          "/var/lib/dpkg/info/libmount1:arm64.md5sums",
+          "/var/lib/dpkg/info/libsmartcols1:arm64.md5sums",
+          "/var/lib/dpkg/info/libuuid1:arm64.md5sums",
+          "/var/lib/dpkg/info/mount.list",
+          "/var/lib/dpkg/info/mount.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.conffiles",
+          "/var/lib/dpkg/info/util-linux-extra.list",
+          "/var/lib/dpkg/info/util-linux-extra.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.postinst",
+          "/var/lib/dpkg/info/util-linux-extra.postrm",
+          "/var/lib/dpkg/info/util-linux-extra.preinst",
+          "/var/lib/dpkg/info/util-linux.conffiles",
+          "/var/lib/dpkg/info/util-linux.list",
+          "/var/lib/dpkg/info/util-linux.md5sums",
+          "/var/lib/dpkg/info/util-linux.postinst",
+          "/var/lib/dpkg/info/util-linux.postrm",
+          "/var/lib/dpkg/info/util-linux.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2022-27943",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2022-27943",
+        "packages": [
+          "gcc-12-base 12.2.0-14+deb12u1",
+          "libgcc-s1 12.2.0-14+deb12u1",
+          "libstdc++6 12.2.0-14+deb12u1"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/gcc-12-base/copyright",
+          "/var/lib/dpkg/info/gcc-12-base:arm64.md5sums",
+          "/var/lib/dpkg/info/libgcc-s1:arm64.md5sums",
+          "/var/lib/dpkg/info/libstdc++6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2022-3219",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2022-3219",
+        "packages": [
+          "gpgv 2.2.40-1.1+deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/gpgv/copyright",
+          "/var/lib/dpkg/info/gpgv.list",
+          "/var/lib/dpkg/info/gpgv.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2023-31437",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2023-31437",
+        "packages": [
+          "libsystemd0 252.39-1~deb12u2",
+          "libudev1 252.39-1~deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libsystemd0/copyright",
+          "/usr/share/doc/libudev1/copyright",
+          "/var/lib/dpkg/info/libsystemd0:arm64.md5sums",
+          "/var/lib/dpkg/info/libudev1:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2023-31438",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2023-31438",
+        "packages": [
+          "libsystemd0 252.39-1~deb12u2",
+          "libudev1 252.39-1~deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libsystemd0/copyright",
+          "/usr/share/doc/libudev1/copyright",
+          "/var/lib/dpkg/info/libsystemd0:arm64.md5sums",
+          "/var/lib/dpkg/info/libudev1:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2023-31439",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2023-31439",
+        "packages": [
+          "libsystemd0 252.39-1~deb12u2",
+          "libudev1 252.39-1~deb12u2"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libsystemd0/copyright",
+          "/usr/share/doc/libudev1/copyright",
+          "/var/lib/dpkg/info/libsystemd0:arm64.md5sums",
+          "/var/lib/dpkg/info/libudev1:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2023-31486",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2023-31486",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2024-2236",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2024-2236",
+        "packages": [
+          "libgcrypt20 1.10.1-3+deb12u1"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libgcrypt20/copyright",
+          "/var/lib/dpkg/info/libgcrypt20:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2025-14104",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2025-14104",
+        "packages": [
+          "bsdutils 1:2.38.1-5+deb12u3",
+          "libblkid1 2.38.1-5+deb12u3",
+          "libmount1 2.38.1-5+deb12u3",
+          "libsmartcols1 2.38.1-5+deb12u3",
+          "libuuid1 2.38.1-5+deb12u3",
+          "mount 2.38.1-5+deb12u3",
+          "util-linux 2.38.1-5+deb12u3",
+          "util-linux-extra 2.38.1-5+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/bsdutils/copyright",
+          "/usr/share/doc/libblkid1/copyright",
+          "/usr/share/doc/libmount1/copyright",
+          "/usr/share/doc/libsmartcols1/copyright",
+          "/usr/share/doc/libuuid1/copyright",
+          "/usr/share/doc/mount/copyright",
+          "/usr/share/doc/util-linux-extra/copyright",
+          "/usr/share/doc/util-linux/copyright",
+          "/var/lib/dpkg/info/bsdutils.list",
+          "/var/lib/dpkg/info/bsdutils.md5sums",
+          "/var/lib/dpkg/info/libblkid1:arm64.md5sums",
+          "/var/lib/dpkg/info/libmount1:arm64.md5sums",
+          "/var/lib/dpkg/info/libsmartcols1:arm64.md5sums",
+          "/var/lib/dpkg/info/libuuid1:arm64.md5sums",
+          "/var/lib/dpkg/info/mount.list",
+          "/var/lib/dpkg/info/mount.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.conffiles",
+          "/var/lib/dpkg/info/util-linux-extra.list",
+          "/var/lib/dpkg/info/util-linux-extra.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.postinst",
+          "/var/lib/dpkg/info/util-linux-extra.postrm",
+          "/var/lib/dpkg/info/util-linux-extra.preinst",
+          "/var/lib/dpkg/info/util-linux.conffiles",
+          "/var/lib/dpkg/info/util-linux.list",
+          "/var/lib/dpkg/info/util-linux.md5sums",
+          "/var/lib/dpkg/info/util-linux.postinst",
+          "/var/lib/dpkg/info/util-linux.postrm",
+          "/var/lib/dpkg/info/util-linux.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2025-5278",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2025-5278",
+        "packages": [
+          "coreutils 9.1-1"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/coreutils/copyright",
+          "/var/lib/dpkg/info/coreutils.list",
+          "/var/lib/dpkg/info/coreutils.md5sums",
+          "/var/lib/dpkg/info/coreutils.postinst",
+          "/var/lib/dpkg/info/coreutils.postrm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-48961",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-48961",
+        "packages": [
+          "perl-base 5.36.0-7+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/perl-base/copyright",
+          "/var/lib/dpkg/info/perl-base.list",
+          "/var/lib/dpkg/info/perl-base.md5sums",
+          "/var/lib/dpkg/info/perl-base.postinst",
+          "/var/lib/dpkg/info/perl-base.postrm",
+          "/var/lib/dpkg/info/perl-base.preinst",
+          "/var/lib/dpkg/info/perl-base.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-53910",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-53910",
+        "packages": [
+          "diffutils 1:3.8-4"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/diffutils/copyright",
+          "/var/lib/dpkg/info/diffutils.list",
+          "/var/lib/dpkg/info/diffutils.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-56391",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-56391",
+        "packages": [
+          "coreutils 9.1-1"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/coreutils/copyright",
+          "/var/lib/dpkg/info/coreutils.list",
+          "/var/lib/dpkg/info/coreutils.md5sums",
+          "/var/lib/dpkg/info/coreutils.postinst",
+          "/var/lib/dpkg/info/coreutils.postrm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-56392",
+        "severity": "Negligible",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-56392",
+        "packages": [
+          "coreutils 9.1-1"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/coreutils/copyright",
+          "/var/lib/dpkg/info/coreutils.list",
+          "/var/lib/dpkg/info/coreutils.md5sums",
+          "/var/lib/dpkg/info/coreutils.postinst",
+          "/var/lib/dpkg/info/coreutils.postrm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-19499",
+        "severity": "Unknown",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-19499",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-19542",
+        "severity": "Unknown",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-19542",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-53613",
+        "severity": "Unknown",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-53613",
+        "packages": [
+          "bsdutils 1:2.38.1-5+deb12u3",
+          "libblkid1 2.38.1-5+deb12u3",
+          "libmount1 2.38.1-5+deb12u3",
+          "libsmartcols1 2.38.1-5+deb12u3",
+          "libuuid1 2.38.1-5+deb12u3",
+          "mount 2.38.1-5+deb12u3",
+          "util-linux 2.38.1-5+deb12u3",
+          "util-linux-extra 2.38.1-5+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/bsdutils/copyright",
+          "/usr/share/doc/libblkid1/copyright",
+          "/usr/share/doc/libmount1/copyright",
+          "/usr/share/doc/libsmartcols1/copyright",
+          "/usr/share/doc/libuuid1/copyright",
+          "/usr/share/doc/mount/copyright",
+          "/usr/share/doc/util-linux-extra/copyright",
+          "/usr/share/doc/util-linux/copyright",
+          "/var/lib/dpkg/info/bsdutils.list",
+          "/var/lib/dpkg/info/bsdutils.md5sums",
+          "/var/lib/dpkg/info/libblkid1:arm64.md5sums",
+          "/var/lib/dpkg/info/libmount1:arm64.md5sums",
+          "/var/lib/dpkg/info/libsmartcols1:arm64.md5sums",
+          "/var/lib/dpkg/info/libuuid1:arm64.md5sums",
+          "/var/lib/dpkg/info/mount.list",
+          "/var/lib/dpkg/info/mount.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.conffiles",
+          "/var/lib/dpkg/info/util-linux-extra.list",
+          "/var/lib/dpkg/info/util-linux-extra.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.postinst",
+          "/var/lib/dpkg/info/util-linux-extra.postrm",
+          "/var/lib/dpkg/info/util-linux-extra.preinst",
+          "/var/lib/dpkg/info/util-linux.conffiles",
+          "/var/lib/dpkg/info/util-linux.list",
+          "/var/lib/dpkg/info/util-linux.md5sums",
+          "/var/lib/dpkg/info/util-linux.postinst",
+          "/var/lib/dpkg/info/util-linux.postrm",
+          "/var/lib/dpkg/info/util-linux.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-53615",
+        "severity": "Unknown",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-53615",
+        "packages": [
+          "bsdutils 1:2.38.1-5+deb12u3",
+          "libblkid1 2.38.1-5+deb12u3",
+          "libmount1 2.38.1-5+deb12u3",
+          "libsmartcols1 2.38.1-5+deb12u3",
+          "libuuid1 2.38.1-5+deb12u3",
+          "mount 2.38.1-5+deb12u3",
+          "util-linux 2.38.1-5+deb12u3",
+          "util-linux-extra 2.38.1-5+deb12u3"
+        ],
+        "fixes": [],
+        "states": [
+          "not-fixed"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/bsdutils/copyright",
+          "/usr/share/doc/libblkid1/copyright",
+          "/usr/share/doc/libmount1/copyright",
+          "/usr/share/doc/libsmartcols1/copyright",
+          "/usr/share/doc/libuuid1/copyright",
+          "/usr/share/doc/mount/copyright",
+          "/usr/share/doc/util-linux-extra/copyright",
+          "/usr/share/doc/util-linux/copyright",
+          "/var/lib/dpkg/info/bsdutils.list",
+          "/var/lib/dpkg/info/bsdutils.md5sums",
+          "/var/lib/dpkg/info/libblkid1:arm64.md5sums",
+          "/var/lib/dpkg/info/libmount1:arm64.md5sums",
+          "/var/lib/dpkg/info/libsmartcols1:arm64.md5sums",
+          "/var/lib/dpkg/info/libuuid1:arm64.md5sums",
+          "/var/lib/dpkg/info/mount.list",
+          "/var/lib/dpkg/info/mount.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.conffiles",
+          "/var/lib/dpkg/info/util-linux-extra.list",
+          "/var/lib/dpkg/info/util-linux-extra.md5sums",
+          "/var/lib/dpkg/info/util-linux-extra.postinst",
+          "/var/lib/dpkg/info/util-linux-extra.postrm",
+          "/var/lib/dpkg/info/util-linux-extra.preinst",
+          "/var/lib/dpkg/info/util-linux.conffiles",
+          "/var/lib/dpkg/info/util-linux.list",
+          "/var/lib/dpkg/info/util-linux.md5sums",
+          "/var/lib/dpkg/info/util-linux.postinst",
+          "/var/lib/dpkg/info/util-linux.postrm",
+          "/var/lib/dpkg/info/util-linux.prerm",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-77117",
+        "severity": "Unknown",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-77117",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      },
+      {
+        "id": "CVE-2026-80489",
+        "severity": "Unknown",
+        "url": "https://security-tracker.debian.org/tracker/CVE-2026-80489",
+        "packages": [
+          "libc-bin 2.36-9+deb12u14",
+          "libc6 2.36-9+deb12u14"
+        ],
+        "fixes": [],
+        "states": [
+          "wont-fix"
+        ],
+        "types": [
+          "deb"
+        ],
+        "locations": [
+          "/usr/share/doc/libc-bin/copyright",
+          "/usr/share/doc/libc6/copyright",
+          "/var/lib/dpkg/info/libc-bin.conffiles",
+          "/var/lib/dpkg/info/libc-bin.list",
+          "/var/lib/dpkg/info/libc-bin.md5sums",
+          "/var/lib/dpkg/info/libc-bin.postinst",
+          "/var/lib/dpkg/info/libc-bin.triggers",
+          "/var/lib/dpkg/info/libc6:arm64.conffiles",
+          "/var/lib/dpkg/info/libc6:arm64.md5sums",
+          "/var/lib/dpkg/status"
+        ]
+      }
+    ],
+    "cargoAdvisories": [
+      {
+        "id": "GHSA-cq8v-f236-94qc",
+        "severity": "Low",
+        "url": "https://github.com/advisories/GHSA-cq8v-f236-94qc",
+        "packages": [
+          "rand 0.8.5",
+          "rand 0.9.2"
+        ],
+        "fixes": [
+          "0.8.6",
+          "0.9.3"
+        ],
+        "states": [
+          "fixed"
+        ],
+        "types": [
+          "rust-crate"
+        ],
+        "locations": [
+          "/Cargo.lock"
+        ]
+      }
+    ]
+  },
+  "probes": {
+    "bufferedResponses": {
+      "pausedRealWasmReaders": 2,
+      "blockedPaths": [
+        "/",
+        "/api/profiles"
+      ],
+      "blockedStatus": 503,
+      "healthStatus": 200,
+      "recoveredAfterClosingReaders": true
+    },
+    "duplicateIssues": {
+      "books": 2000,
+      "identifiersPerBook": 20,
+      "groups": 20000,
+      "milliseconds": 24185
+    },
+    "lookupMemory": {
+      "readyRows": 100,
+      "books": 1,
+      "candidateBytesPerRow": 678173,
+      "heapIncreaseBytes": 68694776,
+      "rssIncreaseBytes": 68501504,
+      "responseBytes": 847
+    },
+    "epubPreparation": {
+      "environment": "jsdom, not browser benchmark",
+      "collectionCounts": [
+        100,
+        200,
+        400
+      ],
+      "attributeReads": [
+        10302,
+        40602,
+        161202
+      ],
+      "sourceBytes": [
+        6465,
+        12165,
+        23565
+      ],
+      "milliseconds": [
+        57,
+        360,
+        2299
+      ]
+    },
+    "credentialPermissions": {
+      "directoryMode": "0755",
+      "umask": "0022",
+      "databaseWalShmMode": "0644",
+      "fakeKeyInWal": true
+    }
+  },
+  "inputHashes": {
+    "package-lock.json": "1a5a679ab71643514f7798e7ed7122d366808e096e0e39f12f5d1ef60012929f",
+    "Dockerfile": "9dc7622200660ad473a65f95c1784e5f1b7097fef7e25cf3d016cc40f51e6627",
+    "third_party/boko/Cargo.lock": "d789a99a2b975e4e51085954b76a863777fc42ebc3d0e0768b2f96f3efce45df",
+    "client/vendor/boko/boko.js": "738797303669e53c45c050537640d5535d8c54072b8770a78064e5b080c0d3cc",
+    "client/vendor/boko/boko_bg.wasm": "5cc7e4fcd9116218ad7dcaae54e0dbfdead726069c4e6f40176e63a55605c338"
+  }
+}

@@ -21,9 +21,9 @@ describe("platform-agnostic Docker deployment", () => {
     const lock = read("deploy/docker/base-image.lock");
     const bake = read("deploy/docker/docker-bake.hcl");
 
-    expect(dockerfile).toContain("node:24.20.0-bookworm-slim@sha256:ba849c60");
+    expect(dockerfile).toContain("node:24.21.0-bookworm-slim@sha256:2fe369e9");
     expect(dockerfile).toContain("FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build");
-    expect(lock).toContain("index=sha256:ba849c60");
+    expect(lock).toContain("index=sha256:2fe369e9");
     expect(lock).toMatch(/linux\/amd64=sha256:[a-f0-9]{64}/u);
     expect(lock).toMatch(/linux\/arm64=sha256:[a-f0-9]{64}/u);
     expect(bake).toContain('\"linux/amd64\", \"linux/arm64\"');
@@ -40,6 +40,9 @@ describe("platform-agnostic Docker deployment", () => {
     expect(dockerfile.split(/\r?\n/u)).toContain("    TMPDIR=/cache \\");
     expect(dockerfile).not.toContain("TMPDIR=/cache/tmp");
     expect(dockerfile).toContain("STOPSIGNAL SIGTERM");
+    expect(dockerfile).toContain("chmod 0700 /data");
+    expect(dockerfile).toContain("apt-get upgrade -y --no-install-recommends");
+    expect(dockerfile).toContain("/usr/local/lib/node_modules/npm");
     expect(dockerfile).toContain("HEALTHCHECK");
     expect(compose).toContain('user: "1000:1000"');
     expect(compose).toContain("read_only: true");
@@ -68,6 +71,8 @@ describe("platform-agnostic Docker deployment", () => {
     expect(compose).toContain("CATALOG_MAX_SOURCE_STREAMS");
     expect(compose).toContain('CATALOG_SOURCE_RESPONSE_TIMEOUT_MS: "${CATALOG_SOURCE_RESPONSE_TIMEOUT_MS:-600000}"');
     expect(compose).toContain('CATALOG_COVER_RESPONSE_TIMEOUT_MS: "${CATALOG_COVER_RESPONSE_TIMEOUT_MS:-30000}"');
+    expect(compose).toContain('CATALOG_BUFFERED_RESPONSE_IDLE_TIMEOUT_MS: "${CATALOG_BUFFERED_RESPONSE_IDLE_TIMEOUT_MS:-30000}"');
+    expect(compose).toContain('CATALOG_BUFFERED_RESPONSE_TIMEOUT_MS: "${CATALOG_BUFFERED_RESPONSE_TIMEOUT_MS:-600000}"');
     expect(compose).toContain('CATALOG_SETTINGS_VALIDATION_TIMEOUT_MS: "${CATALOG_SETTINGS_VALIDATION_TIMEOUT_MS:-10000}"');
     expect(compose).toContain('CATALOG_ROOT_POLICY_TIMEOUT_MS: "${CATALOG_ROOT_POLICY_TIMEOUT_MS:-10000}"');
     expect(compose).toContain("CATALOG_MAX_CONCURRENT_SCANS");

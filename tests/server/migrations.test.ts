@@ -40,6 +40,32 @@ function createVersionFixture(databasePath: string, version: number): DatabaseSy
 }
 
 describe("catalog migrations", () => {
+  it("backfills compact confidence evidence while preserving all v20 provider candidates", async () => {
+    const databasePath = path.join(await temporaryDirectory(), "v20-lookup-confidence.sqlite");
+    const database = createVersionFixture(databasePath, 20);
+    database.exec(`
+      INSERT INTO profiles(id, name, enabled, created_at, updated_at)
+      VALUES ('profile', 'Profile', 1, 'created', 'updated');
+      INSERT INTO metadata_lookup_jobs(id, profile_id, provider, status, revision, created_at, updated_at)
+      VALUES ('lookup', 'profile', 'open-library', 'completed', 1, 'created', 'updated');
+    `);
+    const candidate = (confidence: string) => ({ provider: "open-library", candidateId: "/works/OL1W", confidence, metadata: {} });
+    const bodies = [
+      [candidate("low")], [candidate("low"), candidate("high")], [],
+      [null, "bad", { confidence: "low" }, candidate("low")],
+      [candidate("unknown")],
+    ].map((value) => JSON.stringify(value));
+    bodies.forEach((body, rank) => database.prepare(
+      `INSERT INTO metadata_lookup_entries(job_id, book_id, rank, status, attempts, candidates_json, updated_at)
+       VALUES ('lookup', ?, ?, 'ready', 1, ?, 'updated')`,
+    ).run(`book-${rank}`, rank, body));
+    expect(migrateCatalogDatabase(database)).toBe(CATALOG_SCHEMA_VERSION);
+    expect(database.prepare(
+      "SELECT candidates_json, candidates_all_low_confidence FROM metadata_lookup_entries ORDER BY rank",
+    ).all()).toEqual(bodies.map((body, rank) => ({ candidates_json: body, candidates_all_low_confidence: [1, 0, 0, 1, 0][rank] })));
+    database.close();
+  });
+
   it("upgrades v15 durable data with queue, shelf, and annotation tables", async () => {
     const databasePath = path.join(await temporaryDirectory(), "v15-durable-state.sqlite");
     const database = createVersionFixture(databasePath, 15);

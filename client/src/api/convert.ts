@@ -75,82 +75,97 @@ export async function convertEpub(
     throw new AppError("CONVERSION_ABORTED", "Conversion was cancelled");
   }
 
-  const sourceInput = await file.arrayBuffer();
-  if (signal?.aborted) {
-    throw new AppError("CONVERSION_ABORTED", "Conversion was cancelled");
-  }
-  const resolvedOverrides = await resolveConversionOverrides(overrides, signal);
-  const derivative = resolvedOverrides
-    ? await createEphemeralEpubDerivative(new Uint8Array(sourceInput), resolvedOverrides)
-    : undefined;
-  if (signal?.aborted) {
-    throw new AppError("CONVERSION_ABORTED", "Conversion was cancelled");
-  }
-  const input = derivative
-    ? derivative.buffer.slice(derivative.byteOffset, derivative.byteOffset + derivative.byteLength) as ArrayBuffer
-    : sourceInput;
-  const worker = new Worker(new URL("./convert.worker.ts", import.meta.url), { type: "module" });
-
   return new Promise<ConversionResult>((resolve, reject) => {
+    let worker: Worker | undefined;
     let settled = false;
+    let stopped: AppError | undefined;
+    const deadline = performance.now() + CONVERSION_TIMEOUT_MS;
     const finish = (callback: () => void): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       signal?.removeEventListener("abort", onAbort);
-      worker.terminate();
+      worker?.terminate();
       callback();
     };
-    const onAbort = (): void => finish(() => reject(new AppError("CONVERSION_ABORTED", "Conversion was cancelled")));
-    const timeout = window.setTimeout(() => {
-      finish(() => reject(new AppError("CONVERSION_TIMEOUT", "Local conversion exceeded five minutes")));
+    const stop = (reason: AppError): void => {
+      stopped ??= reason;
+      finish(() => reject(stopped));
+    };
+    const onAbort = (): void => stop(new AppError("CONVERSION_ABORTED", "Conversion was cancelled"));
+    const timeout = globalThis.setTimeout(() => {
+      stop(new AppError("CONVERSION_TIMEOUT", "Local conversion exceeded five minutes"));
     }, CONVERSION_TIMEOUT_MS);
+    const checkpoint = (): void => {
+      if (stopped) throw stopped;
+      if (signal?.aborted) throw new AppError("CONVERSION_ABORTED", "Conversion was cancelled");
+      if (performance.now() >= deadline) {
+        throw new AppError("CONVERSION_TIMEOUT", "Local conversion exceeded five minutes");
+      }
+    };
 
     signal?.addEventListener("abort", onAbort, { once: true });
-    worker.addEventListener("error", (event) => {
-      finish(() => reject(new AppError("CONVERSION_FAILED", event.message || "The local converter worker failed")));
-    });
-    worker.addEventListener("message", (event: MessageEvent<WorkerResponse>) => {
-      const response = event.data;
-      if (response.type === "error") {
-        finish(() => reject(new AppError(response.code ?? "CONVERSION_FAILED", response.message, {
-          ...(response.details === undefined ? {} : { details: response.details }),
-        })));
-        return;
-      }
-      if (response.output.byteLength > MAX_KINDLE_ARTIFACT_BYTES) {
-        finish(() => reject(new AppError(
-          "CONVERSION_OUTPUT_TOO_LARGE",
-          "The converted Kindle artifact exceeds the 200 MB browser limit",
-          { details: { outputBytes: response.output.byteLength, maximumBytes: MAX_KINDLE_ARTIFACT_BYTES } },
-        )));
-        return;
-      }
-      const bytes = new Uint8Array(response.output);
-      const signature = new TextDecoder("ascii").decode(bytes.subarray(60, 68));
-      if (bytes.byteLength < 78 || signature !== "BOOKMOBI") {
-        finish(() => reject(new AppError(
-          "CONVERSION_FAILED",
-          "The local converter returned an invalid AZW3 container",
-          { details: { outputBytes: bytes.byteLength, signature } },
-        )));
-        return;
-      }
-      finish(() => resolve({
-        filename: outputName(file.name),
-        blob: new Blob([bytes], { type: "application/vnd.amazon.mobi8-ebook" }),
-        metadata: response.metadata,
-        diagnostics: {
-          engine: "boko-wasm",
-          runsLocally: true,
-          inputBytes: file.size,
-          outputBytes: bytes.byteLength,
-          kindleDocumentType: response.kindleDocumentType,
-          embeddedCover: response.embeddedCover,
-          overridesApplied: response.overridesApplied,
-        },
-      }));
-    });
-    worker.postMessage({ input, overridesApplied: hasConversionOverrides(overrides) }, [input]);
+    // The lifecycle boundary includes source/cover reads and EPUB editing,
+    // before the WASM worker exists. Late reads cannot start a cancelled job.
+    void (async () => {
+      checkpoint();
+      const sourceInput = await file.arrayBuffer();
+      checkpoint();
+      const resolvedOverrides = await resolveConversionOverrides(overrides, signal);
+      checkpoint();
+      const derivative = resolvedOverrides
+        ? await createEphemeralEpubDerivative(new Uint8Array(sourceInput), resolvedOverrides, checkpoint)
+        : undefined;
+      checkpoint();
+      // Derivatives own their exact-size buffer; transfer it without making a
+      // second potentially 200 MiB main-thread copy.
+      const input = derivative ? derivative.buffer as ArrayBuffer : sourceInput;
+      worker = new Worker(new URL("./convert.worker.ts", import.meta.url), { type: "module" });
+      worker.addEventListener("error", (event) => {
+        finish(() => reject(new AppError("CONVERSION_FAILED", event.message || "The local converter worker failed")));
+      });
+      worker.addEventListener("message", (event: MessageEvent<WorkerResponse>) => {
+        const response = event.data;
+        if (response.type === "error") {
+          finish(() => reject(new AppError(response.code ?? "CONVERSION_FAILED", response.message, {
+            ...(response.details === undefined ? {} : { details: response.details }),
+          })));
+          return;
+        }
+        if (response.output.byteLength > MAX_KINDLE_ARTIFACT_BYTES) {
+          finish(() => reject(new AppError(
+            "CONVERSION_OUTPUT_TOO_LARGE",
+            "The converted Kindle artifact exceeds the 200 MB browser limit",
+            { details: { outputBytes: response.output.byteLength, maximumBytes: MAX_KINDLE_ARTIFACT_BYTES } },
+          )));
+          return;
+        }
+        const bytes = new Uint8Array(response.output);
+        const signature = new TextDecoder("ascii").decode(bytes.subarray(60, 68));
+        if (bytes.byteLength < 78 || signature !== "BOOKMOBI") {
+          finish(() => reject(new AppError(
+            "CONVERSION_FAILED",
+            "The local converter returned an invalid AZW3 container",
+            { details: { outputBytes: bytes.byteLength, signature } },
+          )));
+          return;
+        }
+        finish(() => resolve({
+          filename: outputName(file.name),
+          blob: new Blob([bytes], { type: "application/vnd.amazon.mobi8-ebook" }),
+          metadata: response.metadata,
+          diagnostics: {
+            engine: "boko-wasm",
+            runsLocally: true,
+            inputBytes: file.size,
+            outputBytes: bytes.byteLength,
+            kindleDocumentType: response.kindleDocumentType,
+            embeddedCover: response.embeddedCover,
+            overridesApplied: response.overridesApplied,
+          },
+        }));
+      });
+      worker.postMessage({ input, overridesApplied: hasConversionOverrides(overrides) }, [input]);
+    })().catch((error: unknown) => finish(() => reject(error)));
   });
 }

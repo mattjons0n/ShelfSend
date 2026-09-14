@@ -43,6 +43,14 @@
   and the Cargo-locked wasm-bindgen 0.2.108 dependencies.
 - Build command (from `third_party/boko/`):
   `wasm-pack build --target web --out-dir web/pkg --no-default-features --features wasm`
+- Security maintenance (2026-09-14): the Cargo lockfile updates build dependency
+  `rand` 0.8.5 to 0.8.6 and development dependency `rand` 0.9.2 to 0.9.3 for
+  [GHSA-cq8v-f236-94qc](https://github.com/advisories/GHSA-cq8v-f236-94qc).
+  Rebuilding the patched lockfile with the exact toolchain above reproduced
+  both checked-in JavaScript and WASM hashes unchanged. The browser artifacts
+  therefore remain byte-for-byte identical. Native library and focused
+  integration tests passed; [rebuild evidence](outputs/security-hardening-2026-09-14-boko.md)
+  records the commands, results, and dependency rescan.
 
 The checked-in browser artifacts are generated from the included downstream
 source and used through a project-authored Web Worker adapter. The upstream

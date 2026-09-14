@@ -124,7 +124,7 @@ export async function createCatalogService(
   config: CatalogServiceConfig,
   signal?: AbortSignal,
 ): Promise<CatalogService> {
-  await mkdir(path.dirname(path.resolve(config.databasePath)), { recursive: true, mode: 0o750 });
+  await mkdir(path.dirname(path.resolve(config.databasePath)), { recursive: true, mode: 0o700 });
   await mkdir(path.resolve(config.cacheDirectory), { recursive: true, mode: 0o750 });
   const rootPolicy = await AllowedRootPolicy.create(config.allowedRootPaths, {
     signal,

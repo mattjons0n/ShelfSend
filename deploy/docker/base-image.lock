@@ -1,5 +1,5 @@
-# Verified against Docker Hub's official library/node metadata on 2026-08-29.
-image=node:24.20.0-bookworm-slim
-index=sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e
-linux/amd64=sha256:6642ef280aebc09c4541bee0b15c9f89f0f3f3c247ddee79ae1d37eddfdcbbaa
-linux/arm64=sha256:e9b5516b06baeaea9a8e65a7aec6a85fbb960a30b52b66968f2c8092b3e2a3eb
+# Verified against Docker Hub's official library/node metadata on 2026-09-14.
+image=node:24.21.0-bookworm-slim
+index=sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553
+linux/amd64=sha256:713cfbf4a0ac19f40e1bb9919893e126b74a5c8cf5d0623c9f89515c8f74c6fa
+linux/arm64=sha256:8d1405ad7696efa6941cb7745c2aa51d02549b900e4a40fdf212a1b5115dd1b9

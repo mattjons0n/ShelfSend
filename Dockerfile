@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
-# Pinned, multi-architecture OCI index for Node.js 24.20.0 on Debian Bookworm.
+# Pinned, multi-architecture OCI index for Node.js 24.21.0 on Debian Bookworm.
 # The per-platform digests and verification date are recorded in
 # deploy/docker/base-image.lock.
-ARG NODE_IMAGE="node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e"
+ARG NODE_IMAGE="node:24.21.0-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
 ARG BUILDPLATFORM
 
 # Build/test outputs are architecture-neutral JavaScript, CSS, and WebAssembly.
@@ -29,7 +29,9 @@ COPY deploy ./deploy
 COPY outputs ./outputs
 
 # Assemble a release image only after the repository's test and build gate.
-RUN npm run check
+# Bound test parallelism for memory-constrained Docker builders; all tests and
+# their existing deadlines remain enabled.
+RUN VITEST_MAX_WORKERS=2 npm run check
 RUN mkdir -p dist/release \
     && npm sbom --sbom-format cyclonedx > dist/release/sbom.cdx.json \
     && npm sbom --sbom-format cyclonedx --omit dev > dist/release/sbom.runtime.cdx.json \
@@ -62,7 +64,9 @@ ENV NODE_ENV=production \
     CATALOG_ROOT_POLICY_TIMEOUT_MS=10000 \
     CATALOG_SETTINGS_VALIDATION_TIMEOUT_MS=10000 \
     CATALOG_SOURCE_RESPONSE_TIMEOUT_MS=600000 \
-    CATALOG_COVER_RESPONSE_TIMEOUT_MS=30000
+    CATALOG_COVER_RESPONSE_TIMEOUT_MS=30000 \
+    CATALOG_BUFFERED_RESPONSE_IDLE_TIMEOUT_MS=30000 \
+    CATALOG_BUFFERED_RESPONSE_TIMEOUT_MS=600000
 
 WORKDIR /app
 LABEL org.opencontainers.image.title="Kindle Bridge" \
@@ -73,7 +77,15 @@ LABEL org.opencontainers.image.title="Kindle Bridge" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.source="${SOURCE_URL}"
 
-RUN mkdir -p /data /cache /libraries /usr/share/kindle-bridge/source \
+# Apply distribution security fixes published after the pinned base build.
+# npm remains available in the build stage; the server and recovery scripts
+# need only Node and the standard shell/archive utilities at runtime.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /opt/yarn-v1.22.22 /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+    && mkdir -p /data /cache /libraries /usr/share/kindle-bridge/source \
+    && chmod 0700 /data \
     && chown -R 1000:1000 /data /cache
 
 COPY --from=build --chown=1000:1000 /app/dist ./dist

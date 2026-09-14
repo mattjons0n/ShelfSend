@@ -6,7 +6,7 @@ interface Migration {
   sql: string;
 }
 
-export const CATALOG_SCHEMA_VERSION = 20;
+export const CATALOG_SCHEMA_VERSION = 21;
 /** Bounded replay window for Settings/configuration mutations per profile. */
 export const MAX_CONFIGURATION_WRITES_PER_PROFILE = 1_000;
 /** Unreferenced stable identities retained per root after confirmed scans. */
@@ -784,6 +784,28 @@ export const CATALOG_MIGRATIONS: readonly Migration[] = [
           AND length(CAST(shelf_ids_json AS BLOB)) <= 2048
         )
       ) STRICT;
+    `,
+  },
+  {
+    version: 21,
+    name: "compact metadata lookup confidence evidence",
+    sql: `
+      ALTER TABLE metadata_lookup_entries ADD COLUMN candidates_all_low_confidence INTEGER
+        NOT NULL DEFAULT 0 CHECK(candidates_all_low_confidence IN (0, 1));
+      -- Backfill one bounded entry at a time inside SQLite. Do not hydrate
+      -- retained provider response bodies into the application process.
+      UPDATE metadata_lookup_entries SET candidates_all_low_confidence = (
+        SELECT coalesce(min(json_extract(candidate.value, '$.confidence') = 'low'), 0)
+        FROM json_each(candidates_json) AS candidate
+        WHERE CASE WHEN candidate.type = 'object' THEN
+          json_extract(candidate.value, '$.provider') IN ('google-books', 'open-library', 'hardcover')
+          AND json_type(candidate.value, '$.candidateId') = 'text'
+          AND json_extract(candidate.value, '$.confidence') IN ('high', 'medium', 'low')
+          AND json_type(candidate.value, '$.metadata') = 'object'
+        ELSE 0 END
+      );
+      CREATE INDEX metadata_lookup_entries_book_updated_idx
+        ON metadata_lookup_entries(book_id, updated_at DESC, job_id) WHERE status = 'ready';
     `,
   },
 ];

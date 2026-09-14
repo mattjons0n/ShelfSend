@@ -71,4 +71,23 @@ describe("derived catalog issue model", () => {
       }),
     ]);
   });
+
+  it("derives the full allowed 20,000 pair groups without quadratic accumulated-group searches", () => {
+    const size = 2_000;
+    const facts = Array.from({ length: size }, (_, index) => book(`book-${index}`, {
+      contentHash: undefined,
+      identifiers: Array.from({ length: 20 }, (_, identifier) => {
+        const distance = Math.floor(identifier / 2) + 1;
+        const partner = (index + (identifier % 2 === 0 ? distance : size - distance)) % size;
+        return `pair-${Math.min(index, partner)}-${Math.max(index, partner)}`;
+      }),
+    }));
+    const started = performance.now();
+    const issues = deriveCatalogIssues("prf-one", facts);
+    expect(issues).toHaveLength(20_000);
+    expect(issues.every((issue) => issue.reasonCode === "duplicate-identifier" && issue.bookIds.length === 2)).toBe(true);
+    // The reproduced implementation took 24 seconds for these accepted inputs.
+    // Leave broad headroom for CI while catching its event-loop-blocking growth.
+    expect(performance.now() - started).toBeLessThan(8_000);
+  }, 15_000);
 });

@@ -95,6 +95,8 @@ export interface CatalogHttpOptions {
   coverResponseTimeoutMs: number;
   maxConcurrentBufferedResponses: number;
   bufferedResponseWaitTimeoutMs: number;
+  bufferedResponseIdleTimeoutMs: number;
+  bufferedResponseTimeoutMs: number;
   requestsPerMinutePerAddress: number;
   settingsValidationTimeoutMs: number;
   shutdownDrainTimeoutMs: number;
@@ -123,6 +125,8 @@ const DEFAULT_OPTIONS: Readonly<CatalogHttpOptions> = {
   coverResponseTimeoutMs: 30_000,
   maxConcurrentBufferedResponses: 2,
   bufferedResponseWaitTimeoutMs: 10_000,
+  bufferedResponseIdleTimeoutMs: 30_000,
+  bufferedResponseTimeoutMs: 10 * 60_000,
   requestsPerMinutePerAddress: 600,
   settingsValidationTimeoutMs: 10_000,
   shutdownDrainTimeoutMs: 20_000,
@@ -212,6 +216,11 @@ export class CatalogHttpServer {
   private activeRequests = 0;
   private activeSourceStreams = 0;
   private activeBufferedResponses = 0;
+  private readonly responseOwners = new WeakMap<ServerResponse, IncomingMessage["socket"]>();
+  private readonly deliveryGuards = new WeakMap<ServerResponse, {
+    release: () => void;
+    expired: Set<() => void>;
+  }>();
   private readonly bufferedResponseWaiters: BufferedResponseWaiter[] = [];
   private shuttingDown = false;
   private listenPromise: Promise<{ hostname: string; port: number }> | null = null;
@@ -238,6 +247,11 @@ export class CatalogHttpServer {
     private readonly metadataCoverStore?: MetadataCoverStore,
   ) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
+    for (const value of [this.options.bufferedResponseIdleTimeoutMs, this.options.bufferedResponseTimeoutMs]) {
+      if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new RangeError("Buffered response timeouts must be positive integers.");
+      }
+    }
     if (!Number.isSafeInteger(this.options.settingsValidationTimeoutMs) || this.options.settingsValidationTimeoutMs <= 0) {
       throw new RangeError("Settings validation timeout must be a positive integer.");
     }
@@ -327,8 +341,13 @@ export class CatalogHttpServer {
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    // Pipelined responses may not receive response.socket until every earlier
+    // response finishes. Retain their owner so timeout also retires queued bytes.
+    this.responseOwners.set(response, request.socket);
     const requestId = randomBytes(8).toString("hex");
     let release: (() => void) | null = null;
+    let handlerFinished = false;
+    let responseFinished = false;
     try {
       this.applySecurityHeaders(response);
       if (this.shuttingDown) {
@@ -339,6 +358,13 @@ export class CatalogHttpServer {
         return;
       }
       release = this.acquireRequest(request);
+      const releaseRequest = release;
+      const responseDone = (): void => {
+        responseFinished = true;
+        if (handlerFinished) releaseRequest();
+      };
+      response.once("finish", responseDone);
+      response.once("close", responseDone);
       const host = this.assertHost(request);
       const origin = this.assertOrigin(request, host);
       if (origin) response.setHeader("Access-Control-Allow-Origin", origin);
@@ -397,7 +423,12 @@ export class CatalogHttpServer {
         error: { code: mapped.code, message: mapped.message, requestId },
       });
     } finally {
-      release?.();
+      // SSE has its own bounded long-lived leases. Every ordinary response
+      // keeps its request slot until its bytes drain or the socket closes.
+      const eventStream = String(response.getHeader("Content-Type") ?? "").split(";", 1)[0] === "text/event-stream";
+      handlerFinished = true;
+      if (eventStream || responseFinished || response.destroyed || response.writableFinished) release?.();
+      else if (release) this.guardResponseDelivery(response, release);
     }
   }
 
@@ -666,7 +697,7 @@ export class CatalogHttpServer {
       return;
     }
     if (segments[2] === "series") {
-      this.routeSeries(response, url, profileId, segments.slice(3), method);
+      await this.withBufferedResponse(response, () => this.routeSeries(response, url, profileId, segments.slice(3), method));
       return;
     }
     if (segments[2] === "hardcover") {
@@ -674,15 +705,15 @@ export class CatalogHttpServer {
       return;
     }
     if (segments[2] === "send-queue") {
-      await this.routeSendQueue(request, response, url, profileId, segments.slice(3));
+      await this.withBufferedResponse(response, () => this.routeSendQueue(request, response, url, profileId, segments.slice(3)));
       return;
     }
     if (segments[2] === "shelves") {
-      await this.routeSmartShelves(request, response, url, profileId, segments.slice(3));
+      await this.withBufferedResponse(response, () => this.routeSmartShelves(request, response, url, profileId, segments.slice(3)));
       return;
     }
     if (segments[2] === "issues") {
-      await this.routeCatalogIssues(request, response, url, profileId, segments.slice(3));
+      await this.withBufferedResponse(response, () => this.routeCatalogIssues(request, response, url, profileId, segments.slice(3)));
       return;
     }
     if (segments[2] === "metadata-lookup-jobs") {
@@ -803,6 +834,46 @@ export class CatalogHttpServer {
   ): Promise<void> {
     const method = request.method ?? "GET";
     this.requireProfile(profileId);
+    if (segments.length === 2 && segments[1] === "run" && method === "POST") {
+      const jobId = metadataLookupJobId(segments[0]);
+      requireEmptyJson(await readJson(request, this.options.maxJsonBodyBytes));
+      // Provider waits do not occupy a delivery slot. Hydrate its durable
+      // result page only after acquiring capacity for the outgoing bytes.
+      await this.metadataLookupWorker.runStep(profileId, jobId, this.options.maxCatalogJsonResponseBytes, false);
+      await this.withBufferedResponse(response, () => {
+        const job = this.database.getMetadataLookupJob(profileId, jobId, true, {
+          maximumBytes: this.options.maxCatalogJsonResponseBytes,
+        });
+        if (!job) throw new HttpError(404, "not_found", "Metadata lookup job not found.");
+        this.events.publish({
+          type: "metadata-lookup.updated", profileId, jobId,
+          data: { status: job.status, revision: job.revision, pending: job.pending, ready: job.ready, failed: job.failed },
+        });
+        sendJson(response, 200, job, this.options.maxCatalogJsonResponseBytes);
+      });
+      return;
+    }
+    await this.withBufferedResponse(response, () => this.routeMetadataLookupJobState(request, response, url, profileId, segments));
+  }
+
+  private async withBufferedResponse(response: ServerResponse, operation: () => void | Promise<void>): Promise<void> {
+    const release = await this.acquireBufferedResponse(response);
+    try {
+      await operation();
+    } catch (error) {
+      release();
+      throw error;
+    }
+  }
+
+  private async routeMetadataLookupJobState(
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    profileId: string,
+    segments: string[],
+  ): Promise<void> {
+    const method = request.method ?? "GET";
     if (segments.length === 0 && method === "GET") {
       const allowed = new Set(["limit", "offset"]);
       for (const key of url.searchParams.keys()) {
@@ -826,7 +897,9 @@ export class CatalogHttpServer {
     }
     if (segments.length === 0 && method === "POST") {
       const input = validateMetadataLookupJob(await readJson(request, this.options.maxJsonBodyBytes));
-      const result = this.database.createMetadataLookupJob(profileId, input, requiredIdempotencyKey(request));
+      const result = this.database.createMetadataLookupJob(
+        profileId, input, requiredIdempotencyKey(request), this.options.maxCatalogJsonResponseBytes,
+      );
       if (result.applied) {
         this.events.publish({ type: "metadata-lookup.updated", profileId, jobId: result.job.id, data: { status: "queued" } });
       }
@@ -836,7 +909,21 @@ export class CatalogHttpServer {
     if (segments.length >= 1) {
       const jobId = metadataLookupJobId(segments[0]);
       if (segments.length === 1 && method === "GET") {
-        const job = this.database.getMetadataLookupJob(profileId, jobId);
+        const allowed = new Set(["entryOffset", "expectedRevision"]);
+        for (const key of url.searchParams.keys()) {
+          if (!allowed.has(key) || url.searchParams.getAll(key).length !== 1) {
+            throw new HttpError(400, "invalid_query", `Unsupported or repeated metadata lookup field: ${key}.`);
+          }
+        }
+        const job = this.database.getMetadataLookupJob(profileId, jobId, true, {
+          maximumBytes: this.options.maxCatalogJsonResponseBytes,
+          ...(url.searchParams.has("entryOffset") ? {
+            entryOffset: boundedInteger(url.searchParams.get("entryOffset"), "entryOffset", 0, MAX_METADATA_LOOKUP_JOB_BOOKS),
+          } : {}),
+          ...(url.searchParams.has("expectedRevision") ? {
+            expectedRevision: boundedInteger(url.searchParams.get("expectedRevision"), "expectedRevision", 1, Number.MAX_SAFE_INTEGER),
+          } : {}),
+        });
         if (!job) throw new HttpError(404, "not_found", "Metadata lookup job not found.");
         sendJson(response, 200, job, this.options.maxCatalogJsonResponseBytes);
         return;
@@ -844,7 +931,9 @@ export class CatalogHttpServer {
       if (segments.length === 2 && ["resume", "pause", "cancel", "retry"].includes(segments[1]) && method === "POST") {
         const input = validateMetadataLookupJobControl(await readJson(request, this.options.maxJsonBodyBytes));
         const action = segments[1] as "resume" | "pause" | "cancel" | "retry";
-        const result = this.database.controlMetadataLookupJob(profileId, jobId, action, input.expectedRevision);
+        const result = this.database.controlMetadataLookupJob(
+          profileId, jobId, action, input.expectedRevision, this.options.maxCatalogJsonResponseBytes,
+        );
         if (result.applied) {
           this.events.publish({
             type: "metadata-lookup.updated",
@@ -854,18 +943,6 @@ export class CatalogHttpServer {
           });
         }
         sendJson(response, 200, result.job, this.options.maxCatalogJsonResponseBytes);
-        return;
-      }
-      if (segments.length === 2 && segments[1] === "run" && method === "POST") {
-        requireEmptyJson(await readJson(request, this.options.maxJsonBodyBytes));
-        const job = await this.metadataLookupWorker.runStep(profileId, jobId);
-        this.events.publish({
-          type: "metadata-lookup.updated",
-          profileId,
-          jobId,
-          data: { status: job.status, revision: job.revision, pending: job.pending, ready: job.ready, failed: job.failed },
-        });
-        sendJson(response, 200, job, this.options.maxCatalogJsonResponseBytes);
         return;
       }
     }
@@ -1578,9 +1655,10 @@ export class CatalogHttpServer {
     const cached = this.metadataCandidates.get(cacheKey);
     let candidate = cached && cached.expiresAt > Date.now() ? cached.candidate : undefined;
     if (input.lookupJobId) {
-      const job = this.database.getMetadataLookupJob(profileId, input.lookupJobId);
-      const entry = job?.entries.find((item) => item.bookId === bookId && item.status === "ready");
-      candidate = entry?.candidates.find((item) => item.provider === input.provider && item.candidateId === input.candidateId);
+      const entry = this.database.getMetadataLookupEntry(profileId, input.lookupJobId, bookId);
+      candidate = entry?.status === "ready"
+        ? entry.candidates.find((item) => item.provider === input.provider && item.candidateId === input.candidateId)
+        : undefined;
     }
     if (!candidate) {
       this.metadataCandidates.delete(cacheKey);
@@ -2355,9 +2433,63 @@ export class CatalogHttpServer {
     };
     response.once("finish", release);
     response.once("close", release);
+    const clearDeliveryGuard = this.guardResponseDelivery(response, release);
     if (response.destroyed || response.writableFinished) {
       release();
+      clearDeliveryGuard();
       throw new HttpError(503, "buffered_response_aborted", "The buffered response client disconnected.");
+    }
+    return () => { release(); clearDeliveryGuard(); };
+  }
+
+  private guardResponseDelivery(response: ServerResponse, onExpired: () => void): () => void {
+    const existing = this.deliveryGuards.get(response);
+    if (existing) {
+      existing.expired.add(onExpired);
+      return existing.release;
+    }
+    const expired = new Set([onExpired]);
+    let released = false;
+    // Keep these guards until the bytes have drained, not merely until end()
+    // queues them. A client which stops reading must not own a global slot
+    // forever. The socket timeout observes I/O progress; the generous absolute
+    // deadline also bounds deliberately trickled responses.
+    const socket = response.socket ?? this.responseOwners.get(response);
+    const previousSocketTimeout = socket?.timeout ?? 0;
+    const expire = (): void => {
+      if (released) return;
+      response.destroy();
+      // Closing only a socketless queued response leaves its body retained in
+      // Node's outgoing queue behind a long-lived response such as SSE.
+      if (socket && !socket.destroyed && !response.socket) socket.destroy();
+      // A pipelined response may not have a socket yet. destroy() then need
+      // not emit close, so capacity retirement cannot depend on that event.
+      for (const callback of expired) callback();
+      release();
+    };
+    const deadline = setTimeout(expire, this.options.bufferedResponseTimeoutMs);
+    deadline.unref();
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      clearTimeout(deadline);
+      response.off("finish", release);
+      response.off("close", release);
+      response.off("timeout", expire);
+      // Do not leave a response-specific timeout on a reused keep-alive socket.
+      // Node installs its keep-alive timeout after the response finishes.
+      if (socket && !socket.destroyed && socket.timeout === this.options.bufferedResponseIdleTimeoutMs) {
+        socket.setTimeout(previousSocketTimeout);
+      }
+      this.deliveryGuards.delete(response);
+    };
+    response.once("finish", release);
+    response.once("close", release);
+    response.once("timeout", expire);
+    socket?.setTimeout(this.options.bufferedResponseIdleTimeoutMs);
+    this.deliveryGuards.set(response, { release, expired });
+    if (response.destroyed || response.writableFinished) {
+      release();
     }
     return release;
   }
@@ -2462,8 +2594,15 @@ export class CatalogHttpServer {
     }
     if (!details?.isFile() || details.size > 16 * 1024 * 1024) throw new HttpError(404, "not_found", "Asset not found.");
     const releaseLargeResponse = await this.acquireBufferedResponse(response);
+    const readAbort = new AbortController();
+    const closed = (): void => readAbort.abort();
+    response.once("close", closed);
     try {
-      const data = await readFile(filename);
+      if (response.destroyed) readAbort.abort();
+      const data = await readFile(filename, { signal: readAbort.signal });
+      if (response.destroyed || readAbort.signal.aborted) {
+        throw new HttpError(503, "buffered_response_aborted", "The buffered response client disconnected.");
+      }
       response.writeHead(200, {
         "Content-Type": staticMediaType(filename),
         "Content-Length": data.length,
@@ -2473,6 +2612,8 @@ export class CatalogHttpServer {
     } catch (error) {
       releaseLargeResponse();
       throw error;
+    } finally {
+      response.off("close", closed);
     }
   }
 }

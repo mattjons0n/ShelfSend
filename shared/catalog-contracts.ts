@@ -373,6 +373,9 @@ export interface MetadataLookupJob {
   /** Collection listings carry counts only; fetch the individual job for its bounded entries. */
   entriesIncluded: boolean;
   entries: MetadataLookupJobEntry[];
+  /** Transport-only continuation; the browser adapter assembles complete jobs transparently. */
+  entryOffset?: number;
+  nextEntryOffset?: number | null;
   total: number;
   pending: number;
   ready: number;

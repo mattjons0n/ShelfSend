@@ -19,6 +19,47 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("HttpCatalogClient", () => {
+  it.each(["get", "create", "control", "run"])("transparently assembles revision-bound metadata lookup pages after %s", async (action) => {
+    const entry = (rank: number) => ({
+      jobId: "lookup", bookId: `book-${rank}`, rank, status: "ready", attempts: 1,
+      candidates: [{ provider: "open-library", candidateId: `/works/OL${rank}W`, confidence: "low", metadata: { title: `Book ${rank}` } }],
+      errorCode: null, acceptedAt: null, updatedAt: "updated",
+    });
+    const job = {
+      id: "lookup", profileId: "profile", provider: "open-library", status: "completed", revision: 7,
+      entriesIncluded: true, total: 3, pending: 0, ready: 3, noResults: 0, failed: 0, cancelled: 0,
+      createdAt: "created", updatedAt: "updated",
+    };
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ ...job, entries: [entry(0)], entryOffset: 0, nextEntryOffset: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ ...job, entries: [entry(1)], entryOffset: 1, nextEntryOffset: 2 }))
+      .mockResolvedValueOnce(jsonResponse({ ...job, entries: [entry(2)], entryOffset: 2, nextEntryOffset: null }));
+    const client = new HttpCatalogClient({ fetch });
+    const result = action === "get" ? await client.getMetadataLookupJob("profile", "lookup")
+      : action === "create" ? await client.createMetadataLookupJob("profile", { provider: "open-library", bookIds: ["book-0"] }, "create")
+      : action === "control" ? await client.controlMetadataLookupJob("profile", "lookup", "resume", { expectedRevision: 6 })
+      : await client.runMetadataLookupJobStep("profile", "lookup");
+    expect(result.entries).toEqual([entry(0), entry(1), entry(2)]);
+    expect(result.nextEntryOffset).toBeNull();
+    expect(fetch.mock.calls[1]?.[0]).toContain("?entryOffset=1&expectedRevision=7");
+    expect(fetch.mock.calls[2]?.[0]).toContain("?entryOffset=2&expectedRevision=7");
+  });
+
+  it("restarts lookup paging after a concurrent revision change without replaying its mutation", async () => {
+    const entry = (rank: number) => ({ jobId: "lookup", bookId: `book-${rank}`, rank, status: "ready", candidates: [] });
+    const job = { id: "lookup", profileId: "profile", status: "completed", entriesIncluded: true, total: 2 };
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ ...job, revision: 1, entries: [entry(0)], entryOffset: 0, nextEntryOffset: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ error: { code: "conflict", message: "Metadata lookup job changed" } }, 409))
+      .mockResolvedValueOnce(jsonResponse({ ...job, revision: 2, entries: [entry(0)], entryOffset: 0, nextEntryOffset: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ ...job, revision: 2, entries: [entry(1)], entryOffset: 1, nextEntryOffset: null }));
+    const client = new HttpCatalogClient({ fetch });
+    const result = await client.runMetadataLookupJobStep("profile", "lookup");
+    expect(result).toMatchObject({ revision: 2, entries: [{ bookId: "book-0" }, { bookId: "book-1" }] });
+    expect(fetch.mock.calls.filter(([, request]) => request?.method === "POST")).toHaveLength(1);
+    expect(fetch.mock.calls[3]?.[0]).toContain("expectedRevision=2");
+  });
+
   it("retains Hardcover series suggestions, fractional positions, sanitized credentials and durable provider errors", async () => {
     const candidate = { provider: "hardcover", candidateId: "hc:42:7", confidence: "high", metadata: { title: "Book", series: "Series", seriesIndex: 1.5 } };
     const fetch = vi.fn()

@@ -58,6 +58,18 @@ export function catalogConfigFromEnvironment(environment: NodeJS.ProcessEnv = pr
         1_000,
         5 * 60 * 1_000,
       ),
+      bufferedResponseIdleTimeoutMs: integerEnvironment(
+        environment.CATALOG_BUFFERED_RESPONSE_IDLE_TIMEOUT_MS,
+        30_000,
+        1_000,
+        60 * 60 * 1_000,
+      ),
+      bufferedResponseTimeoutMs: integerEnvironment(
+        environment.CATALOG_BUFFERED_RESPONSE_TIMEOUT_MS,
+        10 * 60 * 1_000,
+        1_000,
+        60 * 60 * 1_000,
+      ),
       requestsPerMinutePerAddress: integerEnvironment(environment.CATALOG_RATE_PER_MINUTE, 600, 1, 100_000),
       settingsValidationTimeoutMs: integerEnvironment(
         environment.CATALOG_SETTINGS_VALIDATION_TIMEOUT_MS,

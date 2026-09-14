@@ -2,15 +2,41 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CatalogDatabase } from "../../server/catalog-database.js";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
+
+function observeCandidateHydration(database: CatalogDatabase): () => number {
+  let bytes = 0;
+  const observe = (row: Record<string, unknown> | undefined) => {
+    if (typeof row?.candidates_json === "string") bytes += Buffer.byteLength(row.candidates_json);
+  };
+  const prepare = database.database.prepare.bind(database.database);
+  vi.spyOn(database.database, "prepare").mockImplementation((sql) => {
+    const statement = prepare(sql);
+    const all = statement.all.bind(statement);
+    const get = statement.get.bind(statement);
+    vi.spyOn(statement, "all").mockImplementation((...args) => {
+      const rows = all(...args);
+      rows.forEach(observe);
+      return rows;
+    });
+    vi.spyOn(statement, "get").mockImplementation((...args) => {
+      const row = get(...args);
+      observe(row);
+      return row;
+    });
+    return statement;
+  });
+  return () => bytes;
+}
 
 async function fixture() {
   const directory = await mkdtemp(path.join(tmpdir(), "kindle-health-state-"));
@@ -48,6 +74,72 @@ async function fixture() {
 }
 
 describe("catalog health and durable metadata lookup state", () => {
+  it("uses newest compact confidence facts without hydrating any retained provider result bodies", async () => {
+    const state = await fixture();
+    const book = state.addBook("One", true, true);
+    for (let index = 0; index < 20; index += 1) {
+      const job = state.database.createMetadataLookupJob(state.profile.id, {
+        provider: "open-library", bookIds: [book.bookId],
+      }, `retained-${index}`).job;
+      state.database.controlMetadataLookupJob(state.profile.id, job.id, "resume", job.revision);
+      state.database.claimMetadataLookupEntries(state.profile.id, job.id, 1);
+      state.database.completeMetadataLookupEntry(state.profile.id, job.id, book.bookId, [{
+        provider: "open-library", candidateId: `/works/OL${index}W`,
+        confidence: index === 19 ? "high" : "low",
+        metadata: { title: "Provider title", description: "Retained provider text. ".repeat(2_500) },
+      }], null);
+      // Exact timestamp ties must still prefer the newer job's durable order.
+      state.database.database.prepare("UPDATE metadata_lookup_entries SET updated_at = ? WHERE job_id = ?")
+        .run("2026-09-14T12:00:00.000Z", job.id);
+    }
+    const bytes = observeCandidateHydration(state.database);
+    expect(state.database.listCatalogIssues(state.profile.id, { type: "low-confidence-provider-data", limit: 1 }).items)
+      .toEqual([]);
+    expect(bytes()).toBe(0);
+    state.database.close();
+  });
+
+  it("pages candidate hydration before loading bodies and preserves every result and exact-entry import", async () => {
+    const state = await fixture();
+    const books = [state.addBook("One", true, true), state.addBook("Two", true, true), state.addBook("Atomic", true, true)];
+    const job = state.database.createMetadataLookupJob(state.profile.id, {
+      provider: "open-library", bookIds: books.map(({ bookId }) => bookId),
+    }, "paged-results").job;
+    state.database.controlMetadataLookupJob(state.profile.id, job.id, "resume", job.revision);
+    for (let index = 0; index < books.length; index += 1) {
+      state.database.claimMetadataLookupEntries(state.profile.id, job.id, 1);
+      state.database.completeMetadataLookupEntry(state.profile.id, job.id, books[index]!.bookId, [{
+        provider: "open-library", candidateId: `/works/OL${index}W`, confidence: "low",
+        metadata: { title: `Provider ${index}`, description: "x".repeat(2_000) },
+      }], null);
+    }
+    const bytes = observeCandidateHydration(state.database);
+    const first = state.database.getMetadataLookupJob(state.profile.id, job.id, true, { maximumBytes: 3_500 })!;
+    expect(first.entries).toHaveLength(1);
+    expect(first.nextEntryOffset).toBe(1);
+    expect(bytes()).toBeLessThan(3_500);
+    expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThanOrEqual(3_500);
+    const second = state.database.getMetadataLookupJob(state.profile.id, job.id, true, {
+      maximumBytes: 3_500, entryOffset: first.nextEntryOffset!, expectedRevision: first.revision,
+    })!;
+    const third = state.database.getMetadataLookupJob(state.profile.id, job.id, true, {
+      maximumBytes: 3_500, entryOffset: second.nextEntryOffset!, expectedRevision: first.revision,
+    })!;
+    expect([...first.entries, ...second.entries, ...third.entries].map(({ bookId }) => bookId))
+      .toEqual(books.map(({ bookId }) => bookId));
+    expect(third.nextEntryOffset).toBeNull();
+    expect(state.database.getMetadataLookupEntry("another-profile", job.id, books[2]!.bookId)).toBeNull();
+    expect(state.database.getMetadataLookupEntry(state.profile.id, job.id, books[2]!.bookId)?.candidates[0]?.candidateId)
+      .toBe("/works/OL2W");
+    state.database.importBookMetadata(state.profile.id, books[2]!.bookId, {
+      expectedRevision: 0, expectedContentHash: "a".repeat(64), changes: { title: "Provider 2" },
+    }, null, { jobId: job.id, provider: "open-library", candidateId: "/works/OL2W" });
+    expect(() => state.database.getMetadataLookupJob(state.profile.id, job.id, true, {
+      maximumBytes: 3_500, entryOffset: 1, expectedRevision: first.revision,
+    })).toThrow(/changed/u);
+    state.database.close();
+  });
+
   it("reports a root-level outage even when no source row was ever indexed", async () => {
     const state = await fixture();
     state.database.database

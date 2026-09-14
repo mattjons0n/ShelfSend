@@ -2,6 +2,7 @@ import { MAX_BOOK_SOURCE_BYTES } from "./book-limits";
 import type { HardcoverBook, HardcoverBookLookup, HardcoverLibrarySeriesPage } from "../../shared/hardcover-contracts.js";
 export type { HardcoverBook, HardcoverBookLookup, HardcoverLibrarySeriesPage } from "../../shared/hardcover-contracts.js";
 import {
+  MAX_METADATA_LOOKUP_JOB_BOOKS,
   MAX_CATALOG_JSON_RESPONSE_BYTES,
   MAX_MATCH_INDEX_RESPONSE_BYTES,
   MAX_STALE_MANAGED_TOKENS_PER_BOOK,
@@ -1259,6 +1260,10 @@ function parseMetadataLookupJob(value: unknown): MetadataLookupJob {
     revision: numberValue(item.revision),
     entriesIncluded: item.entriesIncluded !== false,
     entries,
+    ...(item.entryOffset === undefined ? {} : { entryOffset: numberValue(item.entryOffset) }),
+    ...(item.nextEntryOffset === undefined ? {} : {
+      nextEntryOffset: item.nextEntryOffset === null ? null : numberValue(item.nextEntryOffset),
+    }),
     total: numberValue(item.total, entries.length),
     pending: numberValue(item.pending),
     ready: numberValue(item.ready),
@@ -2232,10 +2237,10 @@ export class HttpCatalogClient implements CatalogApi {
   }
 
   async getMetadataLookupJob(profileId: string, jobId: string, signal?: AbortSignal): Promise<MetadataLookupJob> {
-    return parseMetadataLookupJob(await this.#json(
+    return this.#hydrateMetadataLookupJob(profileId, parseMetadataLookupJob(await this.#json(
       `/profiles/${encodePath(profileId)}/metadata-lookup-jobs/${encodePath(jobId)}`,
       { signal },
-    ));
+    )), signal);
   }
 
   async createMetadataLookupJob(
@@ -2244,13 +2249,13 @@ export class HttpCatalogClient implements CatalogApi {
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<MetadataLookupJob> {
-    return parseMetadataLookupJob(await this.#json(
+    return this.#hydrateMetadataLookupJob(profileId, parseMetadataLookupJob(await this.#json(
       `/profiles/${encodePath(profileId)}/metadata-lookup-jobs`,
       {
         ...this.#write("POST", input, signal),
         headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
       },
-    ));
+    )), signal);
   }
 
   async controlMetadataLookupJob(
@@ -2260,10 +2265,10 @@ export class HttpCatalogClient implements CatalogApi {
     input: MetadataLookupJobControlInput,
     signal?: AbortSignal,
   ): Promise<MetadataLookupJob> {
-    return parseMetadataLookupJob(await this.#json(
+    return this.#hydrateMetadataLookupJob(profileId, parseMetadataLookupJob(await this.#json(
       `/profiles/${encodePath(profileId)}/metadata-lookup-jobs/${encodePath(jobId)}/${action}`,
       this.#write("POST", input, signal),
-    ));
+    )), signal);
   }
 
   async runMetadataLookupJobStep(
@@ -2271,10 +2276,55 @@ export class HttpCatalogClient implements CatalogApi {
     jobId: string,
     signal?: AbortSignal,
   ): Promise<MetadataLookupJob> {
-    return parseMetadataLookupJob(await this.#json(
+    return this.#hydrateMetadataLookupJob(profileId, parseMetadataLookupJob(await this.#json(
       `/profiles/${encodePath(profileId)}/metadata-lookup-jobs/${encodePath(jobId)}/run`,
       this.#write("POST", {}, signal),
-    ));
+    )), signal);
+  }
+
+  async #hydrateMetadataLookupJob(
+    profileId: string,
+    initial: MetadataLookupJob,
+    signal?: AbortSignal,
+  ): Promise<MetadataLookupJob> {
+    let first = initial;
+    // Concurrent edits are handled with the same optimistic revision guard as
+    // review mutations. Retry a fresh snapshot without replaying any mutation.
+    for (let attempt = 0; ; attempt += 1) {
+      const entries = [...first.entries];
+      let page = first;
+      try {
+        while (page.nextEntryOffset !== undefined && page.nextEntryOffset !== null) {
+          const offset = page.nextEntryOffset;
+          if (!Number.isSafeInteger(offset) || offset !== entries.length || offset <= (page.entryOffset ?? 0)
+            || offset >= first.total || first.total > MAX_METADATA_LOOKUP_JOB_BOOKS) {
+            throw new CatalogApiError(502, "INVALID_METADATA_LOOKUP_PAGE", "The catalog returned an invalid lookup continuation");
+          }
+          page = parseMetadataLookupJob(await this.#json(
+            `/profiles/${encodePath(profileId)}/metadata-lookup-jobs/${encodePath(first.id)}?entryOffset=${offset}&expectedRevision=${first.revision}`,
+            { signal },
+          ));
+          if (page.id !== first.id || page.profileId !== first.profileId || page.revision !== first.revision
+            || page.entryOffset !== offset || page.total !== first.total || page.entries.length === 0
+            || entries.length + page.entries.length > first.total) {
+            throw new CatalogApiError(502, "INVALID_METADATA_LOOKUP_PAGE", "The catalog returned an inconsistent lookup page");
+          }
+          entries.push(...page.entries);
+        }
+        if (first.nextEntryOffset !== undefined && (entries.length !== first.total
+          || new Set(entries.map(({ bookId }) => bookId)).size !== entries.length
+          || entries.some(({ rank }, index) => rank !== index))) {
+          throw new CatalogApiError(502, "INVALID_METADATA_LOOKUP_PAGE", "The catalog returned incomplete lookup entries");
+        }
+        return { ...first, entries, ...(first.nextEntryOffset === undefined ? {} : { nextEntryOffset: null }) };
+      } catch (error) {
+        if (!(error instanceof CatalogApiError) || error.status !== 409 || error.code !== "conflict" || attempt >= 2) throw error;
+        first = parseMetadataLookupJob(await this.#json(
+          `/profiles/${encodePath(profileId)}/metadata-lookup-jobs/${encodePath(first.id)}`,
+          { signal },
+        ));
+      }
+    }
   }
 
   async getBook(profileId: string, bookId: string, signal?: AbortSignal): Promise<CatalogBook> {

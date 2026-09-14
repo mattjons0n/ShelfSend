@@ -134,6 +134,8 @@ describe("catalog process lifecycle", () => {
     expect(config.http?.settingsValidationTimeoutMs).toBe(10_000);
     expect(config.http?.sourceResponseTimeoutMs).toBe(10 * 60 * 1_000);
     expect(config.http?.coverResponseTimeoutMs).toBe(30_000);
+    expect(config.http?.bufferedResponseIdleTimeoutMs).toBe(30_000);
+    expect(config.http?.bufferedResponseTimeoutMs).toBe(600_000);
     expect(config.rootPolicyValidationTimeoutMs).toBe(10_000);
     expect(config.scanner).toMatchObject({
       maxEntriesPerRoot: 1_000_000,

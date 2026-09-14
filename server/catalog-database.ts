@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { openPrivateCatalogDatabase } from "./private-database.js";
 import path from "node:path";
 import { hardcoverLookupIdentifiers } from "../shared/hardcover-identifiers.js";
 
@@ -741,7 +742,7 @@ export class CatalogDatabase {
   readonly schemaVersion: number;
 
   constructor(filename: string) {
-    this.database = new DatabaseSync(filename);
+    this.database = openPrivateCatalogDatabase(filename);
     this.database.exec(`
       PRAGMA foreign_keys = ON;
       PRAGMA busy_timeout = 5000;
@@ -3635,11 +3636,17 @@ export class CatalogDatabase {
     }
     const lookupRows = this.database
       .prepare(
-        `SELECT e.book_id, e.candidates_json, e.accepted_at, e.updated_at, e.job_id
-         FROM metadata_lookup_entries e
-         JOIN metadata_lookup_jobs j ON j.id = e.job_id
-         WHERE j.profile_id = ? AND e.status = 'ready'
-         ORDER BY e.book_id, e.updated_at DESC, j.rowid DESC, e.job_id DESC
+        `WITH ranked AS (
+           SELECT e.book_id, e.candidates_all_low_confidence, e.accepted_at,
+             row_number() OVER (
+               PARTITION BY e.book_id ORDER BY e.updated_at DESC, j.rowid DESC, e.job_id DESC
+             ) AS newest
+           FROM metadata_lookup_entries e
+           JOIN metadata_lookup_jobs j ON j.id = e.job_id
+           WHERE j.profile_id = ? AND e.status = 'ready'
+         )
+         SELECT book_id, candidates_all_low_confidence, accepted_at
+         FROM ranked WHERE newest = 1
          LIMIT ?`,
       )
       .all(profileId, (MAX_METADATA_LOOKUP_JOBS_PER_PROFILE * MAX_METADATA_LOOKUP_JOB_BOOKS) + 1) as Row[];
@@ -3649,11 +3656,9 @@ export class CatalogDatabase {
     const lowConfidenceByBook = new Map<string, boolean>();
     for (const row of lookupRows) {
       const bookId = String(row.book_id);
-      if (lowConfidenceByBook.has(bookId)) continue;
-      const candidates = parseMetadataCandidates(row.candidates_json);
       lowConfidenceByBook.set(
         bookId,
-        row.accepted_at === null && candidates.length > 0 && candidates.every(({ confidence }) => confidence === "low"),
+        row.accepted_at === null && bool(row.candidates_all_low_confidence),
       );
     }
     const bookFacts: CatalogIssueBookFacts[] = rows.map((row) => ({
@@ -3797,6 +3802,7 @@ export class CatalogDatabase {
     profileId: string,
     input: MetadataLookupJobInput,
     idempotencyKey: string,
+    maximumBytes = MAX_CATALOG_JSON_RESPONSE_BYTES,
   ): { job: MetadataLookupJob; applied: boolean } {
     const bookIds = [...new Set(input.bookIds)];
     if (
@@ -3816,7 +3822,7 @@ export class CatalogDatabase {
         if (String(replay.request_hash) !== requestHash) {
           throw new CatalogDatabaseError("conflict", "Idempotency key was already used for different metadata lookup work.");
         }
-        const job = this.getMetadataLookupJob(profileId, String(replay.job_id));
+        const job = this.getMetadataLookupJob(profileId, String(replay.job_id), true, { maximumBytes });
         if (!job) throw new CatalogDatabaseError("invalid_state", "Metadata lookup replay target is unavailable.");
         return { job, applied: false };
       }
@@ -3865,7 +3871,7 @@ export class CatalogDatabase {
            )`,
         )
         .run(profileId, profileId, MAX_DURABLE_MUTATION_REPLAYS_PER_PROFILE);
-      return { job: this.getMetadataLookupJob(profileId, jobId) as MetadataLookupJob, applied: true };
+      return { job: this.getMetadataLookupJob(profileId, jobId, true, { maximumBytes }) as MetadataLookupJob, applied: true };
     });
   }
 
@@ -3888,7 +3894,39 @@ export class CatalogDatabase {
     };
   }
 
-  getMetadataLookupJob(profileId: string, jobId: string, includeEntries = true): MetadataLookupJob | null {
+  getMetadataLookupJob(
+    profileId: string,
+    jobId: string,
+    includeEntries = true,
+    options: { entryOffset?: number; maximumBytes?: number; expectedRevision?: number } = {},
+  ): MetadataLookupJob | null {
+    // A savepoint also nests inside create/control transactions and holds one
+    // SQLite snapshot while byte lengths and their exact bodies are read.
+    this.database.exec("SAVEPOINT metadata_lookup_read");
+    try {
+      const job = this.readMetadataLookupJob(profileId, jobId, includeEntries, options);
+      this.database.exec("RELEASE metadata_lookup_read");
+      return job;
+    } catch (error) {
+      this.database.exec("ROLLBACK TO metadata_lookup_read; RELEASE metadata_lookup_read");
+      throw error;
+    }
+  }
+
+  private readMetadataLookupJob(
+    profileId: string,
+    jobId: string,
+    includeEntries: boolean,
+    options: { entryOffset?: number; maximumBytes?: number; expectedRevision?: number },
+  ): MetadataLookupJob | null {
+    const entryOffset = options.entryOffset ?? 0;
+    const maximumBytes = Math.min(options.maximumBytes ?? MAX_CATALOG_JSON_RESPONSE_BYTES, MAX_CATALOG_JSON_RESPONSE_BYTES);
+    if (!Number.isSafeInteger(entryOffset) || entryOffset < 0 || entryOffset > MAX_METADATA_LOOKUP_JOB_BOOKS) {
+      throw new RangeError("Metadata lookup entry offset is invalid.");
+    }
+    if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+      throw new RangeError("Metadata lookup response byte limit is invalid.");
+    }
     const row = this.database
       .prepare(
         `SELECT j.*,
@@ -3905,30 +3943,18 @@ export class CatalogDatabase {
       )
       .get(profileId, jobId) as Row | undefined;
     if (!row) return null;
-    const entryRows = includeEntries
-      ? this.database
-          .prepare("SELECT * FROM metadata_lookup_entries WHERE job_id = ? ORDER BY rank, book_id")
-          .all(jobId) as Row[]
-      : [];
-    const entries = entryRows.map((entry): MetadataLookupJobEntry => ({
-      jobId,
-      bookId: String(entry.book_id),
-      rank: Number(entry.rank),
-      status: String(entry.status) as MetadataLookupJobEntry["status"],
-      attempts: Number(entry.attempts),
-      candidates: parseMetadataCandidates(entry.candidates_json),
-      errorCode: stringOrNull(entry.error_code) as MetadataLookupErrorCode | null,
-      acceptedAt: stringOrNull(entry.accepted_at),
-      updatedAt: String(entry.updated_at),
-    }));
-    return {
+    if (options.expectedRevision !== undefined && Number(row.revision) !== options.expectedRevision) {
+      throw new CatalogDatabaseError("conflict", "Metadata lookup job changed; reload before continuing.");
+    }
+    const job: MetadataLookupJob = {
       id: String(row.id),
       profileId: String(row.profile_id),
       provider: String(row.provider) as MetadataProvider,
       status: String(row.status) as MetadataLookupJobStatus,
       revision: Number(row.revision),
       entriesIncluded: includeEntries,
-      entries,
+      entries: [],
+      ...(includeEntries ? { entryOffset, nextEntryOffset: null } : {}),
       total: Number(row.total_count),
       pending: Number(row.pending_count),
       ready: Number(row.ready_count),
@@ -3938,6 +3964,61 @@ export class CatalogDatabase {
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
     };
+    if (!includeEntries) return job;
+    // Select only compact row headers/byte lengths before deciding which
+    // bodies fit. A retained job can hold 100 x 2 MiB without making any read
+    // hydrate that entire allowance before the HTTP response bound is checked.
+    const entryRows = this.database.prepare(
+      `SELECT book_id, rank, status, attempts, error_code, accepted_at, updated_at,
+         octet_length(candidates_json) AS candidate_bytes
+       FROM metadata_lookup_entries WHERE job_id = ? ORDER BY rank, book_id LIMIT ? OFFSET ?`,
+    ).all(jobId, MAX_METADATA_LOOKUP_JOB_BOOKS, entryOffset) as Row[];
+    // null is at least as long as every possible continuation (0..100).
+    let bytes = Buffer.byteLength(JSON.stringify(job), "utf8");
+    const loadCandidates = this.database.prepare(
+      "SELECT candidates_json FROM metadata_lookup_entries WHERE job_id = ? AND book_id = ?",
+    );
+    for (const entry of entryRows) {
+      const mapped = this.mapMetadataLookupEntry(jobId, entry);
+      const entryBytes = Buffer.byteLength(JSON.stringify(mapped), "utf8")
+        + Number(entry.candidate_bytes) - 2 + (job.entries.length > 0 ? 1 : 0);
+      if (bytes + entryBytes > maximumBytes) {
+        if (job.entries.length === 0) {
+          throw new CatalogDatabaseError("too_large", "A metadata lookup entry exceeds the configured response limit.");
+        }
+        job.nextEntryOffset = entryOffset + job.entries.length;
+        break;
+      }
+      const body = loadCandidates.get(jobId, String(entry.book_id)) as Row;
+      mapped.candidates = parseMetadataCandidates(body.candidates_json);
+      job.entries.push(mapped);
+      bytes += entryBytes;
+    }
+    return job;
+  }
+
+  /** Import/review authority needs only this exact book's retained candidates. */
+  getMetadataLookupEntry(profileId: string, jobId: string, bookId: string): MetadataLookupJobEntry | null {
+    const row = this.database.prepare(
+      `SELECT e.* FROM metadata_lookup_entries e
+       JOIN metadata_lookup_jobs j ON j.id = e.job_id
+       WHERE j.profile_id = ? AND j.id = ? AND e.book_id = ?`,
+    ).get(profileId, jobId, bookId) as Row | undefined;
+    return row ? this.mapMetadataLookupEntry(jobId, row) : null;
+  }
+
+  private mapMetadataLookupEntry(jobId: string, entry: Row): MetadataLookupJobEntry {
+    return {
+      jobId,
+      bookId: String(entry.book_id),
+      rank: Number(entry.rank),
+      status: String(entry.status) as MetadataLookupJobEntry["status"],
+      attempts: Number(entry.attempts),
+      candidates: parseMetadataCandidates(entry.candidates_json),
+      errorCode: stringOrNull(entry.error_code) as MetadataLookupErrorCode | null,
+      acceptedAt: stringOrNull(entry.accepted_at),
+      updatedAt: String(entry.updated_at),
+    };
   }
 
   controlMetadataLookupJob(
@@ -3945,6 +4026,7 @@ export class CatalogDatabase {
     jobId: string,
     action: "resume" | "pause" | "cancel" | "retry",
     expectedRevision: number,
+    maximumBytes = MAX_CATALOG_JSON_RESPONSE_BYTES,
   ): { job: MetadataLookupJob; applied: boolean } {
     const applied = this.transaction(() => {
       const row = this.database
@@ -3969,7 +4051,7 @@ export class CatalogDatabase {
       if (action === "retry") {
         const retried = this.database
           .prepare(
-            `UPDATE metadata_lookup_entries SET status = 'pending', candidates_json = '[]',
+            `UPDATE metadata_lookup_entries SET status = 'pending', candidates_json = '[]', candidates_all_low_confidence = 0,
              error_code = NULL, accepted_at = NULL, updated_at = ? WHERE job_id = ? AND status = 'failed'`,
           )
           .run(timestamp, jobId);
@@ -3983,7 +4065,7 @@ export class CatalogDatabase {
       } else if (action === "cancel") {
         this.database
           .prepare(
-            `UPDATE metadata_lookup_entries SET status = 'cancelled', candidates_json = '[]',
+            `UPDATE metadata_lookup_entries SET status = 'cancelled', candidates_json = '[]', candidates_all_low_confidence = 0,
              error_code = NULL, updated_at = ? WHERE job_id = ? AND status IN ('pending', 'searching')`,
           )
           .run(timestamp, jobId);
@@ -3993,7 +4075,7 @@ export class CatalogDatabase {
         .run(target, timestamp, jobId);
       return true;
     });
-    return { job: this.getMetadataLookupJob(profileId, jobId) as MetadataLookupJob, applied };
+    return { job: this.getMetadataLookupJob(profileId, jobId, true, { maximumBytes }) as MetadataLookupJob, applied };
   }
 
   claimMetadataLookupEntries(profileId: string, jobId: string, maximum = 2): MetadataLookupClaim[] {
@@ -4017,7 +4099,7 @@ export class CatalogDatabase {
           this.database
             .prepare(
               `UPDATE metadata_lookup_entries SET status = 'failed', attempts = attempts + 1,
-               candidates_json = '[]', error_code = 'book-unavailable', updated_at = ?
+               candidates_json = '[]', candidates_all_low_confidence = 0, error_code = 'book-unavailable', updated_at = ?
                WHERE job_id = ? AND book_id = ? AND status = 'pending'`,
             )
             .run(timestamp, jobId, bookId);
@@ -4063,6 +4145,7 @@ export class CatalogDatabase {
     bookId: string,
     candidates: readonly CatalogMetadataCandidate[],
     errorCode: MetadataLookupErrorCode | null,
+    includeEntries = true,
   ): MetadataLookupJob {
     if (candidates.length > MAX_METADATA_CANDIDATES) throw new RangeError("Too many metadata candidates were returned.");
     this.transaction(() => {
@@ -4087,16 +4170,19 @@ export class CatalogDatabase {
       const timestamp = now();
       this.database
         .prepare(
-          `UPDATE metadata_lookup_entries SET status = ?, candidates_json = ?, error_code = ?, updated_at = ?
+          `UPDATE metadata_lookup_entries SET status = ?, candidates_json = ?,
+             candidates_all_low_confidence = ?, error_code = ?, updated_at = ?
            WHERE job_id = ? AND book_id = ? AND status = 'searching'`,
         )
-        .run(status, errorCode ? "[]" : encoded, errorCode, timestamp, jobId, bookId);
+        .run(status, errorCode ? "[]" : encoded,
+          !errorCode && candidates.length > 0 && candidates.every(({ confidence }) => confidence === "low") ? 1 : 0,
+          errorCode, timestamp, jobId, bookId);
       this.database
         .prepare("UPDATE metadata_lookup_jobs SET revision = revision + 1, updated_at = ? WHERE id = ?")
         .run(timestamp, jobId);
       this.finalizeMetadataLookupJob(jobId, timestamp);
     });
-    return this.getMetadataLookupJob(profileId, jobId) as MetadataLookupJob;
+    return this.getMetadataLookupJob(profileId, jobId, includeEntries) as MetadataLookupJob;
   }
 
   private finalizeMetadataLookupJob(jobId: string, timestamp: string): void {

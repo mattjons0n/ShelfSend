@@ -2,68 +2,11 @@
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { crc32 } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 import { prepareKoboArtifact } from "../../client/src/kobo/prepare";
 import { MAX_BOOK_SOURCE_BYTES } from "../../client/src/book-limits";
 
-const encoder = new TextEncoder();
-
-function zip(entries: Readonly<Record<string, string | Uint8Array>>): Uint8Array {
-  const locals: Uint8Array[] = [];
-  const centrals: Uint8Array[] = [];
-  let offset = 0;
-  for (const [name, value] of Object.entries(entries)) {
-    const nameBytes = encoder.encode(name);
-    const data = typeof value === "string" ? encoder.encode(value) : value;
-    const local = new Uint8Array(30 + nameBytes.length + data.length);
-    const view = new DataView(local.buffer);
-    view.setUint32(0, 0x04034b50, true);
-    view.setUint16(4, 20, true);
-    view.setUint32(14, crc32(data), true);
-    view.setUint32(18, data.length, true);
-    view.setUint32(22, data.length, true);
-    view.setUint16(26, nameBytes.length, true);
-    local.set(nameBytes, 30);
-    local.set(data, 30 + nameBytes.length);
-    locals.push(local);
-    const central = new Uint8Array(46 + nameBytes.length);
-    const centralView = new DataView(central.buffer);
-    centralView.setUint32(0, 0x02014b50, true);
-    centralView.setUint16(4, 20, true);
-    centralView.setUint16(6, 20, true);
-    centralView.setUint32(16, crc32(data), true);
-    centralView.setUint32(20, data.length, true);
-    centralView.setUint32(24, data.length, true);
-    centralView.setUint16(28, nameBytes.length, true);
-    centralView.setUint32(42, offset, true);
-    central.set(nameBytes, 46);
-    centrals.push(central);
-    offset += local.length;
-  }
-  const centralSize = centrals.reduce((sum, entry) => sum + entry.length, 0);
-  const result = new Uint8Array(offset + centralSize + 22);
-  let cursor = 0;
-  for (const part of [...locals, ...centrals]) { result.set(part, cursor); cursor += part.length; }
-  const end = new DataView(result.buffer, cursor);
-  end.setUint32(0, 0x06054b50, true);
-  end.setUint16(8, locals.length, true);
-  end.setUint16(10, locals.length, true);
-  end.setUint32(12, centralSize, true);
-  end.setUint32(16, offset, true);
-  return result;
-}
-
-function epub(extra: Readonly<Record<string, string | Uint8Array>> = {}): Uint8Array {
-  return zip({
-    mimetype: "application/epub+zip",
-    "META-INF/container.xml": '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
-    "OPS/book.opf": '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">urn:uuid:original-book</dc:identifier><dc:title>Original title</dc:title><dc:creator>Original Author</dc:creator><dc:language>en</dc:language></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="font" href="font.ttf" media-type="font/ttf"/></manifest><spine><itemref idref="chapter"/></spine></package>',
-    "OPS/chapter.xhtml": '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title></head><body><p>Original text</p></body></html>',
-    "OPS/font.ttf": new Uint8Array([1, 2, 3, 4]),
-    ...extra,
-  });
-}
+import { epubFixture as epub, zipFixture as zip } from "./epub-fixture";
 
 function fixture(bytes = epub()) {
   const source = new Blob([Uint8Array.from(bytes)], { type: "application/epub+zip" });
@@ -153,6 +96,20 @@ describe("Kobo EPUB preparation", () => {
     await expect(prepareKoboArtifact(book, source, { overrides: { identifiers: ["ISBN:9781234567897"] } })).rejects.toMatchObject({ message: expect.stringMatching(/font.*identifier|identifier.*font/iu) });
   });
 
+  it("validates nested font declarations without repeating descendant scans", async () => {
+    const nested = `<encryption>${"<EncryptedData>".repeat(200)}<EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/><CipherData><CipherReference URI="OPS/font.ttf"/></CipherData>${"</EncryptedData>".repeat(200)}</encryption>`;
+    const { source, book } = fixture(epub({ "META-INF/encryption.xml": nested }));
+    const query = vi.spyOn(Element.prototype, "querySelectorAll");
+    try {
+      await expect(prepareKoboArtifact(book, source)).resolves.toMatchObject({ overridesApplied: false });
+      expect(query).not.toHaveBeenCalled();
+    } finally { query.mockRestore(); }
+    // Multiple methods within any one subtree remain unverifiable, even if
+    // each nested declaration would be acceptable in isolation.
+    const ambiguous = fixture(epub({ "META-INF/encryption.xml": nested.replace("<CipherData>", '<EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/><CipherData>') }));
+    await expect(prepareKoboArtifact(ambiguous.book, ambiguous.source)).rejects.toMatchObject({ code: "CONVERSION_INVALID_INPUT" });
+  });
+
   it("rejects encrypted ZIP members even without encryption.xml", async () => {
     const bytes = epub();
     const end = new DataView(bytes.buffer, bytes.length - 22);
@@ -198,5 +155,30 @@ describe("Kobo EPUB preparation", () => {
       await vi.advanceTimersByTimeAsync(120_000);
       await timeoutAssertion;
     } finally { vi.useRealTimers(); }
+  });
+
+  it("cancels while applying a series-only override and never announces a ready artifact", async () => {
+    const metadata = Array.from({ length: 1000 }, (_, index) => `<meta property="belongs-to-collection" id="series-${index}">Series ${index}</meta>`).join("");
+    const { source, book } = fixture(epub({}, metadata));
+    const controller = new AbortController();
+    const phases: string[] = [];
+    const get = Element.prototype.getAttribute;
+    let visited = 0;
+    const spy = vi.spyOn(Element.prototype, "getAttribute").mockImplementation(function (this: Element, name) {
+      const value = get.call(this, name);
+      if (name === "property" && value === "belongs-to-collection" && ++visited === 20) {
+        globalThis.setTimeout(() => controller.abort(), 0);
+      }
+      return value;
+    });
+    try {
+      await expect(prepareKoboArtifact(book, source, {
+        signal: controller.signal, overrides: { seriesIndex: 2 }, onPhase: (phase) => phases.push(phase),
+      })).rejects.toMatchObject({ code: "CONVERSION_ABORTED" });
+      // Let the paused editor see the same stopped state after the outer race.
+      await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 10));
+      expect(visited).toBeLessThan(150);
+      expect(phases).toEqual(["preparing", "validating"]);
+    } finally { spy.mockRestore(); }
   });
 });

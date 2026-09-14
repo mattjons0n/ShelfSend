@@ -49,6 +49,45 @@ interface ReplacementEntry {
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
+/** Yield actual tasks (not only microtasks), so Cancel and deadlines can run. */
+class EpubWork {
+  private operations = 0;
+
+  constructor(readonly checkpoint: () => void) {}
+
+  tick(): boolean {
+    this.checkpoint();
+    this.operations += 1;
+    return this.operations % 128 === 0;
+  }
+
+  async pause(): Promise<void> {
+    this.checkpoint();
+    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+    this.checkpoint();
+  }
+}
+
+async function visitChildren(
+  parent: Element,
+  work: EpubWork,
+  visit: (element: Element) => void,
+): Promise<void> {
+  // Do not repeatedly enumerate a live HTMLCollection while editing it.
+  for (let element = parent.firstElementChild; element;) {
+    const next = element.nextElementSibling;
+    visit(element);
+    element = next;
+    if (work.tick()) await work.pause();
+  }
+}
+
+function directChildren(parent: Element): Element[] {
+  const result: Element[] = [];
+  for (let element = parent.firstElementChild; element; element = element.nextElementSibling) result.push(element);
+  return result;
+}
+
 function malformed(message: string, details?: Readonly<Record<string, unknown>>): never {
   throw new AppError("CONVERSION_INVALID_INPUT", `Cannot apply EPUB metadata overrides: ${message}`, {
     ...(details === undefined ? {} : { details }),
@@ -102,7 +141,8 @@ function findEndOfCentralDirectory(bytes: Uint8Array): number {
   return malformed("the archive has no valid end-of-central-directory record");
 }
 
-function parseZip(bytes: Uint8Array): ZipArchive {
+async function parseZip(bytes: Uint8Array, work: EpubWork): Promise<ZipArchive> {
+  await work.pause();
   const eocd = findEndOfCentralDirectory(bytes);
   if (uint16(bytes, eocd + 4) !== 0 || uint16(bytes, eocd + 6) !== 0) {
     malformed("multi-disk ZIP archives are unsupported");
@@ -122,6 +162,7 @@ function parseZip(bytes: Uint8Array): ZipArchive {
   const byName = new Map<string, ZipEntry>();
   let cursor = centralOffset;
   for (let index = 0; index < entryCount; index += 1) {
+    if (work.tick()) await work.pause();
     if (uint32(bytes, cursor) !== CENTRAL_SIGNATURE) malformed("a central-directory entry is invalid");
     requireRange(bytes, cursor, 46, "ZIP central-directory header");
     const flags = uint16(bytes, cursor + 8);
@@ -168,6 +209,7 @@ function parseZip(bytes: Uint8Array): ZipArchive {
   const localOrder = [...entries].sort((left, right) => left.localOffset - right.localOffset);
   if (localOrder[0]?.localOffset !== 0) malformed("the EPUB contains an unsupported archive preamble");
   for (let index = 0; index < localOrder.length; index += 1) {
+    if (work.tick()) await work.pause();
     const entry = localOrder[index] as ZipEntry;
     if (uint32(bytes, entry.localOffset) !== LOCAL_SIGNATURE) malformed("a local ZIP entry is invalid");
     requireRange(bytes, entry.localOffset, 30, "ZIP local header");
@@ -186,27 +228,38 @@ function parseZip(bytes: Uint8Array): ZipArchive {
   return { bytes, entries, byName };
 }
 
-function crc32(bytes: Uint8Array): number {
+const crcTable = Uint32Array.from({ length: 256 }, (_, value) => {
+  for (let bit = 0; bit < 8; bit += 1) value = (value >>> 1) ^ ((value & 1) === 0 ? 0 : 0xedb8_8320);
+  return value >>> 0;
+});
+
+async function crc32(bytes: Uint8Array, work: EpubWork): Promise<number> {
   let crc = 0xffff_ffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 0xedb8_8320);
+  for (let start = 0; start < bytes.byteLength; start += 256 * 1024) {
+    const end = Math.min(bytes.byteLength, start + 256 * 1024);
+    for (let offset = start; offset < end; offset += 1) {
+      crc = (crc >>> 8) ^ (crcTable[(crc ^ bytes[offset]!) & 0xff] as number);
     }
+    if (end < bytes.byteLength) await work.pause();
   }
+  work.checkpoint();
   return (crc ^ 0xffff_ffff) >>> 0;
 }
 
-async function inflateRaw(compressed: Uint8Array, maximumBytes: number): Promise<Uint8Array> {
+async function inflateRaw(compressed: Uint8Array, maximumBytes: number, work: EpubWork): Promise<Uint8Array> {
   if (typeof DecompressionStream === "undefined") {
     malformed("this browser cannot inflate the EPUB metadata entries");
   }
   let stream: ReadableStream<Uint8Array>;
   try {
+    let compressedOffset = 0;
     const compressedStream = new ReadableStream<BufferSource>({
-      start(controller) {
-        controller.enqueue(Uint8Array.from(compressed));
-        controller.close();
+      pull(controller) {
+        work.checkpoint();
+        if (compressedOffset === compressed.byteLength) { controller.close(); return; }
+        const chunk = compressed.subarray(compressedOffset, compressedOffset + 256 * 1024);
+        controller.enqueue(Uint8Array.from(chunk));
+        compressedOffset += chunk.byteLength;
       },
     });
     stream = compressedStream.pipeThrough(new DecompressionStream("deflate-raw"));
@@ -218,7 +271,9 @@ async function inflateRaw(compressed: Uint8Array, maximumBytes: number): Promise
   let total = 0;
   try {
     while (true) {
+      work.checkpoint();
       const result = await reader.read();
+      work.checkpoint();
       if (result.done) break;
       total += result.value.byteLength;
       if (total > maximumBytes) {
@@ -226,10 +281,14 @@ async function inflateRaw(compressed: Uint8Array, maximumBytes: number): Promise
         malformed(`an EPUB metadata entry exceeds ${maximumBytes} bytes`);
       }
       chunks.push(Uint8Array.from(result.value));
+      if (work.tick()) await work.pause();
     }
   } catch (error) {
+    void reader.cancel().catch(() => {});
     if (error instanceof AppError) throw error;
     throw new AppError("CONVERSION_INVALID_INPUT", "Cannot inflate EPUB metadata", { cause: error });
+  } finally {
+    reader.releaseLock();
   }
   const output = new Uint8Array(total);
   let cursor = 0;
@@ -240,7 +299,8 @@ async function inflateRaw(compressed: Uint8Array, maximumBytes: number): Promise
   return output;
 }
 
-async function readEntry(archive: ZipArchive, entry: ZipEntry, maximumBytes: number): Promise<Uint8Array> {
+async function readEntry(archive: ZipArchive, entry: ZipEntry, maximumBytes: number, work: EpubWork): Promise<Uint8Array> {
+  work.checkpoint();
   if ((entry.flags & ENCRYPTED_FLAG) !== 0) malformed("encrypted EPUB entries are unsupported");
   if (entry.uncompressedSize > maximumBytes) malformed(`an EPUB metadata entry exceeds ${maximumBytes} bytes`);
   const localNameLength = uint16(archive.bytes, entry.localOffset + 26);
@@ -248,16 +308,19 @@ async function readEntry(archive: ZipArchive, entry: ZipEntry, maximumBytes: num
   const dataOffset = entry.localOffset + 30 + localNameLength + localExtraLength;
   const compressed = archive.bytes.subarray(dataOffset, dataOffset + entry.compressedSize);
   let output: Uint8Array;
-  if (entry.compression === 0) output = Uint8Array.from(compressed);
-  else if (entry.compression === 8) output = await inflateRaw(compressed, maximumBytes);
+  if (entry.compression === 0) {
+    if (entry.compressedSize !== entry.uncompressedSize) malformed("a stored EPUB entry has inconsistent sizes");
+    output = Uint8Array.from(compressed);
+  } else if (entry.compression === 8) output = await inflateRaw(compressed, maximumBytes, work);
   else malformed(`unsupported compression method ${entry.compression} in EPUB metadata`);
-  if (output.byteLength !== entry.uncompressedSize || crc32(output) !== entry.checksum) {
+  if (output.byteLength !== entry.uncompressedSize || await crc32(output, work) !== entry.checksum) {
     malformed("an EPUB metadata entry failed size or checksum validation");
   }
   return output;
 }
 
-function parseXml(bytes: Uint8Array, context: string): XMLDocument {
+async function parseXml(bytes: Uint8Array, context: string, work: EpubWork): Promise<XMLDocument> {
+  await work.pause();
   let text: string;
   try {
     if (bytes.byteLength >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
@@ -276,11 +339,53 @@ function parseXml(bytes: Uint8Array, context: string): XMLDocument {
   if (document.getElementsByTagName("*").length > 100_000) {
     malformed(`${context} exceeds the 100000-element editing limit`);
   }
+  // Native XML parsing/serialization is synchronous, but remains within the
+  // existing 4 MiB / 100000-element envelope and is bracketed by task yields.
+  await work.pause();
   return document;
 }
 
 function elementsByLocalName(parent: ParentNode, name: string): Element[] {
   return Array.from(parent.querySelectorAll("*")).filter((element) => element.localName === name);
+}
+
+interface EncryptionDeclaration {
+  methods: number;
+  references: number;
+  firstMethod?: Element;
+  firstReference?: Element;
+}
+
+async function encryptionDeclarations(document: XMLDocument, work: EpubWork): Promise<EncryptionDeclaration[]> {
+  const nodes: Element[] = [];
+  const walker = document.createTreeWalker(document, 1 /* SHOW_ELEMENT */);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    nodes.push(node as Element);
+    if (work.tick()) await work.pause();
+  }
+  const summaries = new Map<Element, EncryptionDeclaration>();
+  const declarations: EncryptionDeclaration[] = [];
+  // Aggregate each subtree once. Repeated descendant queries for nested
+  // EncryptedData elements would otherwise repeat work quadratically.
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index] as Element;
+    const summary = summaries.get(node) ?? { methods: 0, references: 0 };
+    if (node.localName === "EncryptionMethod") { summary.methods += 1; summary.firstMethod = node; }
+    if (node.localName === "CipherReference") { summary.references += 1; summary.firstReference = node; }
+    if (node.localName === "EncryptedData") declarations.push(summary);
+    const parent = node.parentElement;
+    if (parent) {
+      const parentSummary = summaries.get(parent) ?? { methods: 0, references: 0 };
+      parentSummary.methods += summary.methods;
+      parentSummary.references += summary.references;
+      parentSummary.firstMethod = summary.firstMethod ?? parentSummary.firstMethod;
+      parentSummary.firstReference = summary.firstReference ?? parentSummary.firstReference;
+      summaries.set(parent, parentSummary);
+    }
+    summaries.delete(node);
+    if (work.tick()) await work.pause();
+  }
+  return declarations.reverse();
 }
 
 function firstByLocalName(parent: ParentNode, name: string): Element {
@@ -307,10 +412,10 @@ function packagePath(container: XMLDocument): string {
   return safeArchivePath(rootfile.getAttribute("full-path") ?? "");
 }
 
-function removeDirectChildren(parent: Element, localName: string): void {
-  Array.from(parent.children)
-    .filter((element) => element.localName === localName)
-    .forEach((element) => element.remove());
+async function removeDirectChildren(parent: Element, localName: string, work: EpubWork): Promise<void> {
+  await visitChildren(parent, work, (element) => {
+    if (element.localName === localName) element.remove();
+  });
 }
 
 function createDc(document: XMLDocument, localName: string, value: string, id?: string): Element {
@@ -324,10 +429,10 @@ function createMeta(document: XMLDocument, metadata: Element): Element {
   return document.createElementNS(metadata.namespaceURI || OPF_NAMESPACE, "meta");
 }
 
-function removeMetaByProperty(metadata: Element, properties: ReadonlySet<string>): void {
-  Array.from(metadata.children)
-    .filter((element) => element.localName === "meta" && properties.has(element.getAttribute("property") ?? ""))
-    .forEach((element) => element.remove());
+async function removeMetaByProperty(metadata: Element, properties: ReadonlySet<string>, work: EpubWork): Promise<void> {
+  await visitChildren(metadata, work, (element) => {
+    if (element.localName === "meta" && properties.has(element.getAttribute("property") ?? "")) element.remove();
+  });
 }
 
 function ensureElementId(element: Element, preferred: string): string {
@@ -337,14 +442,14 @@ function ensureElementId(element: Element, preferred: string): string {
   return preferred;
 }
 
-function addFileAs(document: XMLDocument, metadata: Element, targetId: string, value: string | null): void {
-  Array.from(metadata.children)
-    .filter((element) => (
+async function addFileAs(document: XMLDocument, metadata: Element, targetId: string, value: string | null, work: EpubWork): Promise<void> {
+  await visitChildren(metadata, work, (element) => {
+    if (
       element.localName === "meta"
       && element.getAttribute("property") === "file-as"
       && element.getAttribute("refines") === `#${targetId}`
-    ))
-    .forEach((element) => element.remove());
+    ) element.remove();
+  });
   if (value === null) return;
   const meta = createMeta(document, metadata);
   meta.setAttribute("refines", `#${targetId}`);
@@ -353,54 +458,55 @@ function addFileAs(document: XMLDocument, metadata: Element, targetId: string, v
   metadata.append(meta);
 }
 
-function setScalar(
+async function setScalar(
   document: XMLDocument,
   metadata: Element,
   localName: string,
   value: string | null | undefined,
-): void {
+  work: EpubWork,
+): Promise<void> {
   if (value === undefined) return;
-  removeDirectChildren(metadata, localName);
+  await removeDirectChildren(metadata, localName, work);
   if (value !== null) metadata.append(createDc(document, localName, value));
 }
 
-function applyMetadata(document: XMLDocument, overrides: ResolvedConversionOverrides): void {
+async function applyMetadata(document: XMLDocument, overrides: ResolvedConversionOverrides, work: EpubWork): Promise<void> {
   const metadata = firstByLocalName(document, "metadata");
   if (overrides.title !== undefined) {
-    removeDirectChildren(metadata, "title");
+    await removeDirectChildren(metadata, "title", work);
     metadata.append(createDc(document, "title", overrides.title, "kindle-bridge-title"));
   }
   if (overrides.titleSort !== undefined) {
-    const title = Array.from(metadata.children).find((element) => element.localName === "title")
+    const title = directChildren(metadata).find((element) => element.localName === "title")
       ?? malformed("the EPUB has no title to receive the title-sort override");
-    addFileAs(document, metadata, ensureElementId(title, "kindle-bridge-title"), overrides.titleSort);
+    await addFileAs(document, metadata, ensureElementId(title, "kindle-bridge-title"), overrides.titleSort, work);
   }
   if (overrides.authors !== undefined) {
-    removeDirectChildren(metadata, "creator");
+    await removeDirectChildren(metadata, "creator", work);
     overrides.authors.forEach((author, index) => {
       metadata.append(createDc(document, "creator", author, `kindle-bridge-author-${index + 1}`));
     });
   }
   if (overrides.authorSort !== undefined) {
-    const author = Array.from(metadata.children).find((element) => element.localName === "creator");
+    const author = directChildren(metadata).find((element) => element.localName === "creator");
     if (!author) {
       if (overrides.authorSort !== null) malformed("the EPUB has no author to receive the author-sort override");
     } else {
-      addFileAs(document, metadata, ensureElementId(author, "kindle-bridge-author-1"), overrides.authorSort);
+      await addFileAs(document, metadata, ensureElementId(author, "kindle-bridge-author-1"), overrides.authorSort, work);
     }
   }
-  setScalar(document, metadata, "language", overrides.language);
-  setScalar(document, metadata, "publisher", overrides.publisher);
-  setScalar(document, metadata, "date", overrides.publishedAt);
-  setScalar(document, metadata, "description", overrides.description);
-  setScalar(document, metadata, "rights", overrides.rights);
+  await setScalar(document, metadata, "language", overrides.language, work);
+  await setScalar(document, metadata, "publisher", overrides.publisher, work);
+  await setScalar(document, metadata, "date", overrides.publishedAt, work);
+  await setScalar(document, metadata, "description", overrides.description, work);
+  await setScalar(document, metadata, "rights", overrides.rights, work);
 
   if (overrides.subjects !== undefined) {
-    removeDirectChildren(metadata, "subject");
+    await removeDirectChildren(metadata, "subject", work);
     overrides.subjects.forEach((subject) => metadata.append(createDc(document, "subject", subject)));
   }
   if (overrides.identifiers !== undefined) {
-    removeDirectChildren(metadata, "identifier");
+    await removeDirectChildren(metadata, "identifier", work);
     overrides.identifiers.forEach((identifier, index) => {
       metadata.append(createDc(document, "identifier", identifier, `kindle-bridge-id-${index + 1}`));
     });
@@ -411,7 +517,7 @@ function applyMetadata(document: XMLDocument, overrides: ResolvedConversionOverr
     }
   }
   if (overrides.series !== undefined) {
-    removeMetaByProperty(metadata, new Set(["belongs-to-collection", "collection-type", "group-position"]));
+    await removeMetaByProperty(metadata, new Set(["belongs-to-collection", "collection-type", "group-position"]), work);
     if (overrides.series !== null) {
       const series = createMeta(document, metadata);
       series.setAttribute("id", "kindle-bridge-series");
@@ -432,30 +538,35 @@ function applyMetadata(document: XMLDocument, overrides: ResolvedConversionOverr
       }
     }
   } else if (overrides.seriesIndex !== undefined) {
-    const collections = Array.from(metadata.children).filter((element) => (
-      element.localName === "meta" && element.getAttribute("property") === "belongs-to-collection"
-    ));
-    const existingSeries = collections.find((collection) => {
+    const collections: Element[] = [];
+    const seriesReferences = new Set<string>();
+    await visitChildren(metadata, work, (element) => {
+      if (element.localName !== "meta") return;
+      const property = element.getAttribute("property");
+      if (property === "belongs-to-collection") collections.push(element);
+      else if (property === "collection-type" && element.textContent?.trim() === "series") {
+        seriesReferences.add(element.getAttribute("refines") ?? "");
+      }
+    });
+    let existingSeries: Element | undefined;
+    for (const collection of collections) {
       const id = collection.getAttribute("id")?.trim();
-      return id && Array.from(metadata.children).some((element) => (
-        element.localName === "meta"
-        && element.getAttribute("property") === "collection-type"
-        && element.getAttribute("refines") === `#${id}`
-        && element.textContent?.trim() === "series"
-      ));
-    }) ?? collections[0];
+      if (id && seriesReferences.has(`#${id}`)) { existingSeries = collection; break; }
+      if (work.tick()) await work.pause();
+    }
+    existingSeries ??= collections[0];
     if (!existingSeries) {
       if (overrides.seriesIndex !== null) malformed("a series position override requires a series name");
       return;
     }
     const seriesId = ensureElementId(existingSeries, "kindle-bridge-series");
-    Array.from(metadata.children)
-      .filter((element) => (
+    await visitChildren(metadata, work, (element) => {
+      if (
         element.localName === "meta"
         && element.getAttribute("property") === "group-position"
         && element.getAttribute("refines") === `#${seriesId}`
-      ))
-      .forEach((element) => element.remove());
+      ) element.remove();
+    });
     if (overrides.seriesIndex !== null) {
       const position = createMeta(document, metadata);
       position.setAttribute("refines", `#${seriesId}`);
@@ -466,24 +577,26 @@ function applyMetadata(document: XMLDocument, overrides: ResolvedConversionOverr
   }
 }
 
-function applyCover(
+async function applyCover(
   document: XMLDocument,
   mediaType: ConversionCoverMediaType,
   coverHref: string,
+  work: EpubWork,
   existingItem?: Element,
-): void {
+): Promise<void> {
   const metadata = firstByLocalName(document, "metadata");
   const manifest = firstByLocalName(document, "manifest");
-  Array.from(metadata.children)
-    .filter((element) => element.localName === "meta" && element.getAttribute("name") === "cover")
-    .forEach((element) => element.remove());
-  for (const item of Array.from(manifest.children).filter((element) => element.localName === "item")) {
+  await visitChildren(metadata, work, (element) => {
+    if (element.localName === "meta" && element.getAttribute("name") === "cover") element.remove();
+  });
+  await visitChildren(manifest, work, (item) => {
+    if (item.localName !== "item") return;
     const properties = (item.getAttribute("properties") ?? "")
       .split(/\s+/u)
       .filter((property) => property && property !== "cover-image");
     if (properties.length > 0) item.setAttribute("properties", properties.join(" "));
     else item.removeAttribute("properties");
-  }
+  });
   const item = existingItem ?? document.createElementNS(manifest.namespaceURI || OPF_NAMESPACE, "item");
   const itemId = item.getAttribute("id")?.trim() || "kindle-bridge-cover";
   item.setAttribute("id", itemId);
@@ -521,22 +634,30 @@ function resolvedManifestHref(opfPath: string, href: string): string | undefined
   return normalized.length > 0 ? normalized.join("/") : undefined;
 }
 
-function existingCover(
+async function existingCover(
   document: XMLDocument,
   archive: ZipArchive,
   opfPath: string,
-): { readonly item: Element; readonly entry: ZipEntry; readonly href: string } | undefined {
+  work: EpubWork,
+): Promise<{ readonly item: Element; readonly entry: ZipEntry; readonly href: string } | undefined> {
   const metadata = firstByLocalName(document, "metadata");
   const manifest = firstByLocalName(document, "manifest");
-  const items = Array.from(manifest.children).filter((element) => element.localName === "item");
-  const epub3 = items.find((item) => (
-    (item.getAttribute("properties") ?? "").split(/\s+/u).includes("cover-image")
-  ));
-  const epub2Id = Array.from(metadata.children)
-    .find((element) => element.localName === "meta" && element.getAttribute("name") === "cover")
-    ?.getAttribute("content")
-    ?.trim();
-  const item = epub3 ?? (epub2Id ? items.find((candidate) => candidate.getAttribute("id") === epub2Id) : undefined);
+  let epub2Id: string | undefined;
+  let foundEpub2 = false;
+  await visitChildren(metadata, work, (element) => {
+    if (!foundEpub2 && element.localName === "meta" && element.getAttribute("name") === "cover") {
+      foundEpub2 = true;
+      epub2Id = element.getAttribute("content")?.trim();
+    }
+  });
+  let epub3: Element | undefined;
+  let epub2: Element | undefined;
+  await visitChildren(manifest, work, (item) => {
+    if (item.localName !== "item") return;
+    if (!epub3 && (item.getAttribute("properties") ?? "").split(/\s+/u).includes("cover-image")) epub3 = item;
+    if (!epub2 && epub2Id && item.getAttribute("id") === epub2Id) epub2 = item;
+  });
+  const item = epub3 ?? epub2;
   if (!item) return undefined;
   const href = item.getAttribute("href") ?? "";
   const path = resolvedManifestHref(opfPath, href);
@@ -587,7 +708,7 @@ function replacementForNew(name: string, data: Uint8Array): ReplacementEntry {
   };
 }
 
-function localRecord(entry: ReplacementEntry): Uint8Array {
+function localRecord(entry: ReplacementEntry, checksum: number): Uint8Array {
   const output = new Uint8Array(30 + entry.nameBytes.byteLength + entry.data.byteLength);
   write32(output, 0, LOCAL_SIGNATURE);
   write16(output, 4, 20);
@@ -595,7 +716,7 @@ function localRecord(entry: ReplacementEntry): Uint8Array {
   write16(output, 8, 0);
   write16(output, 10, entry.modifiedTime);
   write16(output, 12, entry.modifiedDate);
-  write32(output, 14, crc32(entry.data));
+  write32(output, 14, checksum);
   write32(output, 18, entry.data.byteLength);
   write32(output, 22, entry.data.byteLength);
   write16(output, 26, entry.nameBytes.byteLength);
@@ -605,7 +726,7 @@ function localRecord(entry: ReplacementEntry): Uint8Array {
   return output;
 }
 
-function centralRecord(entry: ReplacementEntry, localOffset: number): Uint8Array {
+function centralRecord(entry: ReplacementEntry, localOffset: number, checksum: number): Uint8Array {
   const output = new Uint8Array(46 + entry.nameBytes.byteLength);
   write32(output, 0, CENTRAL_SIGNATURE);
   write16(output, 4, 20);
@@ -614,7 +735,7 @@ function centralRecord(entry: ReplacementEntry, localOffset: number): Uint8Array
   write16(output, 10, 0);
   write16(output, 12, entry.modifiedTime);
   write16(output, 14, entry.modifiedDate);
-  write32(output, 16, crc32(entry.data));
+  write32(output, 16, checksum);
   write32(output, 20, entry.data.byteLength);
   write32(output, 24, entry.data.byteLength);
   write16(output, 28, entry.nameBytes.byteLength);
@@ -628,7 +749,9 @@ function centralRecord(entry: ReplacementEntry, localOffset: number): Uint8Array
   return output;
 }
 
-function rebuildZip(archive: ZipArchive, replacements: ReadonlyMap<string, ReplacementEntry>): Uint8Array {
+async function rebuildZip(archive: ZipArchive, replacements: ReadonlyMap<string, ReplacementEntry>, work: EpubWork): Promise<Uint8Array> {
+  const checksums = new Map<string, number>();
+  for (const replacement of replacements.values()) checksums.set(replacement.name, await crc32(replacement.data, work));
   const localOrder = [...archive.entries].sort((left, right) => left.localOffset - right.localOffset);
   const additions = [...replacements.values()].filter((entry) => !archive.byName.has(entry.name));
   const localParts: Array<{ readonly entry: ZipEntry | ReplacementEntry; readonly bytes: Uint8Array }> = [];
@@ -637,11 +760,12 @@ function rebuildZip(archive: ZipArchive, replacements: ReadonlyMap<string, Repla
     localParts.push({
       entry: replacement ?? entry,
       bytes: replacement
-        ? localRecord(replacement)
-        : archive.bytes.slice(entry.localOffset, entry.localEnd),
+        ? localRecord(replacement, checksums.get(entry.name) as number)
+        : archive.bytes.subarray(entry.localOffset, entry.localEnd),
     });
+    if (work.tick()) await work.pause();
   }
-  additions.forEach((entry) => localParts.push({ entry, bytes: localRecord(entry) }));
+  additions.forEach((entry) => localParts.push({ entry, bytes: localRecord(entry, checksums.get(entry.name) as number) }));
 
   const localOffsets = new Map<string, number>();
   let localBytes = 0;
@@ -653,14 +777,15 @@ function rebuildZip(archive: ZipArchive, replacements: ReadonlyMap<string, Repla
   for (const entry of archive.entries) {
     const replacement = replacements.get(entry.name);
     const offset = localOffsets.get(entry.name) as number;
-    if (replacement) centralParts.push(centralRecord(replacement, offset));
+    if (replacement) centralParts.push(centralRecord(replacement, offset, checksums.get(entry.name) as number));
     else {
       const central = entry.centralBytes.slice();
       write32(central, 42, offset);
       centralParts.push(central);
     }
+    if (work.tick()) await work.pause();
   }
-  additions.forEach((entry) => centralParts.push(centralRecord(entry, localOffsets.get(entry.name) as number)));
+  additions.forEach((entry) => centralParts.push(centralRecord(entry, localOffsets.get(entry.name) as number, checksums.get(entry.name) as number)));
   const centralBytes = centralParts.reduce((sum, part) => sum + part.byteLength, 0);
   const entryCount = archive.entries.length + additions.length;
   if (entryCount > MAX_ZIP_ENTRIES) malformed(`the edited archive exceeds ${MAX_ZIP_ENTRIES} entries`);
@@ -672,14 +797,15 @@ function rebuildZip(archive: ZipArchive, replacements: ReadonlyMap<string, Repla
   }
   const output = new Uint8Array(total);
   let cursor = 0;
-  localParts.forEach((part) => {
-    output.set(part.bytes, cursor);
-    cursor += part.bytes.byteLength;
-  });
-  centralParts.forEach((part) => {
-    output.set(part, cursor);
-    cursor += part.byteLength;
-  });
+  for (const part of [...localParts.map((part) => part.bytes), ...centralParts]) {
+    for (let offset = 0; offset < part.byteLength; offset += 1024 * 1024) {
+      const chunk = part.subarray(offset, offset + 1024 * 1024);
+      output.set(chunk, cursor);
+      cursor += chunk.byteLength;
+      if (chunk.byteLength === 1024 * 1024 || work.tick()) await work.pause();
+    }
+  }
+  work.checkpoint();
   write32(output, cursor, EOCD_SIGNATURE);
   write16(output, cursor + 8, entryCount);
   write16(output, cursor + 10, entryCount);
@@ -698,6 +824,7 @@ export async function validateEpubForReader(
   source: Uint8Array,
   checkpoint: () => void = () => {},
 ): Promise<{ readonly hasObfuscatedFonts: boolean }> {
+  const work = new EpubWork(checkpoint);
   checkpoint();
   if (source.byteLength === 0 || source.byteLength > MAX_BOOK_SOURCE_BYTES) {
     malformed("the EPUB is empty or exceeds the 200 MiB source limit");
@@ -706,11 +833,11 @@ export async function validateEpubForReader(
   if (uint32(source, eocd + 12) > 24 * 1024 * 1024) {
     malformed("the EPUB central directory exceeds the 24 MiB limit");
   }
-  const archive = parseZip(source);
+  const archive = await parseZip(source, work);
   let expandedBytes = 0;
   let nameBytes = 0;
   for (const entry of archive.entries) {
-    checkpoint();
+    if (work.tick()) await work.pause();
     if ((entry.flags & (ENCRYPTED_FLAG | 0x0040 | 0x2000)) !== 0) {
       malformed("encrypted ZIP entries (DRM) are not supported");
     }
@@ -749,34 +876,37 @@ export async function validateEpubForReader(
   const mimetype = archive.byName.get("mimetype");
   if (!mimetype || mimetype.localOffset !== 0 || mimetype.compression !== 0
     || mimetype.uncompressedSize !== 20
-    || utf8Decoder.decode(await readEntry(archive, mimetype, 20)) !== "application/epub+zip") {
+    || utf8Decoder.decode(await readEntry(archive, mimetype, 20, work)) !== "application/epub+zip") {
     malformed("the archive is not a valid EPUB (missing or invalid mimetype)");
   }
   checkpoint();
   const containerEntry = archive.byName.get("META-INF/container.xml")
     ?? malformed("the archive has no META-INF/container.xml");
-  const container = parseXml(await readEntry(archive, containerEntry, MAX_XML_BYTES), "container.xml");
+  const container = await parseXml(await readEntry(archive, containerEntry, MAX_XML_BYTES, work), "container.xml", work);
   checkpoint();
   if (container.documentElement.localName !== "container") malformed("the EPUB container root is invalid");
   const opfPath = packagePath(container);
   const opfEntry = archive.byName.get(opfPath) ?? malformed("the package document is absent");
-  const packageDocument = parseXml(await readEntry(archive, opfEntry, MAX_XML_BYTES), "package document");
+  const packageDocument = await parseXml(await readEntry(archive, opfEntry, MAX_XML_BYTES, work), "package document", work);
   checkpoint();
   if (packageDocument.documentElement.localName !== "package") malformed("the EPUB package root is invalid");
   firstByLocalName(packageDocument, "metadata");
   const manifest = firstByLocalName(packageDocument, "manifest");
   const spine = firstByLocalName(packageDocument, "spine");
-  const items = Array.from(manifest.children).filter((entry) => entry.localName === "item");
+  const items: Element[] = [];
+  await visitChildren(manifest, work, (item) => { if (item.localName === "item") items.push(item); });
   const byId = new Map<string, Element>();
   for (const item of items) {
+    if (work.tick()) await work.pause();
     const id = item.getAttribute("id")?.trim();
     if (!id || byId.has(id)) malformed("the EPUB manifest has missing or duplicate identifiers");
     byId.set(id, item);
   }
-  const spineItems = Array.from(spine.children).filter((entry) => entry.localName === "itemref");
+  const spineItems: Element[] = [];
+  await visitChildren(spine, work, (item) => { if (item.localName === "itemref") spineItems.push(item); });
   if (spineItems.length === 0 || spineItems.length > 2_000) malformed("the EPUB reading order is missing or too large");
   for (const reference of spineItems) {
-    checkpoint();
+    if (work.tick()) await work.pause();
     const item = byId.get(reference.getAttribute("idref") ?? "");
     const href = item?.getAttribute("href") ?? "";
     const path = resolvedManifestHref(opfPath, href);
@@ -787,9 +917,9 @@ export async function validateEpubForReader(
 
   const encryptionEntry = archive.byName.get("META-INF/encryption.xml");
   if (!encryptionEntry) return { hasObfuscatedFonts: false };
-  const encryption = parseXml(await readEntry(archive, encryptionEntry, MAX_XML_BYTES), "encryption.xml");
+  const encryption = await parseXml(await readEntry(archive, encryptionEntry, MAX_XML_BYTES, work), "encryption.xml", work);
   checkpoint();
-  const encryptedResources = elementsByLocalName(encryption, "EncryptedData");
+  const encryptedResources = await encryptionDeclarations(encryption, work);
   if (encryptedResources.length === 0) malformed("the EPUB encryption metadata cannot be verified (DRM unsupported)");
   const algorithms = new Set(["http://www.idpf.org/2008/embedding", "http://ns.adobe.com/pdf/enc#RC"]);
   const fontTypes = new Set([
@@ -799,12 +929,11 @@ export async function validateEpubForReader(
   const fonts = new Set(items.filter((item) => fontTypes.has(item.getAttribute("media-type") ?? ""))
     .map((item) => resolvedManifestHref(opfPath, item.getAttribute("href") ?? "")));
   for (const encrypted of encryptedResources) {
-    const methods = elementsByLocalName(encrypted, "EncryptionMethod");
-    const references = elementsByLocalName(encrypted, "CipherReference");
-    const uri = references[0]?.getAttribute("URI") ?? "";
+    if (work.tick()) await work.pause();
+    const uri = encrypted.firstReference?.getAttribute("URI") ?? "";
     const resource = resolvedManifestHref("", uri);
-    if (methods.length !== 1 || references.length !== 1
-      || !algorithms.has(methods[0]?.getAttribute("Algorithm") ?? "")
+    if (encrypted.methods !== 1 || encrypted.references !== 1
+      || !algorithms.has(encrypted.firstMethod?.getAttribute("Algorithm") ?? "")
       || !resource || !fonts.has(resource) || !archive.byName.has(resource)) {
       malformed("DRM-protected EPUB files cannot be sent to Kobo; only standard embedded-font obfuscation is supported");
     }
@@ -816,24 +945,26 @@ export async function validateEpubForReader(
 export async function createEphemeralEpubDerivative(
   source: Uint8Array,
   overrides: ResolvedConversionOverrides,
+  checkpoint: () => void = () => {},
 ): Promise<Uint8Array> {
-  const archive = parseZip(source);
+  const work = new EpubWork(checkpoint);
+  const archive = await parseZip(source, work);
   const containerEntry = archive.byName.get("META-INF/container.xml")
     ?? malformed("the archive has no META-INF/container.xml");
-  const container = parseXml(await readEntry(archive, containerEntry, MAX_XML_BYTES), "container.xml");
+  const container = await parseXml(await readEntry(archive, containerEntry, MAX_XML_BYTES, work), "container.xml", work);
   const opfPath = packagePath(container);
   const opfEntry = archive.byName.get(opfPath) ?? malformed("the package document is absent");
-  const packageDocument = parseXml(await readEntry(archive, opfEntry, MAX_XML_BYTES), "package document");
+  const packageDocument = await parseXml(await readEntry(archive, opfEntry, MAX_XML_BYTES, work), "package document", work);
 
-  applyMetadata(packageDocument, overrides);
+  await applyMetadata(packageDocument, overrides, work);
   const replacements = new Map<string, ReplacementEntry>();
   if (overrides.cover) {
-    const currentCover = existingCover(packageDocument, archive, opfPath);
+    const currentCover = await existingCover(packageDocument, archive, opfPath, work);
     if (currentCover) {
       // Reusing the exact archive path keeps cover/title-page XHTML and CSS
       // references aligned with the new image. boko classifies all supported
       // cover extensions as image resources and embeds the replacement bytes.
-      applyCover(packageDocument, overrides.cover.mediaType, currentCover.href, currentCover.item);
+      await applyCover(packageDocument, overrides.cover.mediaType, currentCover.href, work, currentCover.item);
       replacements.set(
         currentCover.entry.name,
         replacementFromExisting(currentCover.entry, overrides.cover.bytes),
@@ -843,12 +974,14 @@ export async function createEphemeralEpubDerivative(
         ? "jpg"
         : overrides.cover.mediaType === "image/png" ? "png" : "webp";
       const cover = freshName(archive, opfPath, extension);
-      applyCover(packageDocument, overrides.cover.mediaType, cover.href);
+      await applyCover(packageDocument, overrides.cover.mediaType, cover.href, work);
       replacements.set(cover.path, replacementForNew(cover.path, overrides.cover.bytes));
     }
   }
+  await work.pause();
   const opfBytes = serializeXml(packageDocument);
+  await work.pause();
   if (opfBytes.byteLength > MAX_XML_BYTES) malformed(`the edited package document exceeds ${MAX_XML_BYTES} bytes`);
   replacements.set(opfPath, replacementFromExisting(opfEntry, opfBytes));
-  return rebuildZip(archive, replacements);
+  return rebuildZip(archive, replacements, work);
 }
