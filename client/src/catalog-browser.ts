@@ -153,6 +153,8 @@ export interface CatalogBrowserSnapshot {
   readonly kindleStatusCountsByProfile: ReadonlyMap<string, CatalogKindleStatusCounts>;
   readonly kindleInventory?: CatalogKindleInventory;
   readonly kindleInventoryOffset: number;
+  /** Device-only search; never sent to the catalog or scoped to a library. */
+  readonly kindleInventoryQuery?: string;
   readonly layout: LibraryLayout;
   readonly density?: LibraryDensity;
   readonly cardSize?: number;
@@ -797,6 +799,7 @@ export class CatalogBrowser {
       kindleStatus: new Map(),
       kindleStatusCountsByProfile: new Map(),
       kindleInventoryOffset: 0,
+      kindleInventoryQuery: "",
       layout: "grid",
       density: "comfortable",
       cardSize: normalizeLibraryCardSize(undefined),
@@ -1027,7 +1030,11 @@ export class CatalogBrowser {
   async selectProfile(profileId: LibraryProfileId): Promise<void> {
     if (this.#kindleActionBusy()) return;
     const profile = this.#snapshot.profiles.find((candidate) => candidate.id === profileId && candidate.enabled);
-    if (!profile || profile.id === this.#snapshot.filters.profileId) return;
+    if (!profile) return;
+    if (profile.id === this.#snapshot.filters.profileId) {
+      if (!isKoboReader(this.#snapshot) && this.#snapshot.filters.view === "on-kindle") await this.setView("all");
+      return;
+    }
     if (this.#snapshot.settingsSaving || this.#snapshot.settingsRefreshing) return;
     if (this.#snapshot.filters.view === "settings" && !this.#confirmDiscardSettingsChanges()) return;
     this.#cancelLibraryRefresh();
@@ -1057,7 +1064,11 @@ export class CatalogBrowser {
     this.#restoredShelfId = browsingContext.activeShelfId;
     this.#snapshot = {
       ...this.#snapshot,
-      filters: browsingContext.filters,
+      // Clicking a library leaves the device-wide inventory. Old saved
+      // On Kindle contexts used to be a library comparison view.
+      filters: !isKoboReader(this.#snapshot) && browsingContext.filters.view === "on-kindle"
+        ? { ...browsingContext.filters, view: "all", kindle: "all", offset: 0 }
+        : browsingContext.filters,
       kindleFilterStatuses: undefined,
       readingEvidence: new Map(),
       readingFilter: "any",
@@ -1148,13 +1159,20 @@ export class CatalogBrowser {
     if (view !== this.#snapshot.filters.view) {
       this.#bookEpoch += 1;
       this.#bookOperation?.abort();
+      if (this.#searchTimer !== undefined) {
+        window.clearTimeout(this.#searchTimer);
+        this.#searchTimer = undefined;
+      }
     }
     const profileId = this.#snapshot.filters.profileId;
     const leavingKindleView = this.#snapshot.filters.view === "on-kindle" && view !== "on-kindle";
+    const standaloneKindleView = view === "on-kindle" && !isKoboReader(this.#snapshot);
+    if (standaloneKindleView) this.#restoredShelfId = undefined;
     this.#snapshot = {
       ...this.#snapshot,
       filters: { ...this.#snapshot.filters, view, offset: 0, kindle: view === "on-kindle" || leavingKindleView ? "all" : this.#snapshot.filters.kindle },
-      activeShelf: view === "settings" || this.#snapshot.filters.view === "settings"
+      ...(view === "on-kindle" && this.#snapshot.filters.view !== "on-kindle" ? { kindleInventoryOffset: 0 } : {}),
+      activeShelf: !standaloneKindleView && (view === "settings" || this.#snapshot.filters.view === "settings")
         ? this.#snapshot.activeShelf
         : undefined,
       pendingBookId: undefined,
@@ -1212,24 +1230,29 @@ export class CatalogBrowser {
     const priorFilters = this.#snapshot.filters;
     const priorLayout = this.#snapshot.layout;
     const priorSelection = this.#snapshot.selectedBookIds;
-    if (route.profileId && route.profileId !== this.#snapshot.filters.profileId) {
+    const standaloneKindleRoute = route.filters.view === "on-kindle" && !isKoboReader(this.#snapshot);
+    // Legacy device links carry a library ID. It is irrelevant to the live
+    // Kindle inventory and must not trigger a library load or block a link
+    // when that library has since been removed or the catalog is offline.
+    if (!standaloneKindleRoute && route.profileId && route.profileId !== this.#snapshot.filters.profileId) {
       await this.selectProfile(route.profileId);
       this.#restoredShelfId = undefined;
     }
     const profileId = this.#snapshot.filters.profileId;
-    if (!profileId || (route.profileId !== undefined && route.profileId !== profileId)) return false;
+    if (!standaloneKindleRoute && (!profileId || (route.profileId !== undefined && route.profileId !== profileId))) return false;
     // Shelf IDs in a URL are profile-scoped references, not trusted query
     // payloads. Resolve them only once the selected profile's shelf request
     // has settled, then combine the canonical shelf query with the routed
     // visible filters. Until then no prior shelf remains active.
-    this.#restoredShelfId = route.activeShelfId;
+    const routedShelfId = standaloneKindleRoute ? undefined : route.activeShelfId;
+    this.#restoredShelfId = routedShelfId;
     const shelvesSettled = this.#snapshot.smartShelvesState === "ready"
       || this.#snapshot.smartShelvesState === "error";
     const routedBuiltInShelf = shelvesSettled
-      ? visibleBuiltInSmartShelves(this.#snapshot.readingEnabled === true).find(({ id }) => id === route.activeShelfId)
+      ? visibleBuiltInSmartShelves(this.#snapshot.readingEnabled === true).find(({ id }) => id === routedShelfId)
       : undefined;
     const routedCustomShelf = this.#snapshot.smartShelvesState === "ready"
-      ? this.#snapshot.smartShelves.find(({ id }) => id === route.activeShelfId)
+      ? this.#snapshot.smartShelves.find(({ id }) => id === routedShelfId)
       : undefined;
     const routedShelf = routedBuiltInShelf ?? routedCustomShelf;
     if (shelvesSettled) this.#restoredShelfId = undefined;
@@ -1254,7 +1277,7 @@ export class CatalogBrowser {
       sendQueueOpen: route.overlays.sendQueueOpen,
       shelfManagerOpen: route.overlays.shelfManagerOpen,
       activityOpen: route.overlays.activityOpen,
-      activeShelf: routedShelf ? {
+      activeShelf: routedShelf && !standaloneKindleRoute ? {
         id: routedShelf.id,
         name: routedShelf.name,
         query: routedShelf.query,
@@ -2202,6 +2225,10 @@ export class CatalogBrowser {
   updateFilter(key: keyof LibraryFilters, value: string | number): void {
     if (this.#kindleActionBusy()) return;
     if (key === "profileId" || key === "view" || key === "limit") return;
+    if (key === "query" && !isKoboReader(this.#snapshot) && this.#snapshot.filters.view === "on-kindle") {
+      this.updateKindleInventoryQuery(String(value));
+      return;
+    }
     this.#bookEpoch += 1;
     this.#bookOperation?.abort();
     this.#snapshot = {
@@ -2293,10 +2320,25 @@ export class CatalogBrowser {
     this.#render("device");
   }
 
+  updateKindleInventoryQuery(query: string): void {
+    if (this.#kindleActionBusy()) return;
+    this.#snapshot = { ...this.#snapshot, kindleInventoryQuery: query.slice(0, 2_048), kindleInventoryOffset: 0 };
+    this.#render("device");
+  }
+
   async reloadBooks(
     background = false,
     parentOperation?: CatalogOperationLease,
   ): Promise<void> {
+    if (!isKoboReader(this.#snapshot) && this.#snapshot.filters.view === "on-kindle") {
+      // This page is the browser's live device inventory, not a query for
+      // matching catalog books. A scan or comparison change may revoke match
+      // authority, but must not hide files that are still on the Kindle.
+      this.#bookEpoch += 1;
+      this.#bookOperation?.abort();
+      if (!background) this.#set({ booksState: "ready", error: undefined }, "device");
+      return;
+    }
     const profileId = this.#snapshot.filters.profileId;
     if (!profileId) return;
     this.#bookOperation?.abort();

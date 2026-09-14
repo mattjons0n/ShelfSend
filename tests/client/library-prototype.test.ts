@@ -208,30 +208,27 @@ afterEach(() => {
 });
 
 describe("catalog-backed library model", () => {
-  it("shows the Kindle photo and a simple connected label when all connection checks are ready", async () => {
+  it("shows the Kindle photo and a simple connected label above standalone device contents", async () => {
     const { root } = await loadedSendView(handlers());
     click(root, '.library-nav [data-ui-view="on-kindle"]');
-    await vi.waitFor(() => expect(root.querySelector(".library-kindle-summary")).not.toBeNull());
+    await vi.waitFor(() => expect(root.querySelector(".kindle-library-view")).not.toBeNull());
 
-    const summary = root.querySelector(".library-kindle-summary")!;
+    const inventory = root.querySelector(".kindle-library-view")!;
     const deviceButton = root.querySelector(".library-device-button")!;
-    const summaryPhoto = summary.querySelector<HTMLImageElement>("img.library-kindle-photo");
     const buttonPhoto = deviceButton.querySelector<HTMLImageElement>("img.library-kindle-photo");
-    expect(summaryPhoto?.getAttribute("src")).toContain("kindle-device.png");
-    expect(buttonPhoto?.getAttribute("src")).toBe(summaryPhoto?.getAttribute("src"));
-    expect(summary.querySelector(".library-kindle-summary-icon")?.textContent?.trim()).toBe("");
+    expect(buttonPhoto?.getAttribute("src")).toContain("kindle-device.png");
     expect(deviceButton.querySelector("strong")?.textContent).toBe("Kindle connected");
-    expect(summary.querySelector(":scope > div > strong")?.textContent).toBe("Kindle connected");
     expect(deviceButton.querySelector("small")).toBeNull();
-    expect(summary.querySelector(":scope > div:first-of-type > span")).toBeNull();
-    expect(summary.textContent).not.toContain("checks passed");
+    expect(inventory.querySelector("#kindle-library-heading")?.textContent).toBe("On Kindle");
+    expect(inventory.querySelector(".kindle-library-status")?.textContent).toBe("Contents up to date");
+    expect(inventory.textContent).not.toContain("checks passed");
     expect(deviceButton.textContent).not.toContain("checks passed");
   });
 
   it("retains connection progress, recovery instructions and inventory problems beside the Kindle photo", async () => {
     const { root, view } = await loadedSendView(handlers());
     click(root, '.library-nav [data-ui-view="on-kindle"]');
-    await vi.waitFor(() => expect(root.querySelector(".library-kindle-summary")).not.toBeNull());
+    await vi.waitFor(() => expect(root.querySelector(".kindle-library-view")).not.toBeNull());
     const state: AppState = {
       ...initialAppState(),
       device: { kind: "ready", details: { vendorId: 0x1949, productId: 0x9981 } },
@@ -243,25 +240,25 @@ describe("catalog-backed library model", () => {
       vendorId: 0x1949, productId: 0x9981, storageId: 1, parentHandle: 2, handle: 3,
       size: 1_012, operationId: "active-write", recordedAt: Date.now(),
     };
-    const scenarios: readonly [Partial<AppState>, string, string][] = [
+    const scenarios: readonly [Partial<AppState>, string][] = [
       [{ postConnectStage: "safe-write", selfTest: { kind: "running" } },
-        "Checking safe writes…", "Checking safe writes…"],
+        "Checking safe writes…"],
       [{ postConnectStage: "inventory", catalogInventoryState: "loading" },
-        "Reading Kindle Documents…", "Safe-write passed; reading Documents inventory…"],
+        "Reading Kindle Documents…"],
       [{ postConnectStage: "reconciliation" },
-        "Comparing Kindle with library…", "Kindle inventory read; comparing it with this library…"],
+        "Comparing Kindle with library…"],
       [{ pendingObjectCleanup, activeObjectWriteId: "active-write" },
-        "Writing to Kindle…", "Writing and verifying the current Kindle file…"],
+        "Writing to Kindle…"],
       [{ pendingObjectCleanup },
-        "Recovery inspection required", "Inspect and acknowledge the recorded object before safe writes resume"],
+        "Recovery inspection required"],
       [{ catalogInventoryState: "failed" },
-        "Kindle inventory unavailable", "Inventory unavailable; disconnect and reconnect to retry"],
+        "Kindle inventory unavailable"],
     ];
-    for (const [patch, buttonDetail, summaryDetail] of scenarios) {
+    for (const [patch, buttonDetail] of scenarios) {
       view.render({ ...state, ...patch });
       expect(root.querySelector(".library-device-button small")?.textContent).toBe(buttonDetail);
-      expect(root.querySelector(".library-kindle-summary > div:first-of-type > span")?.textContent).toBe(summaryDetail);
-      expect(root.querySelectorAll(".library-device-button img.library-kindle-photo, .library-kindle-summary img.library-kindle-photo")).toHaveLength(2);
+      expect(root.querySelector(".kindle-library-view")).not.toBeNull();
+      expect(root.querySelectorAll(".library-device-button img.library-kindle-photo")).toHaveLength(1);
     }
   });
 
@@ -303,7 +300,8 @@ describe("catalog-backed library model", () => {
 
     view.render(state);
     expect(root.querySelector(selector)).toBeNull();
-    expect(root.querySelector('[data-kindle-object-id="mtp_retained"]')).toBeNull();
+    expect(root.querySelector('[data-kindle-object-id="mtp_retained"]')).not.toBeNull();
+    expect(root.querySelector(".kindle-library-status")?.getAttribute("data-state")).toBe("last-seen");
     expect(root.querySelector(".library-device-contents")).toBeNull();
     expect(window.location.hash).toBe(activeRoute);
   });
@@ -321,8 +319,6 @@ describe("catalog-backed library model", () => {
     view.setCatalogKindleStatuses(new Map([
       ["book_time", "confirmed"], ["book_dorian", "possible"],
     ]), new Map([["prf_personal", { confirmed: 1, possible: 1, notOnKindle: 0, unknown: 0 }]]));
-    click(root, '[data-ui-view="on-kindle"]');
-    await vi.waitFor(() => expect(root.querySelector("#library-heading")?.textContent).toBe("Books on Kindle"));
     click(root, '[data-ui-summary-filter="possible"]');
     await vi.waitFor(() => expect(root.querySelectorAll(".library-book-card")).toHaveLength(1));
     expect(root.querySelector(".library-book-card")?.getAttribute("data-book-id")).toBe("book_dorian");
@@ -1157,7 +1153,7 @@ describe("catalog-backed library model", () => {
     ));
   });
 
-  it("uses backend include-ID matching for confirmed and possible books before paginating the On Kindle view", async () => {
+  it("uses backend include-ID matching for confirmed and possible library filters before pagination", async () => {
     const { root, view, api } = await loadedView();
     view.render({
       ...initialAppState(),
@@ -1167,9 +1163,13 @@ describe("catalog-backed library model", () => {
       ["book_time", "confirmed"],
       ["book_dorian", "possible"],
     ]));
-    click(root, 'button[data-ui-view="on-kindle"]');
-    await vi.waitFor(() => expect(vi.mocked(api.queryBooks)).toHaveBeenCalledWith("prf_personal", expect.objectContaining({ includeBookIds: ["book_time", "book_dorian"] }), expect.any(AbortSignal)));
+    click(root, 'button[data-ui-kindle-filter="on-kindle"]');
+    await vi.waitFor(() => expect(vi.mocked(api.queryBooks)).toHaveBeenCalledWith("prf_personal", expect.objectContaining({ includeBookIds: ["book_time"] }), expect.any(AbortSignal)));
     expect(root.querySelector('[data-book-id="book_time"] .library-kindle-check')?.getAttribute("aria-label")).toBe("Already on this Kindle");
+    const possibleFilter = root.querySelector<HTMLSelectElement>("#library-kindle-filter")!;
+    possibleFilter.value = "possible";
+    possibleFilter.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => expect(vi.mocked(api.queryBooks)).toHaveBeenCalledWith("prf_personal", expect.objectContaining({ includeBookIds: ["book_dorian"] }), expect.any(AbortSignal)));
     expect(root.querySelector('[data-book-id="book_dorian"] .library-kindle-check')?.getAttribute("aria-label")).toBe("Review possible Kindle match for The Picture of Dorian Gray");
   });
 

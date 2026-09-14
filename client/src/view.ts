@@ -25,6 +25,7 @@ import {
   type CoverProvider,
 } from "./catalog-client";
 import { renderKindleDeviceContents, renderLibraryPrototype, renderLibraryResults } from "./library-prototype-view";
+import { renderKindleLibraryView } from "./kindle-library-view";
 import { bindLibraryDisplayControls, captureLibraryDisplayControl } from "./library-display-controls";
 import { bindSettingsProviderDisclosure, captureSettingsProviderDisclosure } from "./provider-settings-controls";
 import { bindShelfOrderControls } from "./shelf-order-controls";
@@ -477,7 +478,7 @@ export class AppView {
     const preservedInputFocus = active instanceof HTMLInputElement
       && active.id
       && this.#root.contains(active)
-      && active.closest(".settings-page, .library-toolbar, .settings-diagnostics")
+      && active.closest(".settings-page, .library-toolbar, .settings-diagnostics, .kindle-library-view")
       ? {
           id: active.id,
           value: active.value,
@@ -715,9 +716,6 @@ export class AppView {
     }));
     this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="acknowledge-kobo-recovery"]').forEach((button) => button.addEventListener("click", () => {
       if (!this.#catalog.snapshot.sendBusy && !this.#catalog.snapshot.bulkActionBusy) void this.#handlers.onKoboRecoveryAcknowledged?.();
-    }));
-    this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="disconnect-catalog-device"]').forEach((button) => button.addEventListener("click", () => {
-      void this.#catalog.requestDisconnect();
     }));
     this.#root.querySelector<HTMLButtonElement>('button[data-ui-action="show-kindle"]')?.addEventListener("click", () => {
       void this.#catalog.setView("on-kindle").then(() => this.#writeCatalogRoute({ bookId: null, seriesKey: null }, "replace"));
@@ -1097,6 +1095,12 @@ export class AppView {
   }
 
   #bindCatalogResultActions(scope: ParentNode = this.#root): void {
+    scope.querySelectorAll<HTMLButtonElement>('button[data-ui-action="disconnect-catalog-device"]').forEach((button) => button.addEventListener("click", () => {
+      void this.#catalog.requestDisconnect();
+    }));
+    scope.querySelector<HTMLInputElement>("#kindle-inventory-search")?.addEventListener("input", (event) => {
+      this.#catalog.updateKindleInventoryQuery((event.currentTarget as HTMLInputElement).value);
+    });
     if (scope !== this.#root) {
       scope.querySelectorAll<HTMLButtonElement>("button[data-ui-view]").forEach((button) => button.addEventListener("click", () => {
         void this.#catalog.setView(button.dataset.uiView as LibraryView).then(() => this.#writeCatalogRoute({ bookId: null, seriesKey: null }, "replace"));
@@ -2037,6 +2041,10 @@ export class AppView {
   }
 
   #refreshCatalogResults(): void {
+    if (this.#catalog.snapshot.filters.view === "on-kindle" && !isKoboReader(this.#catalog.snapshot)) {
+      this.#refreshCatalogDeviceContents();
+      return;
+    }
     const kindleFilter = this.#catalog.snapshot.filters.kindle;
     const kindleSelect = this.#root.querySelector<HTMLSelectElement>("#library-kindle-filter");
     if (kindleSelect) kindleSelect.value = kindleFilter;
@@ -2055,6 +2063,25 @@ export class AppView {
   }
 
   #refreshCatalogDeviceContents(): void {
+    const inventoryPage = this.#root.querySelector<HTMLElement>(".kindle-library-view");
+    if (inventoryPage && !isKoboReader(this.#catalog.snapshot)) {
+      const active = document.activeElement;
+      const focused = active instanceof HTMLInputElement && inventoryPage.contains(active)
+        ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : undefined;
+      const scrollY = window.scrollY;
+      inventoryPage.outerHTML = renderKindleLibraryView(this.#state, this.#catalog.snapshot);
+      const replacement = this.#root.querySelector<HTMLElement>(".kindle-library-view");
+      if (replacement) {
+        this.#bindCatalogResultActions(replacement);
+        const input = replacement.querySelector<HTMLInputElement>("#kindle-inventory-search");
+        if (focused && input) {
+          input.focus({ preventScroll: true });
+          if (focused.start !== null && focused.end !== null) input.setSelectionRange(focused.start, focused.end, focused.direction ?? undefined);
+        }
+      }
+      if (window.scrollY !== scrollY) window.scrollTo({ top: scrollY, behavior: "instant" });
+      return;
+    }
     const current = this.#root.querySelector<HTMLElement>(".library-device-contents");
     if (!current) return;
     const connected = this.#state.device.kind === "ready"

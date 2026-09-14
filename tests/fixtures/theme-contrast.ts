@@ -95,6 +95,12 @@ function healthIssue(type: CatalogHealthIssue["type"], index: number): CatalogHe
  * Opening details/hidden provider bodies is left to the audit harness. */
 export function themeContrastFixtures(): readonly ThemeContrastFixture[] {
   const base = snapshot();
+  const deviceInventory = {
+    ...base.kindleInventory!, total: 3,
+    items: [base.kindleInventory!.items[0],
+      { id: "device-only", filename: "The Lighthouse Letters.azw3", title: "The Lighthouse Letters", author: "Nora Whitcombe", format: "AZW3", size: 2_450_000, path: "Documents/The Lighthouse Letters.azw3", managed: false, match: "unmatched" as const },
+      { id: "device-unknown", filename: "B012345678.azw8", size: 3_120_000, path: "Documents/Downloads/B012345678.azw8", managed: false, match: "unmatched" as const }],
+  };
   const settings = { filters: { ...base.filters, view: "settings" as const }, settingsLibraryId: profile.id, settingsDraft: settingsDraftFromProfile(profile, [root]), coverProviderSettings: providers };
   const details: NonNullable<CatalogBrowserSnapshot["bookDetails"]> = { profileId: profile.id, bookId: books[0].id, loadState: "ready", book: books[0], data: metadata, hardcover: { loadState: "ready", books: hardcoverBooks, selectedBookId: 100, seriesOpen: false, selectedSeriesId: 10, seriesState: "ready", seriesPage: hardcoverPage } };
   const issues = [healthIssue("missing-cover", 0), healthIssue("suspected-duplicate", 1), healthIssue("unavailable-source", 2)];
@@ -110,6 +116,8 @@ export function themeContrastFixtures(): readonly ThemeContrastFixture[] {
       errorCode: index === 2 ? "provider-rate-limited" : null, acceptedAt: null, updatedAt: "2026-09-14T09:00:00Z" })),
   };
   return [
+    render("kindle-library-inventory", { filters: { ...base.filters, view: "on-kindle", query: "Not a device query", kindle: "possible" }, kindleInventory: deviceInventory }),
+    render("kindle-library-last-seen", { filters: { ...base.filters, view: "on-kindle" }, kindleInventory: { ...deviceInventory, completeness: "last-seen", metadata: { status: "partial", eligible: 3, enriched: 2, failed: 1, skipped: 0, truncated: false } } }, { ...readyState(), device: { kind: "disconnected" } }),
     render("dashboard-active-shelf", { activeShelf: { id: "builtin-recent", name: "Recently added", builtIn: true, query: { version: 1 } } }),
     render("dashboard-list-selected", { layout: "list", selectedBookIds: new Set(books.map((book) => book.id)) }),
     render("dashboard-list-busy", { layout: "list", selectedBookIds: new Set(books.map((book) => book.id)), bulkActionBusy: true }),

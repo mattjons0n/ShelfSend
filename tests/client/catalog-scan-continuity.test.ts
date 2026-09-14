@@ -74,7 +74,7 @@ async function harness(hooks: CatalogHardwareHooks = {}, options: CatalogBrowser
     [profile.id, { confirmed: 1, possible: 1, notOnKindle: 1, unknown: 0 }],
   ]));
   browser.setKindleInventory(inventory);
-  await browser.setView("on-kindle");
+  await browser.applyKindleSummaryFilter("on-kindle");
   return { browser, api, render, emit, failEvents: () => onError(), onCatalogChanged, replaceBooks: (next: CatalogBook[]) => { books = next; } };
 }
 
@@ -84,16 +84,16 @@ function visibleIds(browser: CatalogBrowser): string[] {
 }
 
 describe("catalog scan continuity", () => {
-  it("keeps On Kindle browse membership through Check now and returns to fresh matches after comparison", async () => {
+  it("keeps a library's On Kindle filter membership through Check now and returns to fresh matches after comparison", async () => {
     const { browser, api, onCatalogChanged } = await harness();
-    expect(visibleIds(browser)).toEqual(["confirmed", "possible"]);
+    expect(visibleIds(browser)).toEqual(["confirmed"]);
     await browser.setView("settings");
     await browser.rescanRoot(root.id);
     await vi.waitFor(() => expect(onCatalogChanged).toHaveBeenCalled());
-    await browser.setView("on-kindle");
+    await browser.setView("all");
 
     expect(api.rescanRoot).toHaveBeenCalledOnce();
-    expect(visibleIds(browser)).toEqual(["confirmed", "possible"]);
+    expect(visibleIds(browser)).toEqual(["confirmed"]);
     expect(browser.snapshot.kindleFilterStatuses?.get("confirmed")).toBe("confirmed");
     expect(browser.snapshot.kindleStatus.get("confirmed")).toBe("unknown");
     for (const book of browser.snapshot.page!.items) {
@@ -119,7 +119,7 @@ describe("catalog scan continuity", () => {
     replaceBooks([replacement, initialBooks[1]!]);
     emit("book.updated");
     await browser.reloadBooks(true);
-    expect(visibleIds(browser)).toEqual(["confirmed", "possible"]);
+    expect(visibleIds(browser)).toEqual(["confirmed"]);
     expect(browser.snapshot.page?.items[0]?.title).toBe("Replacement edition");
     const actions = bookActionCapabilities(replacement, readyState, browser.snapshot);
     expect(actions).toMatchObject({ kindleStatus: "unknown", currentComparison: false, exactKindleAssociation: false });

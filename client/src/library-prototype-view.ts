@@ -30,6 +30,7 @@ import { libraryIcon } from "./library-icons";
 import kindleDevicePhoto from "./assets/kindle-device.png";
 import { describeKindleReadingPresentation } from "./kindle/reading-presentation";
 import { renderRecordedReadingData } from "./recorded-reading-view";
+import { renderKindleLibraryView } from "./kindle-library-view";
 import { renderNeedsAttention } from "./library-health-view";
 import {
   actualDeviceConnected,
@@ -123,9 +124,10 @@ function deviceDisconnecting(state: AppState): boolean {
 
 function renderProfileRail(snapshot: CatalogBrowserSnapshot): string {
   const enabled = snapshot.profiles.filter((profile) => profile.enabled);
+  const deviceView = snapshot.filters.view === "on-kindle" && !isKoboReader(snapshot);
   if (enabled.length === 0) return '<p class="library-sidebar-empty">No enabled libraries</p>';
   return enabled.map((profile) => `
-    <button type="button" class="library-profile${profile.id === snapshot.filters.profileId ? " active" : ""}" data-ui-profile="${escapeHtml(profile.id)}" aria-label="Switch to ${escapeHtml(profile.name)}, ${profile.bookCount.toLocaleString()} ${profile.bookCount === 1 ? "book" : "books"}"${profile.id === snapshot.filters.profileId ? ' aria-current="true"' : ""}>
+    <button type="button" class="library-profile${!deviceView && profile.id === snapshot.filters.profileId ? " active" : ""}" data-ui-profile="${escapeHtml(profile.id)}" aria-label="Switch to ${escapeHtml(profile.name)}, ${profile.bookCount.toLocaleString()} ${profile.bookCount === 1 ? "book" : "books"}"${!deviceView && profile.id === snapshot.filters.profileId ? ' aria-current="true"' : ""}>
       <span class="library-avatar" aria-hidden="true">${escapeHtml(profile.initial)}</span>
       <span><strong>${escapeHtml(profile.name)}</strong><small>${escapeHtml(profile.sourceLabel)} · ${profile.bookCount.toLocaleString()} ${profile.bookCount === 1 ? "book" : "books"}</small></span>
     </button>
@@ -142,7 +144,7 @@ function renderLibraryNav(snapshot: CatalogBrowserSnapshot, connected: boolean):
   );
   const items: ReadonlyArray<readonly [LibraryView, string, string, number | undefined]> = [
     ["all", libraryIcon("book"), "All books", profile?.bookCount ?? 0],
-    ["on-kindle", libraryIcon("device"), `On ${readerName(snapshot)}`, counts.onKindle || undefined],
+    ["on-kindle", libraryIcon("device"), `On ${readerName(snapshot)}`, isKoboReader(snapshot) ? counts.onKindle || undefined : snapshot.kindleInventory?.total],
     ["recent", libraryIcon("clock"), "Recently added", undefined],
     ["series", libraryIcon("series"), "Series", snapshot.seriesPage?.total],
     ["attention", libraryIcon("attention"), "Needs attention", snapshot.healthPage?.counts.active || undefined],
@@ -419,6 +421,7 @@ function resultsEmptyCopy(snapshot: CatalogBrowserSnapshot): readonly [string, s
 }
 
 export function renderLibraryResults(state: AppState, snapshot: CatalogBrowserSnapshot): string {
+  if (snapshot.filters.view === "on-kindle" && !isKoboReader(snapshot)) return renderKindleLibraryView(state, snapshot);
   const enabledProfile = snapshot.profiles.find((profile) => profile.enabled);
   if (!enabledProfile) {
     const configured = snapshot.profiles.length > 0;
@@ -1388,6 +1391,7 @@ export function renderLibraryPrototype(
   topAlertsHtml = "",
   settingsDiagnosticsHtml = "",
 ): string {
+  const kindleLibraryView = snapshot.filters.view === "on-kindle" && !isKoboReader(snapshot);
   const profile = activeProfile(snapshot);
   const counts = countLibraryBooks(
     profile,
@@ -1405,7 +1409,6 @@ export function renderLibraryPrototype(
       ? "Use Chrome or another WebUSB-compatible Chromium browser."
       : "Open ShelfSend over trusted HTTPS or localhost."} Browsing, metadata editing, and Send later remain available.</div></div>`;
   const visibleTopAlerts = `${topAlertsHtml}${compatibilityNotice}${isKoboReader(snapshot) ? renderKoboDevicePanel(snapshot) : ""}`;
-  const safeWritePassed = state.selfTest.kind === "passed";
   const ready = readerReadyToSend(state, snapshot);
   const currentComparison = isKoboReader(snapshot) ? koboReady(snapshot) : connected
     && state.catalogInventoryState === "ready" && currentKindleComparison(snapshot);
@@ -1454,25 +1457,6 @@ export function renderLibraryPrototype(
               ? "Recovery inspection required"
               : ready ? "" : "Kindle inventory unavailable"
       : webUsbUsable ? "Plug in over USB" : "Library access is still available";
-  const kindleSummaryDetail = disconnecting
-    ? "Closing the MTP session and releasing USB"
-    : connected
-      ? state.postConnectStage === "safe-write"
-        ? "Checking safe writes…"
-        : state.postConnectStage === "inventory"
-          ? safeWritePassed ? "Safe-write passed; reading Documents inventory…" : "Reading Documents for recovery…"
-          : state.postConnectStage === "reconciliation"
-            ? "Kindle inventory read; comparing it with this library…"
-            : pendingObjectWriteActive(state)
-              ? "Writing and verifying the current Kindle file…"
-            : state.pendingObjectCleanup
-              ? "Inspect and acknowledge the recorded object before safe writes resume"
-              : ready ? "" : "Inventory unavailable; disconnect and reconnect to retry"
-      : "Connect to build a current Documents inventory";
-  const disconnectBlocked = disconnecting || snapshot.sendBusy || state.postConnectStage !== "idle" || state.selfTest.kind === "running";
-  const kindleConnectionButton = connected
-    ? `<button type="button" data-ui-action="disconnect-catalog-device"${disconnectBlocked ? " disabled" : ""}>${disconnecting ? "Disconnecting…" : snapshot.sendBusy ? "Transfer in progress…" : "Disconnect"}</button>`
-    : `<button type="button" data-ui-action="connect-catalog-device"${webUsbUsable ? "" : ' disabled aria-disabled="true" title="Kindle connection requires a secure page and a WebUSB-compatible browser"'}>Connect Kindle</button>`;
   const connectionBusy = connecting || disconnecting || snapshot.sendBusy || snapshot.bulkActionBusy;
   const connectPicker = `<div class="library-reader-picker"><button type="button" class="library-device-button library-reader-trigger" data-ui-action="toggle-reader-picker" aria-expanded="false" aria-controls="reader-connection-options"${connectionBusy ? " disabled" : ""}>${libraryIcon("device")}<strong>Connect eReader</strong><span class="library-reader-chevron" aria-hidden="true"></span></button><div id="reader-connection-options" class="library-reader-options" role="group" aria-label="Choose an eReader" hidden><button type="button" data-ui-action="connect-catalog-device"${webUsbUsable ? "" : " disabled"}><span class="library-reader-option-icon" aria-hidden="true"><img class="library-kindle-photo" src="${kindleDevicePhoto}" alt="" width="28" height="28" /></span><span><strong>Kindle</strong><small>${webUsbUsable ? "Connect by USB" : state.secureContext ? "Use a WebUSB-compatible browser" : "Requires trusted HTTPS or localhost"}</small></span></button><button type="button" data-ui-action="connect-kobo"${snapshot.kobo?.supported ? "" : " disabled"}><span class="library-reader-option-icon" aria-hidden="true">${libraryIcon("device")}</span><span><strong>Kobo</strong><small>${snapshot.kobo?.supported ? "Choose your Kobo’s USB drive" : "Requires desktop Chrome or Edge and HTTPS"}</small></span></button></div></div>`;
   const deviceControl = isKoboReader(snapshot)
@@ -1483,5 +1467,5 @@ export function renderLibraryPrototype(
   return `<div class="library-workspace"><header class="library-topbar"><div class="library-topbar-sync"><div class="library-topbar-status" data-status="${source.tone}" title="${escapeHtml(source.detail)}" role="status"><span class="library-source-dot" aria-hidden="true"></span><span>${escapeHtml(source.title)}</span></div>${refreshControl}</div>${deviceControl}<button type="button" class="library-queue-button" data-ui-action="open-send-queue" aria-label="Open Send later queue">${libraryIcon("queue")}<strong>${snapshot.sendQueue?.total ?? 0}</strong><small>Send later</small></button><button type="button" class="library-activity-button" data-ui-action="open-activity-center" aria-expanded="${snapshot.activityOpen}" aria-label="Open activity and device center${activityAttention ? `, ${activityAttention} items need attention` : ""}"><span class="library-source-dot" data-status="${escapeHtml(activityStatus.phase)}"></span><span><strong>${escapeHtml(activityLabel)}</strong><small>Activity${activityAttention ? ` · ${activityAttention}` : ""}</small></span></button></header>
     ${visibleTopAlerts ? `<div class="library-global-alerts">${visibleTopAlerts}</div>` : ""}
     <div class="library-layout" data-density="${escapeHtml(snapshot.density ?? "comfortable")}"><aside class="library-sidebar" aria-label="Library profiles and views"><a class="library-brand" href="#library" aria-label="ShelfSend library home"><span class="library-brand-mark" aria-hidden="true">${libraryIcon("shelfSend")}</span><span><strong>ShelfSend</strong><small>Browser to reader</small></span></a><div class="library-sidebar-label">Libraries</div><div class="library-profile-list">${renderProfileRail(snapshot)}</div><div class="library-sidebar-label library-views-label">Browse</div><nav class="library-nav" aria-label="Library views">${renderLibraryNav(snapshot, connected)}</nav>${renderSmartShelfRail(snapshot)}<div class="library-sidebar-bottom"><button type="button" class="library-nav-item settings${snapshot.filters.view === "settings" ? " active" : ""}" data-ui-view="settings"${snapshot.filters.view === "settings" ? ' aria-current="page"' : ""}>${libraryIcon("settings")}<span>Settings</span></button></div></aside>
-    <main class="library-main" id="library">${renderOnboarding(snapshot, state)}${snapshot.loadState === "error" && snapshot.profiles.length === 0 ? `<div class="library-empty-state library-error-state" role="alert"><span aria-hidden="true">!</span><h1>Catalog service unavailable</h1><p>${escapeHtml(snapshot.error ?? "ShelfSend could not reach its catalog service.")}</p><button type="button" data-ui-action="retry-catalog">Try again</button></div>` : snapshot.filters.view === "settings" ? `${renderLibrarySettings(snapshot)}${isKoboReader(snapshot) ? renderKoboDevicePanel(snapshot) : settingsDiagnosticsHtml}` : snapshot.filters.view === "series" ? renderSeriesBrowser(snapshot, state) : snapshot.filters.view === "attention" ? renderNeedsAttention(snapshot) : `${renderActiveShelf(snapshot)}<section class="library-hero" aria-labelledby="library-heading"><div><div class="library-eyebrow">${escapeHtml(profile?.description && !/^household collection$/iu.test(profile.description) ? profile.description : "Library")}</div><h1 id="library-heading">${escapeHtml(heading)}</h1><p>${profile?.bookCount ?? 0} books from <strong>${escapeHtml(profile?.sourceLabel ?? "configured sources")}</strong></p></div><div class="library-stat-row" aria-label="Library summary">${summary}</div></section>${snapshot.filters.view === "on-kindle" && !isKoboReader(snapshot) ? `<section class="library-kindle-summary" aria-label="Kindle summary"><span class="library-kindle-summary-icon" aria-hidden="true"><img class="library-kindle-photo" src="${kindleDevicePhoto}" alt="" width="48" height="44" /></span><div><strong>${disconnecting ? "Disconnecting Kindle" : connected ? "Kindle connected" : "Kindle not connected"}</strong>${kindleSummaryDetail ? `<span>${kindleSummaryDetail}</span>` : ""}</div><div class="library-kindle-summary-stats"><span><strong>${counts.onKindle}</strong> confirmed</span><span><strong>${counts.possible}</strong> possible</span></div>${kindleConnectionButton}</section>` : ""}${renderToolbar(snapshot)}<section class="library-results" aria-live="polite">${renderLibraryResults(state, snapshot)}</section>`}${snapshot.announcement ? `<div class="library-toast" role="status"><span class="library-toast-check">✓</span><span>${escapeHtml(snapshot.announcement)}</span><button type="button" data-ui-action="dismiss-announcement" aria-label="Dismiss notification">×</button></div>` : ""}${renderSendPreview(state, snapshot)}${isKoboReader(snapshot) ? "" : renderRemovalConfirmation(snapshot)}${isKoboReader(snapshot) ? "" : renderUpdateConfirmation(snapshot)}${renderMetadataEditor(snapshot, state)}${renderBookDetails(snapshot, state)}${isKoboReader(snapshot) ? "" : renderMatchReview(snapshot, state)}${renderSendQueue(snapshot, state)}${renderShelfManager(snapshot)}${renderActivityCenter(state, snapshot)}</main></div></div>`;
+    <main class="library-main" id="library">${kindleLibraryView ? "" : renderOnboarding(snapshot, state)}${kindleLibraryView ? renderKindleLibraryView(state, snapshot) : snapshot.loadState === "error" && snapshot.profiles.length === 0 ? `<div class="library-empty-state library-error-state" role="alert"><span aria-hidden="true">!</span><h1>Catalog service unavailable</h1><p>${escapeHtml(snapshot.error ?? "ShelfSend could not reach its catalog service.")}</p><button type="button" data-ui-action="retry-catalog">Try again</button></div>` : snapshot.filters.view === "settings" ? `${renderLibrarySettings(snapshot)}${isKoboReader(snapshot) ? renderKoboDevicePanel(snapshot) : settingsDiagnosticsHtml}` : snapshot.filters.view === "series" ? renderSeriesBrowser(snapshot, state) : snapshot.filters.view === "attention" ? renderNeedsAttention(snapshot) : `${renderActiveShelf(snapshot)}<section class="library-hero" aria-labelledby="library-heading"><div><div class="library-eyebrow">${escapeHtml(profile?.description && !/^household collection$/iu.test(profile.description) ? profile.description : "Library")}</div><h1 id="library-heading">${escapeHtml(heading)}</h1><p>${profile?.bookCount ?? 0} books from <strong>${escapeHtml(profile?.sourceLabel ?? "configured sources")}</strong></p></div><div class="library-stat-row" aria-label="Library summary">${summary}</div></section>${renderToolbar(snapshot)}<section class="library-results" aria-live="polite">${renderLibraryResults(state, snapshot)}</section>`}${snapshot.announcement ? `<div class="library-toast" role="status"><span class="library-toast-check">✓</span><span>${escapeHtml(snapshot.announcement)}</span><button type="button" data-ui-action="dismiss-announcement" aria-label="Dismiss notification">×</button></div>` : ""}${renderSendPreview(state, snapshot)}${isKoboReader(snapshot) ? "" : renderRemovalConfirmation(snapshot)}${isKoboReader(snapshot) ? "" : renderUpdateConfirmation(snapshot)}${renderMetadataEditor(snapshot, state)}${renderBookDetails(snapshot, state)}${isKoboReader(snapshot) ? "" : renderMatchReview(snapshot, state)}${renderSendQueue(snapshot, state)}${renderShelfManager(snapshot)}${renderActivityCenter(state, snapshot)}</main></div></div>`;
 }
