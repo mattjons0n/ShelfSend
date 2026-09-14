@@ -32,7 +32,6 @@
 .settings-page.settings-onboarding .settings-page-head,
 .settings-page.settings-onboarding .settings-prototype-notice,
 .settings-page.settings-onboarding .settings-library-picker,
-.settings-page.settings-onboarding .settings-guidance,
 .settings-page.settings-onboarding .settings-editor-head,
 .settings-page.settings-onboarding .settings-delete-button { display: none; }
 .library-reading { display: grid; gap: 4px; margin-top: 7px; color: var(--muted); font-size: 12px; }
@@ -1245,10 +1244,9 @@ details.diagnostics > summary { color: var(--muted); font-size: .8rem; font-weig
 .settings-error-summary { align-items: flex-start; flex-direction: column; border-color: #e0baba; background: #faeeee; color: #8b3434; }
 .settings-error-summary strong { color: #782b2b; }
 
-.settings-layout { display: grid; grid-template-columns: 205px minmax(430px, 1fr) 245px; align-items: start; gap: 14px; }
+.settings-layout { display: grid; grid-template-columns: 205px minmax(0, 1fr); align-items: start; gap: 14px; }
 .settings-library-picker,
-.settings-editor,
-.settings-guidance-card { border: 1px solid #d9dfda; border-radius: 12px; background: #fff; }
+.settings-editor { border: 1px solid #d9dfda; border-radius: 12px; background: #fff; }
 .settings-library-picker { overflow: hidden; padding: 12px; }
 .settings-section-label { margin: 2px 3px 10px; color: #76837a; font-size: .63rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .settings-library-options { display: grid; gap: 5px; }
@@ -1317,13 +1315,7 @@ details.diagnostics > summary { color: var(--muted); font-size: .8rem; font-weig
 .settings-actions > span { margin-right: auto; color: #718078; font-size: .62rem; }
 .settings-actions button { min-width: 110px; }
 
-.settings-guidance { display: grid; gap: 10px; }
-.settings-guidance-card { display: grid; gap: 7px; padding: 13px; }
-.settings-guidance-icon { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 8px; background: #e5efe8; color: #34704e; font-weight: 800; }
-.settings-guidance-card strong { color: #3c4b42; font-size: .7rem; }
-.settings-guidance-card p { margin: 0; color: #76837a; font-size: .62rem; line-height: 1.5; }
-.settings-guidance-card.warning { border-color: #ead9b8; background: #fffaf0; }
-.settings-guidance-card.warning .settings-guidance-icon { background: #f6e9ca; color: #8a621a; }
+.settings-access-note { margin: 18px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 
 .library-nav-item.settings { margin-top: auto; border-top: 1px solid rgba(255, 255, 255, .08); border-radius: 8px; }
 
@@ -1346,7 +1338,6 @@ details.diagnostics > summary { color: var(--muted); font-size: .8rem; font-weig
   .library-toolbar label:nth-child(4), .library-toolbar label:nth-child(5) { grid-column: auto; }
   .library-book-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   .settings-layout { grid-template-columns: 190px minmax(0, 1fr); }
-  .settings-guidance { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 900px) {
@@ -1365,7 +1356,6 @@ details.diagnostics > summary { color: var(--muted); font-size: .8rem; font-weig
   .settings-layout { grid-template-columns: 1fr; }
   .settings-library-options { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
   .settings-picker-note { margin-top: 10px; }
-  .settings-guidance { grid-column: auto; }
   .library-nav-item.settings { grid-column: 1 / -1; margin-top: 10px; border-top-color: rgba(255, 255, 255, .08); border-radius: 8px; }
   .metadata-editor-body { grid-template-columns: 1fr; }
 }
@@ -1401,7 +1391,6 @@ details.diagnostics > summary { color: var(--muted); font-size: .8rem; font-weig
   .settings-page-head > button { width: 100%; }
   .settings-prototype-notice { align-items: flex-start; flex-direction: column; }
   .settings-library-fields, .settings-fields-grid, .settings-toggle-row { grid-template-columns: 1fr; }
-  .settings-guidance { grid-template-columns: 1fr; }
   .settings-actions { align-items: stretch; flex-direction: column; }
   .settings-actions > span { margin-right: 0; }
   .library-metadata-sheet { width: calc(100% - 14px); max-height: calc(100dvh - 14px); border-radius: 13px; }

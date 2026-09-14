@@ -1050,7 +1050,7 @@ export class AppView {
     const editor = dialog.closest<HTMLElement>(".settings-editor");
     editor?.querySelectorAll<HTMLElement>(":scope > :not(.settings-delete-confirmation)")
       .forEach((element) => element.setAttribute("inert", ""));
-    this.#root.querySelectorAll<HTMLElement>(".settings-page-head, .settings-prototype-notice, .settings-library-picker, .settings-guidance")
+    this.#root.querySelectorAll<HTMLElement>(".settings-page-head, .settings-prototype-notice, .settings-library-picker, .settings-access-note")
       .forEach((element) => element.setAttribute("inert", ""));
     this.#root.querySelectorAll<HTMLElement>(".library-topbar, .library-sidebar, .library-global-alerts, .poc-lab, .footer")
       .forEach((element) => element.setAttribute("inert", ""));
