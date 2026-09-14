@@ -48,6 +48,23 @@
 .library-app-shell .library-kindle-photo { display: block; object-fit: contain; }
 .library-app-shell .library-device-icon { flex: none; background: transparent; }
 .library-app-shell .library-device-icon .library-kindle-photo { width: 32px; height: 32px; }
+.library-topbar .library-device-indexing { position: relative; display: flex; align-items: center; gap: 10px; width: 272px; max-width: 100%; padding: 10px 14px; border-radius: 9px; text-align: left; }
+.library-app-shell .library-device-progress-link { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; box-shadow: none; }
+.library-app-shell .library-device-progress-link:hover:not(:disabled) { background: transparent; }
+.library-device-progress-link:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+.library-device-indexing-content { display: grid; gap: 6px; flex: 1; min-width: 0; }
+.library-device-progress-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
+.library-app-shell .library-device-progress-heading strong { color: var(--text); font-size: 12px; font-weight: 600; }
+.library-device-progress-percent { color: var(--green); font-size: 12px; font-weight: 600; }
+.library-app-shell .library-device-indexing-content > small { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.library-device-indexing .progress-track { display: block; height: 8px; margin: 0; overflow: hidden; border-radius: 8px; background: var(--border); }
+.library-device-indexing .progress-track > span { display: block; height: 100%; border-radius: inherit; background: var(--green); transition: width .2s ease; }
+.library-device-indexing .progress-track[data-indeterminate="true"] > span { width: 36%; animation: kindle-indexing-progress 1.4s ease-in-out infinite alternate; }
+@keyframes kindle-indexing-progress { from { transform: translateX(-90%); } to { transform: translateX(270%); } }
+@media (prefers-reduced-motion: reduce) {
+  .library-device-indexing .progress-track > span { transition: none; }
+  .library-device-indexing .progress-track[data-indeterminate="true"] > span { animation: none; width: 100%; opacity: .55; }
+}
 .library-app-shell .library-kindle-summary {
   color: var(--text);
   background: var(--green-soft);

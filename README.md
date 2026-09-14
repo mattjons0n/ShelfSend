@@ -97,7 +97,7 @@ Choose your reader from **Connect eReader**. Connect one device at a time, using
 ### Kindle
 
 1. **Connect.** Plug the Kindle into your computer and choose **Connect eReader → Kindle** to open the browser's device chooser.
-2. **Check.** ShelfSend automatically runs an exact-byte write/read/delete self-test, reads the device inventory, and compares it with your selected library before enabling Send.
+2. **Check.** ShelfSend automatically runs an exact-byte write/read/delete self-test, reads the device inventory, and compares it with your selected library before enabling Send. The header shows indexing progress and how many books have been checked; the first connection can take longer.
 3. **Choose.** Send an eligible missing book, select multiple titles in list view, or review your **Send later** queue.
 4. **Transfer.** The browser validates the source, converts EPUBs locally, prepares the Kindle copy, and uploads and verifies each book. Batch progress identifies completed titles and keeps unsent titles selected after a failure.
 5. **Read.** Open the transferred title on your Kindle. Prepared sideloads use personal-document metadata so embedded covers can appear in the library; Kindle classifies them under **Documents**.

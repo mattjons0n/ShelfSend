@@ -77,6 +77,7 @@ import {
   type KindleBookTransferResult,
   type KindleDeviceLease,
   type KindleInventorySnapshot,
+  type KindleInventoryProgress,
   type KindleIdentityStability,
   type KindleManualMatchDecisionStore,
   type KindleManualMatchEvidence,
@@ -585,6 +586,7 @@ export class AppController {
   #unidentifiedCrossConnectionEvidence = false;
   #conversionAbort?: AbortController;
   #lastProgressRender = 0;
+  #kindleIndexProgressRun?: object;
   #artifactSequence = 0;
   #recoveryOperationSequence = 0;
   #catalogInventory?: import("./catalog-browser").CatalogKindleInventory;
@@ -1210,6 +1212,7 @@ export class AppController {
         try {
           const inventory = await connection.refreshInventory({
             signal: abort.signal,
+            onProgress: this.#kindleInventoryProgressHandler(epoch, connection, abort.signal),
             aggregateTimeoutMs:
               this.#dependencies.connectInventoryTimeoutMs ?? DEFAULT_CONNECT_INVENTORY_TIMEOUT_MS,
           });
@@ -3287,6 +3290,7 @@ export class AppController {
       try {
         inventory = await connection.refreshInventory({
           signal,
+          onProgress: this.#kindleInventoryProgressHandler(epoch, connection, signal),
           aggregateTimeoutMs:
             this.#dependencies.connectInventoryTimeoutMs ?? DEFAULT_CONNECT_INVENTORY_TIMEOUT_MS,
           deviceMetadataCache: "read-write",
@@ -3367,6 +3371,36 @@ export class AppController {
         this.#commit({ ...this.#state, postConnectStage: "idle" });
       }
     }
+  }
+
+  #kindleInventoryProgressHandler(
+    epoch: number,
+    connection: ConnectedKindlePort,
+    signal?: AbortSignal,
+  ): (progress: KindleInventoryProgress) => void {
+    // An exact run token also rejects an older recovery observer on the same
+    // still-connected device. Progress never contributes inventory authority.
+    const run = {};
+    this.#kindleIndexProgressRun = run;
+    let lastProgress: KindleInventoryProgress | undefined;
+    let lastRender = -Infinity;
+    return (progress) => {
+      if (this.#kindleIndexProgressRun !== run
+        || signal?.aborted
+        || this.#state.postConnectStage !== "inventory"
+        || !this.#isActiveConnection(epoch, connection)) return;
+      if (lastProgress?.phase === progress.phase
+        && lastProgress.completed === progress.completed
+        && lastProgress.total === progress.total) return;
+      const now = this.#dependencies.now();
+      const phaseChanged = lastProgress?.phase !== progress.phase;
+      const totalChanged = lastProgress?.total !== progress.total;
+      const completed = progress.total !== undefined && progress.completed === progress.total;
+      if (!phaseChanged && !totalChanged && !completed && now - lastRender < 100) return;
+      lastRender = now;
+      lastProgress = { ...progress };
+      this.#commit({ ...this.#state, kindleIndexProgress: lastProgress });
+    };
   }
 
   #logKindleMetadataCacheDiagnostics(inventory: KindleInventorySnapshot): void {
@@ -4517,6 +4551,10 @@ export class AppController {
   }
 
   #commit(state: AppState): void {
+    if (state.postConnectStage !== "inventory") {
+      this.#kindleIndexProgressRun = undefined;
+      if (state.kindleIndexProgress !== undefined) state = { ...state, kindleIndexProgress: undefined };
+    }
     this.#state = state;
     this.#view.render(state);
   }

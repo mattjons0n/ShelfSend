@@ -1,5 +1,6 @@
 import type { AppError } from "./app-error";
 import type { ConversionResult } from "./api/convert";
+import type { KindleInventoryProgress } from "./kindle/inventory";
 import {
   readReplacementCleanupRecords,
   type ReplacementCleanupRecord,
@@ -108,6 +109,8 @@ export interface AppState {
   readonly device: DeviceState;
   readonly selfTest: SelfTestState;
   readonly postConnectStage: PostConnectStage;
+  /** Measured, current-run Kindle indexing progress; presentation only. */
+  readonly kindleIndexProgress?: KindleInventoryProgress;
   /** Current-connection Kindle inventory and catalog matching readiness. */
   readonly catalogInventoryState: CatalogInventoryState;
   readonly integratedTransfer: TransferState;

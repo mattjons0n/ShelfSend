@@ -35,6 +35,7 @@ import { METADATA_CLAIM_BITMAP_BYTES } from "../../shared/catalog-contracts";
 import { AppError } from "../../client/src/app-error";
 import { AppView } from "../../client/src/view";
 import { KoboCatalogSession, type KoboCatalogDevice } from "../../client/src/kobo/catalog-session";
+import type { KindleInventoryProgress } from "../../client/src/kindle/inventory";
 
 describe("Kobo controller routing", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -1219,17 +1220,172 @@ describe("AppController local conversion flow", () => {
 
     const connecting = app.controller.connect();
     await vi.waitFor(() => expect(app.controller.state.postConnectStage).toBe("safe-write"));
-    expect(app.root.querySelector(".library-device-button")?.textContent).toContain("Checking safe writes");
+    expect(app.root.querySelector(".library-device-button")?.textContent).toContain("Preparing Kindle");
 
     finishSelfTest();
     await vi.waitFor(() => expect(app.controller.state.postConnectStage).toBe("inventory"));
     const inventoryCopy = app.root.querySelector(".library-device-button")?.textContent ?? "";
-    expect(inventoryCopy).toContain("Reading Kindle Documents");
+    expect(inventoryCopy).toContain("Finding books");
     expect(inventoryCopy).not.toContain("Checking safe writes");
 
     finishInventory();
     await connecting;
     expect(app.controller.state.postConnectStage).toBe("idle");
+  });
+
+  it("publishes measured indexing progress, throttles counts, and always publishes phase changes and completion", async () => {
+    const app = harness();
+    let finishInventory!: () => void;
+    let report!: (progress: KindleInventoryProgress) => void;
+    vi.mocked(app.connection.refreshInventory).mockImplementationOnce(async (options) => {
+      report = options!.onProgress!;
+      await new Promise<void>((resolve) => { finishInventory = resolve; });
+      return app.connection.latestInventory!;
+    });
+
+    const connecting = app.controller.connect();
+    await vi.waitFor(() => expect(report).toBeTypeOf("function"));
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+    report({ phase: "enumerating", completed: 0 });
+    expect(app.controller.state.kindleIndexProgress).toEqual({ phase: "enumerating", completed: 0 });
+    report({ phase: "enumerating", completed: 1 });
+    expect(app.controller.state.kindleIndexProgress?.completed).toBe(0);
+    app.advanceTime(100);
+    report({ phase: "enumerating", completed: 7 });
+    expect(app.controller.state.kindleIndexProgress).toEqual({ phase: "enumerating", completed: 7 });
+    report({ phase: "metadata", completed: 0, total: 5 });
+    expect(app.controller.state.kindleIndexProgress).toEqual({ phase: "metadata", completed: 0, total: 5 });
+    report({ phase: "metadata", completed: 1, total: 5 });
+    expect(app.controller.state.kindleIndexProgress?.completed).toBe(0);
+    app.advanceTime(100);
+    report({ phase: "metadata", completed: 3, total: 5 });
+    expect(app.controller.state.kindleIndexProgress?.completed).toBe(3);
+    report({ phase: "metadata", completed: 5, total: 5 });
+    expect(app.controller.state.kindleIndexProgress).toEqual({ phase: "metadata", completed: 5, total: 5 });
+
+    finishInventory();
+    await connecting;
+    expect(app.controller.state.postConnectStage).toBe("idle");
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+    report({ phase: "metadata", completed: 4, total: 5 });
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+    await app.controller.disconnect();
+    report({ phase: "enumerating", completed: 9 });
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+  });
+
+  it("clears indexing progress before catalog reconciliation and does not revive it from late callbacks", async () => {
+    const app = harness();
+    let report!: (progress: KindleInventoryProgress) => void;
+    let finishComparison!: () => void;
+    const index = await app.catalogApi.getMatchIndex("profile-1");
+    vi.mocked(app.catalogApi.getMatchIndex).mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { finishComparison = resolve; });
+      return index;
+    });
+    vi.mocked(app.connection.refreshInventory).mockImplementationOnce(async (options) => {
+      report = options!.onProgress!;
+      report({ phase: "metadata", completed: 2, total: 2 });
+      return app.connection.latestInventory!;
+    });
+
+    const connecting = app.controller.connect();
+    await vi.waitFor(() => expect(finishComparison).toBeTypeOf("function"));
+    expect(app.controller.state.postConnectStage).toBe("reconciliation");
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+    report({ phase: "metadata", completed: 1, total: 2 });
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+    finishComparison();
+    await connecting;
+  });
+
+  it.each(["physical disconnect", "stale session"] as const)("clears indexing progress on %s and ignores the aborted inventory observer", async (reason) => {
+    const usbEvents = new EventTarget();
+    const app = harness(false, { usb: usbEvents as never });
+    let finishInventory!: () => void;
+    let report!: (progress: KindleInventoryProgress) => void;
+    let inventorySignal: AbortSignal | undefined;
+    vi.mocked(app.connection.refreshInventory).mockImplementationOnce(async (options) => {
+      report = options!.onProgress!;
+      inventorySignal = options?.signal;
+      report({ phase: "metadata", completed: 2, total: 8 });
+      await new Promise<void>((resolve) => { finishInventory = resolve; });
+      return app.connection.latestInventory!;
+    });
+
+    const connecting = app.controller.connect();
+    await vi.waitFor(() => expect(finishInventory).toBeTypeOf("function"));
+    expect(app.controller.state.kindleIndexProgress?.completed).toBe(2);
+    if (reason === "physical disconnect") {
+      const event = new Event("disconnect");
+      Object.defineProperty(event, "device", { value: app.connection.device });
+      usbEvents.dispatchEvent(event);
+    } else {
+      app.browserLifecycle.setVisibility("hidden");
+      app.advanceTime(60_000);
+      app.browserLifecycle.setVisibility("visible");
+    }
+    expect(inventorySignal?.aborted).toBe(true);
+    expect(app.controller.state.postConnectStage).toBe("idle");
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+    report({ phase: "metadata", completed: 8, total: 8 });
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+    finishInventory();
+    await connecting;
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+    expect(app.controller.state.device.kind).toBe("error");
+  });
+
+  it("clears indexing progress when inventory fails rather than leaving a completed bar", async () => {
+    const app = harness();
+    let report!: (progress: KindleInventoryProgress) => void;
+    vi.mocked(app.connection.refreshInventory).mockImplementationOnce(async (options) => {
+      report = options!.onProgress!;
+      report({ phase: "metadata", completed: 2, total: 8 });
+      throw new Error("Inventory failed");
+    });
+    await app.controller.connect();
+    expect(app.controller.state.postConnectStage).toBe("idle");
+    expect(app.controller.state.catalogInventoryState).toBe("failed");
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+    report({ phase: "metadata", completed: 8, total: 8 });
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+  });
+
+  it("reports read-only recovery indexing but isolates its callback from the later clean inventory on the same connection", async () => {
+    expect(persistPendingObjectCleanup({
+      version: 1, purpose: "catalog", stage: "handle-assigned", filename: "Book-kb-interrupted.azw3",
+      vendorId: 0x1949, productId: 0x9981, storageId: 0x10001, parentHandle: 0x37,
+      size: 512, handle: 0x404, operationId: "mtp-progress-recovery", recordedAt: 42,
+    })).toBe(true);
+    const app = harness();
+    const reports: Array<(progress: KindleInventoryProgress) => void> = [];
+    let finishInventory!: () => void;
+    vi.mocked(app.connection.refreshInventory).mockImplementation(async (options) => {
+      reports.push(options!.onProgress!);
+      options!.onProgress!({ phase: "metadata", completed: 1, total: 3 });
+      await new Promise<void>((resolve) => { finishInventory = resolve; });
+      return app.connection.latestInventory!;
+    });
+    const connecting = app.controller.connect("catalog");
+    await vi.waitFor(() => expect(reports).toHaveLength(1));
+    expect(app.controller.state.kindleIndexProgress?.completed).toBe(1);
+    expect(app.connection.runSelfTest).not.toHaveBeenCalled();
+    finishInventory();
+    await connecting;
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
+
+    const recovering = app.controller.confirmCleanupInspection();
+    await vi.waitFor(() => expect(reports).toHaveLength(2));
+    expect(app.controller.state.postConnectStage).toBe("inventory");
+    expect(app.controller.state.kindleIndexProgress?.completed).toBe(1);
+    reports[0]!({ phase: "metadata", completed: 3, total: 3 });
+    expect(app.controller.state.kindleIndexProgress?.completed).toBe(1);
+    reports[1]!({ phase: "metadata", completed: 3, total: 3 });
+    expect(app.controller.state.kindleIndexProgress?.completed).toBe(3);
+    finishInventory();
+    await recovering;
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
   });
 
   it("enables the development partial-object gate only for the explicitly armed next connection", async () => {
@@ -1804,7 +1960,7 @@ describe("AppController local conversion flow", () => {
     const connecting = app.controller.connect();
     await vi.waitFor(() => expect(app.controller.state.postConnectStage).toBe("reconciliation"));
     expect(app.controller.state.selfTest.kind).toBe("passed");
-    expect(app.root.querySelector(".library-device-button")?.textContent).toContain("Comparing Kindle with library");
+    expect(app.root.querySelector(".library-device-button")?.textContent).toContain("Finishing up");
     await expect(
       app.controller.sendCatalogBook({ profileId: "profile-1", book: app.book }),
     ).rejects.toMatchObject({ code: "INVALID_STATE" });
@@ -2637,6 +2793,8 @@ describe("AppController local conversion flow", () => {
         onObjectState: expect.any(Function),
       }),
     );
+    expect(vi.mocked(app.connection.sendAzW3AndRefreshInventory).mock.calls[0]?.[3]?.onProgress).toBeUndefined();
+    expect(app.controller.state.kindleIndexProgress).toBeUndefined();
     expect(app.catalogApi.createDelivery).toHaveBeenCalledWith(
       expect.objectContaining({
         profileId: "profile-1",

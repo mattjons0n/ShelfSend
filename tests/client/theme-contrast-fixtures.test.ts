@@ -17,6 +17,10 @@ describe("real UI coverage for the computed contrast audit", () => {
   });
 
   it.each([
+    ["kindle-index-preparing", '.library-device-indexing[data-progress-phase="preparing"] [role="progressbar"]'],
+    ["kindle-index-enumerating", '.library-device-indexing[data-progress-phase="discovering"] [role="progressbar"]'],
+    ["kindle-index-metadata", '.library-device-indexing[data-progress-phase="indexing"] [role="progressbar"][aria-valuenow="50"]'],
+    ["kindle-index-finishing", '.library-device-indexing[data-progress-phase="finishing"] [role="progressbar"]'],
     ["dashboard-active-shelf", '[data-ui-action="clear-smart-shelf"]'],
     ["dashboard-list-selected", '[data-ui-action="bulk-send-to-kindle"]'],
     ["dashboard-list-busy", '.library-bulk-actions button.primary:disabled > span'],

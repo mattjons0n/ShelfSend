@@ -31,6 +31,7 @@ import kindleDevicePhoto from "./assets/kindle-device.png";
 import { describeKindleReadingPresentation } from "./kindle/reading-presentation";
 import { renderRecordedReadingData } from "./recorded-reading-view";
 import { renderKindleLibraryView } from "./kindle-library-view";
+import { kindleConnectionProgress, renderKindleIndexProgressContent } from "./kindle-connection-progress";
 import { renderNeedsAttention } from "./library-health-view";
 import {
   actualDeviceConnected,
@@ -1458,9 +1459,12 @@ export function renderLibraryPrototype(
               : ready ? "" : "Kindle inventory unavailable"
       : webUsbUsable ? "Plug in over USB" : "Library access is still available";
   const connectionBusy = connecting || disconnecting || snapshot.sendBusy || snapshot.bulkActionBusy;
+  const connectionProgress = isKoboReader(snapshot) ? undefined : kindleConnectionProgress(state);
   const connectPicker = `<div class="library-reader-picker"><button type="button" class="library-device-button library-reader-trigger" data-ui-action="toggle-reader-picker" aria-expanded="false" aria-controls="reader-connection-options"${connectionBusy ? " disabled" : ""}>${libraryIcon("device")}<strong>Connect eReader</strong><span class="library-reader-chevron" aria-hidden="true"></span></button><div id="reader-connection-options" class="library-reader-options" role="group" aria-label="Choose an eReader" hidden><button type="button" data-ui-action="connect-catalog-device"${webUsbUsable ? "" : " disabled"}><span class="library-reader-option-icon" aria-hidden="true"><img class="library-kindle-photo" src="${kindleDevicePhoto}" alt="" width="28" height="28" /></span><span><strong>Kindle</strong><small>${webUsbUsable ? "Connect by USB" : state.secureContext ? "Use a WebUSB-compatible browser" : "Requires trusted HTTPS or localhost"}</small></span></button><button type="button" data-ui-action="connect-kobo"${snapshot.kobo?.supported ? "" : " disabled"}><span class="library-reader-option-icon" aria-hidden="true">${libraryIcon("device")}</span><span><strong>Kobo</strong><small>${snapshot.kobo?.supported ? "Choose your Kobo’s USB drive" : "Requires desktop Chrome or Edge and HTTPS"}</small></span></button></div></div>`;
   const deviceControl = isKoboReader(snapshot)
     ? `<button type="button" class="library-device-button connected" data-ui-action="show-kindle"${connecting || snapshot.sendBusy ? " disabled" : ""}><span class="library-device-icon" aria-hidden="true">${libraryIcon("device")}</span><span><strong>${snapshot.kobo?.status === "ready" ? "Kobo connected" : snapshot.kobo?.status === "scanning" ? "Checking Kobo…" : snapshot.kobo?.status === "connecting" ? "Connecting Kobo…" : "Kobo needs attention"}</strong><small>EPUB · USB drive</small></span></button>`
+    : connectionProgress
+      ? `<div class="library-device-button connected library-device-indexing" data-progress-phase="${connectionProgress.phase}" aria-busy="true"><button type="button" class="library-device-progress-link" data-ui-action="show-kindle" aria-label="Open Kindle inventory"${connectionBusy ? " disabled" : ""}></button><span class="library-device-icon" aria-hidden="true"><img class="library-kindle-photo" src="${kindleDevicePhoto}" alt="" width="32" height="32" /></span><span class="library-device-indexing-content">${renderKindleIndexProgressContent(connectionProgress)}</span></div>`
     : connected || connecting || disconnecting
       ? `<button type="button" class="library-device-button${connected ? " connected" : ""}" data-ui-action="show-kindle"${connectionBusy ? " disabled" : ""}><span class="library-device-icon" aria-hidden="true"><img class="library-kindle-photo" src="${kindleDevicePhoto}" alt="" width="32" height="32" /></span><span><strong>${deviceTitle}</strong>${deviceDetail ? `<small>${deviceDetail}</small>` : ""}</span></button>`
       : connectPicker;

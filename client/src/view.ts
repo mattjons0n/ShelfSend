@@ -26,6 +26,7 @@ import {
 } from "./catalog-client";
 import { renderKindleDeviceContents, renderLibraryPrototype, renderLibraryResults } from "./library-prototype-view";
 import { renderKindleLibraryView } from "./kindle-library-view";
+import { kindleConnectionProgress, renderKindleIndexProgressContent } from "./kindle-connection-progress";
 import { bindLibraryDisplayControls, captureLibraryDisplayControl } from "./library-display-controls";
 import { bindSettingsProviderDisclosure, captureSettingsProviderDisclosure } from "./provider-settings-controls";
 import { bindShelfOrderControls } from "./shelf-order-controls";
@@ -460,7 +461,22 @@ export class AppView {
   }
 
   render(state: AppState): void {
+    const previous = this.#state;
     this.#state = state;
+    // Measured USB counts can arrive frequently. Keep the rest of the page,
+    // open disclosures, focused controls and scroll position intact.
+    if (previous !== state && !isKoboReader(this.#catalog.snapshot)
+      && (Object.keys({ ...previous, ...state }) as (keyof AppState)[])
+        .every((key) => key === "kindleIndexProgress" || previous[key] === state[key])) {
+      const progress = kindleConnectionProgress(state);
+      const current = this.#root.querySelector<HTMLElement>(".library-device-indexing");
+      const content = current?.querySelector<HTMLElement>(".library-device-indexing-content");
+      if (progress && current && content) {
+        current.dataset.progressPhase = progress.phase;
+        content.innerHTML = renderKindleIndexProgressContent(progress);
+        return;
+      }
+    }
     const restoreDisplayControl = captureLibraryDisplayControl(this.#root);
     const restoreProviderDisclosure = captureSettingsProviderDisclosure(this.#root);
     const readerMenuOpen = this.#root.querySelector('[data-ui-action="toggle-reader-picker"]')?.getAttribute("aria-expanded") === "true";

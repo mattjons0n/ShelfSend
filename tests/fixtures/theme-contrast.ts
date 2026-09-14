@@ -116,6 +116,10 @@ export function themeContrastFixtures(): readonly ThemeContrastFixture[] {
       errorCode: index === 2 ? "provider-rate-limited" : null, acceptedAt: null, updatedAt: "2026-09-14T09:00:00Z" })),
   };
   return [
+    render("kindle-index-preparing", {}, { ...readyState(), postConnectStage: "safe-write", selfTest: { kind: "running" } }),
+    render("kindle-index-enumerating", {}, { ...readyState(), postConnectStage: "inventory", catalogInventoryState: "loading", kindleIndexProgress: { phase: "enumerating", completed: 38 } }),
+    render("kindle-index-metadata", {}, { ...readyState(), postConnectStage: "inventory", catalogInventoryState: "loading", kindleIndexProgress: { phase: "metadata", completed: 50, total: 100 } }),
+    render("kindle-index-finishing", {}, { ...readyState(), postConnectStage: "reconciliation", kindleIndexProgress: { phase: "metadata", completed: 100, total: 100 } }),
     render("kindle-library-inventory", { filters: { ...base.filters, view: "on-kindle", query: "Not a device query", kindle: "possible" }, kindleInventory: deviceInventory }),
     render("kindle-library-last-seen", { filters: { ...base.filters, view: "on-kindle" }, kindleInventory: { ...deviceInventory, completeness: "last-seen", metadata: { status: "partial", eligible: 3, enriched: 2, failed: 1, skipped: 0, truncated: false } } }, { ...readyState(), device: { kind: "disconnected" } }),
     render("dashboard-active-shelf", { activeShelf: { id: "builtin-recent", name: "Recently added", builtIn: true, query: { version: 1 } } }),

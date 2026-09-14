@@ -240,13 +240,13 @@ describe("catalog-backed library model", () => {
       vendorId: 0x1949, productId: 0x9981, storageId: 1, parentHandle: 2, handle: 3,
       size: 1_012, operationId: "active-write", recordedAt: Date.now(),
     };
-    const scenarios: readonly [Partial<AppState>, string][] = [
+    const scenarios: readonly [Partial<AppState>, string, string?][] = [
       [{ postConnectStage: "safe-write", selfTest: { kind: "running" } },
-        "Checking safe writes…"],
+        "Getting ready to check your books", "Preparing Kindle…"],
       [{ postConnectStage: "inventory", catalogInventoryState: "loading" },
-        "Reading Kindle Documents…"],
+        "Reading your Kindle’s contents", "Finding books…"],
       [{ postConnectStage: "reconciliation" },
-        "Comparing Kindle with library…"],
+        "Updating your library", "Finishing up…"],
       [{ pendingObjectCleanup, activeObjectWriteId: "active-write" },
         "Writing to Kindle…"],
       [{ pendingObjectCleanup },
@@ -254,9 +254,10 @@ describe("catalog-backed library model", () => {
       [{ catalogInventoryState: "failed" },
         "Kindle inventory unavailable"],
     ];
-    for (const [patch, buttonDetail] of scenarios) {
+    for (const [patch, buttonDetail, progressTitle] of scenarios) {
       view.render({ ...state, ...patch });
       expect(root.querySelector(".library-device-button small")?.textContent).toBe(buttonDetail);
+      if (progressTitle) expect(root.querySelector(".library-device-indexing strong")?.textContent).toBe(progressTitle);
       expect(root.querySelector(".kindle-library-view")).not.toBeNull();
       expect(root.querySelectorAll(".library-device-button img.library-kindle-photo")).toHaveLength(1);
     }

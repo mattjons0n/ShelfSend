@@ -352,7 +352,16 @@ export interface KindleInventoryMetadataOptions {
   readonly maxTotalBytes?: number;
 }
 
+/** Read-only progress; a missing total means the live hierarchy is still being discovered. */
+export interface KindleInventoryProgress {
+  readonly phase: "enumerating" | "metadata";
+  readonly completed: number;
+  readonly total?: number;
+}
+
 export interface KindleInventoryOptions extends KindleOperationOptions {
+  /** Optional observation only. Observer failures never interrupt device work. */
+  readonly onProgress?: (progress: KindleInventoryProgress) => void;
   readonly maxObjects?: number;
   readonly maxDepth?: number;
   readonly maxFilenameLength?: number;
@@ -406,6 +415,30 @@ interface FolderWork {
 interface BoundedText {
   readonly value: string;
   readonly adjusted: boolean;
+}
+
+function inventoryProgressReporter(
+  observer: KindleInventoryOptions["onProgress"],
+  signal: AbortSignal | undefined,
+): (progress: KindleInventoryProgress, force?: boolean) => void {
+  let previous: KindleInventoryProgress | undefined;
+  let reportedAt = 0;
+  return (progress, force = false) => {
+    if (observer === undefined || signal?.aborted) return;
+    const now = performance.now();
+    const samePhase = previous?.phase === progress.phase;
+    if (previous !== undefined && samePhase && previous.completed === progress.completed && previous.total === progress.total) return;
+    // A large, warm inventory can be processed synchronously. Keep rendering
+    // observational and bounded without hiding phase transitions or final counts.
+    if (!force && samePhase && now - reportedAt < 100) return;
+    previous = Object.freeze({ ...progress });
+    reportedAt = now;
+    try {
+      observer(previous);
+    } catch {
+      // Display callbacks have no authority over inventory, transport, or caches.
+    }
+  };
 }
 
 function boundedInteger(
@@ -991,6 +1024,7 @@ async function enrichBookMetadata(
   } = { missingObjectCount: 0, invalidObjectCount: 0 },
   modificationDateProbe?: KindleModificationDateProbeSummary,
   kfxSidecars?: KindleKfxSidecarMetadataResult,
+  reportProgress?: (progress: KindleInventoryProgress, force?: boolean) => void,
 ): Promise<{
   readonly objects: readonly KindleInventoryObject[];
   readonly summary: KindleInventoryMetadataSummary;
@@ -1053,6 +1087,16 @@ async function enrichBookMetadata(
     };
   }
 
+  reportProgress?.({ phase: "metadata", completed: 0, total: eligibleObjectCount }, true);
+  let processedObjectCount = 0;
+  const completeObject = (): void => {
+    processedObjectCount += 1;
+    // Only publish the terminal total after all work (including a final cache
+    // flush) succeeds. An aborted or failed run must not appear complete.
+    if (processedObjectCount < eligibleObjectCount) {
+      reportProgress?.({ phase: "metadata", completed: processedObjectCount, total: eligibleObjectCount });
+    }
+  };
   const cacheLookup = await cachedMetadataHits(
     objects,
     limits.maxObjects,
@@ -1103,6 +1147,7 @@ async function enrichBookMetadata(
     if (object.managedToken !== undefined && !object.metadataAdjusted) {
       counters.managed += 1;
       enrichedObjects.push(Object.freeze({ ...object, bookMetadataState: "managed-token" }));
+      completeObject();
       continue;
     }
 
@@ -1127,6 +1172,7 @@ async function enrichBookMetadata(
           }
         }
       }
+      completeObject();
       continue;
     }
 
@@ -1143,6 +1189,7 @@ async function enrichBookMetadata(
           counters.indistinguishable += 1;
         }
         enrichedObjects.push(enrichedObject);
+        completeObject();
         continue;
       }
       if (sidecar?.state === "failed") {
@@ -1156,6 +1203,7 @@ async function enrichBookMetadata(
           ...object,
           bookMetadataState: "skipped-unsupported-format",
         }));
+        completeObject();
         continue;
       }
       if (sidecar?.state === "skipped") {
@@ -1168,6 +1216,7 @@ async function enrichBookMetadata(
         const reason = sidecar.reason === "book-limit" ? "object-count" : sidecar.reason;
         reasons.add(reason);
         enrichedObjects.push(Object.freeze({ ...object, bookMetadataState: state }));
+        completeObject();
         continue;
       }
       counters.skipped += 1;
@@ -1176,6 +1225,7 @@ async function enrichBookMetadata(
         ...object,
         bookMetadataState: "skipped-unsupported-format",
       }));
+      completeObject();
       continue;
     }
 
@@ -1195,6 +1245,7 @@ async function enrichBookMetadata(
       counters.skipped += 1;
       reasons.add(skipReason);
       enrichedObjects.push(Object.freeze({ ...object, bookMetadataState: skippedState }));
+      completeObject();
       continue;
     }
 
@@ -1230,9 +1281,11 @@ async function enrichBookMetadata(
       counters.failed += 1;
       enrichedObjects.push(Object.freeze({ ...object, bookMetadataState: "failed" }));
     }
+    completeObject();
   }
 
   await flushCacheEntries(true);
+  reportProgress?.({ phase: "metadata", completed: processedObjectCount, total: eligibleObjectCount }, true);
   const browserWriteOutcome: KindleBrowserMetadataCacheWriteOutcome = cacheContext === undefined
     ? "disabled"
     : counters.browserWriteCandidates === 0
@@ -1282,6 +1335,9 @@ export async function buildKindleInventory(
   deviceCacheContext?: KindleInventoryDeviceMetadataCacheContext,
 ): Promise<KindleInventorySnapshot> {
   const limits = resolveLimits(options);
+  const reportProgress = inventoryProgressReporter(options.onProgress, options.signal);
+  options.signal?.throwIfAborted();
+  reportProgress({ phase: "enumerating", completed: 0 }, true);
   const operationOptions: KindleOperationOptions = {
     ...(options.signal === undefined ? {} : { signal: options.signal }),
     ...(options.commandTimeoutMs === undefined ? {} : { commandTimeoutMs: options.commandTimeoutMs }),
@@ -1302,6 +1358,7 @@ export async function buildKindleInventory(
   }];
   let issueCount = 0;
   let stopped = false;
+  let visitedObjectCount = 0;
 
   const addIssue = (issue: KindleInventoryIssue): void => {
     issueCount += 1;
@@ -1389,6 +1446,8 @@ export async function buildKindleInventory(
         continue;
       }
       seenHandles.add(handle);
+      visitedObjectCount += 1;
+      reportProgress({ phase: "enumerating", completed: visitedObjectCount });
 
       let info: KindleStoredObjectInfo;
       try {
@@ -1475,6 +1534,7 @@ export async function buildKindleInventory(
       }
     }
   }
+  reportProgress({ phase: "enumerating", completed: visitedObjectCount }, true);
 
   const probePathCounts = liveCachePathCounts(objects);
   const modificationDateProbe = cacheContext?.modificationDateProbe?.observe({
@@ -1525,6 +1585,7 @@ export async function buildKindleInventory(
     },
     modificationDateProbe,
     kfxSidecars,
+    reportProgress,
   );
   const inventoryObjects = readingSidecars === undefined
     ? enrichment.objects
