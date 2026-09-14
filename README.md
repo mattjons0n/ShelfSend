@@ -203,25 +203,6 @@ flowchart LR
 
 The server indexes and serves source files. The browser prepares derived copies and operates USB. Metadata edits live separately under `/data`; conversion never rewrites a mounted original. Device inventory and metadata caches stay on the browser/Kindle side and are never sent to the backend or cloud.
 
-## 🧑‍💻 Local development
-
-Use **Node.js 24 or newer** and npm:
-
-```sh
-npm ci
-npm run dev
-```
-
-Open **[http://127.0.0.1:5173](http://127.0.0.1:5173/)**. This starts Vite on port 5173 and the catalog API on 5174, with `/api` proxied by Vite. Development state lives under `.kindle-bridge-dev/`; in Settings, use the full absolute path to `.kindle-bridge-dev/libraries` or a directory beneath it.
-
-Run the complete validation gate:
-
-```sh
-npm run check
-```
-
-This runs the test suite, client/server TypeScript validation, and production builds. Production deployment uses the standard Docker/OCI image.
-
 <a id="documentation"></a>
 ## 📚 Documentation
 
