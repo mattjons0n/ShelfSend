@@ -3,17 +3,24 @@ import type {
   KoboInventory, KoboInventoryEntry, KoboRecoveryRecord, KoboSendOptions,
   KoboTransferResult, KoboWritable,
 } from "./types";
+import { extractKindleBookCover, type KindleBookCover } from "../kindle/book-cover";
+import { parseKindleBookMetadata, type KindleBookMetadata } from "../kindle/book-metadata";
 
 export const KOBO_MAX_FILE_BYTES = 200 * 1024 * 1024;
 export const KOBO_RECOVERY_STORAGE_KEY = "shelfsend-kobo-recovery-v1";
+export const KINDLE_DRIVE_RECOVERY_STORAGE_KEY = "shelfsend-kindle-drive-recovery-v1";
 export const KOBO_MAX_INVENTORY_ENTRIES = 10_000;
 const CHUNK_BYTES = 1024 * 1024;
 const MAX_DEPTH = 8;
 const MAX_PATH = 1024;
 const MANAGED_FOLDER = "ShelfSend";
 const HASH = /^[a-f0-9]{64}$/u;
-const MANAGED_NAME = /^(?:[a-zA-Z0-9-]{1,32}-)?ss-v1-([a-f0-9]{64})-([a-f0-9]{64})-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.epub$/u;
+const MANAGED_NAME = /^(?:[a-zA-Z0-9-]{1,32}-)?ss-v1-([a-f0-9]{64})-([a-f0-9]{64})-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.(?:epub|azw3)$/u;
 const MAX_RECOVERY_RECORDS = 20;
+const MAX_COVER_FILE_BYTES = 32 * 1024 * 1024;
+const MAX_COVER_SESSION_BYTES = 256 * 1024 * 1024;
+const MAX_METADATA_PREFIX_BYTES = 1024 * 1024;
+const MAX_METADATA_SCAN_BYTES = 32 * 1024 * 1024;
 type StoragePort = NonNullable<KoboConnectOptions["storage"]>;
 
 function aborted(signal?: AbortSignal): void {
@@ -24,12 +31,37 @@ function notFound(error: unknown): boolean {
   return error instanceof Error && error.name === "NotFoundError";
 }
 
+async function readDriveMetadata(file: File, budget: { bytes: number; files: number }, signal?: AbortSignal): Promise<KindleBookMetadata | undefined> {
+  if (!/\.(?:azw3?|mobi|prc)$/iu.test(file.name) || file.size < 94
+    || budget.files >= 2000 || budget.bytes + 94 > MAX_METADATA_SCAN_BYTES) return undefined;
+  budget.files++;
+  budget.bytes += 94;
+  try {
+    const header = new Uint8Array(await file.slice(0, 94).arrayBuffer());
+    aborted(signal);
+    if (header.byteLength !== 94 || new TextDecoder("ascii").decode(header.subarray(60, 68)) !== "BOOKMOBI") return undefined;
+    const view = new DataView(header.buffer);
+    const records = view.getUint16(76, false);
+    const start = view.getUint32(78, false);
+    const end = records > 1 ? view.getUint32(86, false) : file.size;
+    if (records === 0 || start < 78 + records * 8 || end <= start || end > file.size
+      || end > MAX_METADATA_PREFIX_BYTES || budget.bytes + end > MAX_METADATA_SCAN_BYTES) return undefined;
+    budget.bytes += end;
+    const prefix = new Uint8Array(await file.slice(0, end).arrayBuffer());
+    aborted(signal);
+    return parseKindleBookMetadata(prefix, { maxInputBytes: MAX_METADATA_PREFIX_BYTES });
+  } catch {
+    aborted(signal);
+    return undefined;
+  }
+}
+
 function readableFilesystemError(error: unknown): unknown {
   if (!(error instanceof Error)) return error;
-  if (error.name === "NotFoundError") return new Error("Kobo or one of its files is no longer available. Reconnect Kobo and refresh its books.");
-  if (error.name === "NotAllowedError" || error.name === "SecurityError") return new Error("Kobo folder permission expired. Reconnect Kobo and allow folder access.");
-  if (error.name === "NoModificationAllowedError") return new Error("The Kobo file is busy or read-only. Close other apps using Kobo, then reconnect.");
-  if (error.name === "QuotaExceededError") return new Error("Kobo may be out of space. Free some space using your computer, then try again.");
+  if (error.name === "NotFoundError") return new Error("The reader or one of its files is no longer available. Reconnect it and refresh its books.");
+  if (error.name === "NotAllowedError" || error.name === "SecurityError") return new Error("Reader folder permission expired. Reconnect and allow folder access.");
+  if (error.name === "NoModificationAllowedError") return new Error("The reader file is busy or read-only. Close other apps using it, then reconnect.");
+  if (error.name === "QuotaExceededError") return new Error("The reader may be out of space. Free some space using your computer, then try again.");
   return error;
 }
 
@@ -39,19 +71,19 @@ function validPart(name: string): boolean {
 }
 
 async function digest(blob: Blob): Promise<string> {
-  if (blob.size > KOBO_MAX_FILE_BYTES) throw new Error("This book exceeds the 200 MiB Kobo transfer limit.");
+  if (blob.size > KOBO_MAX_FILE_BYTES) throw new Error("This book exceeds the 200 MiB transfer limit.");
   const result = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
   return Array.from(new Uint8Array(result), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** Opaque profile/source/presentation identity; never a title or deletion authority. */
-export async function koboIdentityHash(identity: KoboIdentity): Promise<string> {
+export async function koboIdentityHash(identity: KoboIdentity, reader: "kobo" | "kindle-drive" = "kobo"): Promise<string> {
   if (!identity.profileId || identity.profileId.length > 200 || !identity.bookId || identity.bookId.length > 200
     || !HASH.test(identity.contentHash.toLowerCase()) || !HASH.test(identity.presentationVersion.toLowerCase())) {
-    throw new Error("Refresh the library before sending this book to Kobo.");
+    throw new Error("Refresh the library before sending this book to the reader.");
   }
   return digest(new Blob([JSON.stringify([
-    "shelfsend-kobo-v1", identity.profileId, identity.bookId,
+    `shelfsend-${reader}-v1`, identity.profileId, identity.bookId,
     identity.contentHash.toLowerCase(), identity.presentationVersion.toLowerCase(),
   ])]));
 }
@@ -61,34 +93,36 @@ function managedName(name: string): { identityHash: string; artifactHash: string
   return match ? { identityHash: match[1], artifactHash: match[2] } : undefined;
 }
 
-function readRecovery(storage: StoragePort): KoboRecoveryRecord[] {
+function readRecovery(storage: StoragePort, extension: string): KoboRecoveryRecord[] {
   const raw = storage.getItem(KOBO_RECOVERY_STORAGE_KEY);
   if (raw === null) return [];
-  if (raw.length > 16_384) throw new Error("The Kobo recovery record could not be read. Inspect the ShelfSend folder before clearing recovery.");
+  if (raw.length > 16_384) throw new Error("The reader recovery record could not be read. Inspect the ShelfSend folder before clearing recovery.");
   const value: unknown = JSON.parse(raw);
   if (!Array.isArray(value) || value.length > MAX_RECOVERY_RECORDS || value.some((record: unknown) => {
     if (!record || typeof record !== "object") return true;
     const item = record as Record<string, unknown>;
-    return typeof item.filename !== "string" || !MANAGED_NAME.test(item.filename)
+    return typeof item.filename !== "string" || !MANAGED_NAME.test(item.filename) || !item.filename.endsWith(`.${extension}`)
       || typeof item.sha256 !== "string" || !HASH.test(item.sha256)
       || typeof item.bytes !== "number" || !Number.isSafeInteger(item.bytes)
       || item.bytes < 1 || item.bytes > KOBO_MAX_FILE_BYTES;
-  })) throw new Error("The Kobo recovery record could not be read. Inspect the ShelfSend folder before clearing recovery.");
+  })) throw new Error("The reader recovery record could not be read. Inspect the ShelfSend folder before clearing recovery.");
   return value as KoboRecoveryRecord[];
 }
 
-function recoveryWarning(filename?: string): Error {
+function recoveryWarning(filename?: string, prefix = MANAGED_FOLDER): Error {
   return new Error(filename
-    ? `The transfer could not finish safely. Reconnect your Kobo and inspect ShelfSend/${filename}. Remove only that file if it is incomplete, then acknowledge the inspection.`
-    : "A previous Kobo transfer needs checking. Inspect the listed file on that Kobo before sending another book.");
+    ? `The transfer could not finish safely. Reconnect your reader and inspect ${prefix}/${filename}. Remove only that file if it is incomplete, then acknowledge the inspection.`
+    : "A previous transfer needs checking. Inspect the listed file on that reader before sending another book.");
 }
 
 /**
- * Mounted-drive EPUB transport. No .kobo content is read or changed; its directory
- * handle is only a root-selection and same-session identity guard. All mutation
- * is confined to a fresh random filename under ShelfSend. No general Delete API.
+ * Mounted-drive transport for Kobo EPUBs and prepared Kindle AZW3 copies.
+ * All mutation is confined to a fresh random filename under the reader's
+ * ShelfSend folder. No general Delete API or system-folder writes.
  */
 export class KoboDevice {
+  readonly reader: "kobo" | "kindle-drive";
+  readonly #volume: KoboDirectoryHandle;
   readonly #root: KoboDirectoryHandle;
   readonly #marker: KoboDirectoryHandle;
   readonly #storage: StoragePort;
@@ -96,38 +130,62 @@ export class KoboDevice {
   #closed = false;
   #sending = false;
   #recovery: KoboRecoveryRecord[] = [];
+  #coverFiles = new Map<string, { entry: KoboInventoryEntry; handle: KoboFileHandle }>();
+  #coverReadBytes = 0;
+  #coverReading = false;
   #invalidRecovery = false;
   #folder: KoboDirectoryHandle | undefined;
 
-  private constructor(root: KoboDirectoryHandle, marker: KoboDirectoryHandle, storage: StoragePort) {
+  private constructor(root: KoboDirectoryHandle, marker: KoboDirectoryHandle, storage: StoragePort, reader: "kobo" | "kindle-drive", volume: KoboDirectoryHandle) {
     this.#root = root;
+    this.#volume = volume;
     this.#marker = marker;
     this.#storage = storage;
+    this.reader = reader;
   }
 
   static async connect(options: KoboConnectOptions = {}): Promise<KoboDevice> {
     aborted(options.signal);
+    const reader = options.reader ?? "kobo";
     const picker = options.picker ?? (globalThis as unknown as {
       showDirectoryPicker?: KoboConnectOptions["picker"];
     }).showDirectoryPicker;
-    if (!picker) throw new Error("Kobo transfers need a desktop Chrome or Edge browser with folder access. Open ShelfSend there to connect.");
+    if (!picker) throw new Error("USB-drive transfers need a desktop Chrome or Edge browser with folder access. Open ShelfSend there to connect.");
     // Invoke the picker before any awaited work, preserving the direct user gesture.
-    const root = await picker({ mode: "readwrite", id: "shelfsend-kobo" });
+    const root = await picker({ mode: "readwrite", id: `shelfsend-${reader}` });
     aborted(options.signal);
     let marker: KoboDirectoryHandle;
-    try { marker = await root.getDirectoryHandle(".kobo"); }
-    catch { throw new Error("Choose the main Kobo drive folder, not a book folder. It must contain the Kobo's .kobo folder."); }
+    let bookRoot = root;
+    try {
+      if (reader === "kindle-drive") {
+        const system = await root.getDirectoryHandle("system");
+        const version = await (await system.getFileHandle("version.txt")).getFile();
+        if (version.size > 4096 || !/Kindle|System Software Version/iu.test(await version.text())) throw new Error("Not a Kindle root");
+        bookRoot = await root.getDirectoryHandle("documents");
+        marker = bookRoot;
+      } else marker = await root.getDirectoryHandle(".kobo");
+    }
+    catch {
+      throw new Error(reader === "kindle-drive"
+        ? "Choose the main Kindle drive containing documents and system/version.txt, not the documents folder."
+        : "Choose the main Kobo drive folder, not a book folder. It must contain the Kobo's .kobo folder.");
+    }
     let storage: StoragePort;
     try { storage = options.storage ?? globalThis.localStorage; }
-    catch { throw new Error("Browser storage is needed to keep Kobo transfers recoverable. Allow storage for ShelfSend and reconnect."); }
-    if (!storage) throw new Error("Browser storage is needed to keep Kobo transfers recoverable. Allow storage for ShelfSend and reconnect.");
-    const device = new KoboDevice(root, marker, storage);
+    catch { throw new Error("Browser storage is needed to keep transfers recoverable. Allow storage for ShelfSend and reconnect."); }
+    if (!storage) throw new Error("Browser storage is needed to keep transfers recoverable. Allow storage for ShelfSend and reconnect.");
+    const scopedStorage: StoragePort = reader === "kindle-drive" ? {
+      getItem: () => storage.getItem(KINDLE_DRIVE_RECOVERY_STORAGE_KEY),
+      setItem: (_key, value) => storage.setItem(KINDLE_DRIVE_RECOVERY_STORAGE_KEY, value),
+      removeItem: () => storage.removeItem(KINDLE_DRIVE_RECOVERY_STORAGE_KEY),
+    } : storage;
+    const device = new KoboDevice(bookRoot, marker, scopedStorage, reader, root);
     const locks = options.locks === null ? null : options.locks ?? globalThis.navigator?.locks;
-    if (options.locks !== null && !locks) throw new Error("This browser cannot protect a Kobo transfer across tabs. Use desktop Chrome or Edge.");
+    if (options.locks !== null && !locks) throw new Error("This browser cannot protect a reader transfer across tabs. Use desktop Chrome or Edge.");
     if (locks) {
       await new Promise<void>((resolve, reject) => {
-        void locks.request("shelfsend-kobo-mounted-drive", { mode: "exclusive", ifAvailable: true }, async (lock) => {
-          if (!lock) { reject(new Error("Kobo is already connected in another ShelfSend tab. Disconnect it there first.")); return; }
+        void locks.request(`shelfsend-${reader}-mounted-drive`, { mode: "exclusive", ifAvailable: true }, async (lock) => {
+          if (!lock) { reject(new Error("This reader type is already connected in another ShelfSend tab. Disconnect it there first.")); return; }
           if (options.signal?.aborted) { reject(new DOMException("Connection cancelled.", "AbortError")); return; }
           await new Promise<void>((release) => { device.#releaseLock = release; resolve(); });
         }).catch(reject);
@@ -135,7 +193,7 @@ export class KoboDevice {
     }
     // Another tab may have interrupted a write before this lease was granted.
     // Read durable recovery only after owning the same-origin exclusive lock.
-    try { device.#recovery = readRecovery(storage); }
+    try { device.#recovery = readRecovery(scopedStorage, device.#extension); }
     catch { device.#invalidRecovery = true; }
     try { await device.#validate(options.signal); }
     catch (error) { device.disconnect(); throw error; }
@@ -143,18 +201,24 @@ export class KoboDevice {
   }
 
   get closed(): boolean { return this.#closed; }
+  get #extension(): "epub" | "azw3" { return this.reader === "kindle-drive" ? "azw3" : "epub"; }
+  get #managedPrefix(): string { return this.reader === "kindle-drive" ? `documents/${MANAGED_FOLDER}` : MANAGED_FOLDER; }
+
+  #managed(name: string): ReturnType<typeof managedName> {
+    return name.endsWith(`.${this.#extension}`) ? managedName(name) : undefined;
+  }
 
   get recoveryRecords(): readonly KoboRecoveryRecord[] {
     return this.#invalidRecovery
-      ? [{ filename: "ShelfSend folder (saved filename unavailable)", bytes: 0, sha256: "" }]
+      ? [{ filename: "(saved filename unavailable)", bytes: 0, sha256: "" }]
       : this.#recovery.map((record) => ({ ...record }));
   }
 
   /** Must be called only after the user explicitly confirms inspecting the old transfer. */
   acknowledgeRecovery(): void {
-    if (this.#sending) throw new Error("Wait for the current Kobo transfer to finish before acknowledging recovery.");
+    if (this.#sending) throw new Error("Wait for the current reader transfer to finish before acknowledging recovery.");
     this.#storage.removeItem(KOBO_RECOVERY_STORAGE_KEY);
-    if (this.#storage.getItem(KOBO_RECOVERY_STORAGE_KEY) !== null) throw new Error("Kobo recovery could not be cleared from browser storage.");
+    if (this.#storage.getItem(KOBO_RECOVERY_STORAGE_KEY) !== null) throw new Error("Reader recovery could not be cleared from browser storage.");
     this.#recovery = [];
     this.#invalidRecovery = false;
   }
@@ -166,64 +230,112 @@ export class KoboDevice {
   }
 
   async #validate(signal?: AbortSignal, cleanup = false): Promise<void> {
-    if (!cleanup && this.#closed) throw new Error("Reconnect your Kobo to continue.");
+    if (!cleanup && this.#closed) throw new Error("Reconnect your reader to continue.");
     if (!cleanup) aborted(signal);
     if (this.#root.queryPermission && await this.#root.queryPermission({ mode: "readwrite" }) !== "granted") {
-      throw new Error("Kobo folder permission expired. Reconnect your Kobo and allow folder access.");
+      throw new Error("Reader folder permission expired. Reconnect your reader and allow folder access.");
     }
     let marker: KoboDirectoryHandle;
-    try { marker = await this.#root.getDirectoryHandle(".kobo"); }
+    try { marker = await this.#volume.getDirectoryHandle(this.reader === "kindle-drive" ? "documents" : ".kobo"); }
     catch (error) { throw readableFilesystemError(error); }
-    if (!await marker.isSameEntry(this.#marker)) throw new Error("The Kobo folder changed. Reconnect your Kobo before continuing.");
+    if (!await marker.isSameEntry(this.#marker)) throw new Error("The reader folder changed. Reconnect your reader before continuing.");
     if (!cleanup) {
       aborted(signal);
-      if (this.#closed) throw new Error("Reconnect your Kobo to continue.");
+      if (this.#closed) throw new Error("Reconnect your reader to continue.");
     }
   }
 
   async #getFolder(create: boolean, signal?: AbortSignal): Promise<KoboDirectoryHandle> {
     await this.#validate(signal);
     const folder = await this.#root.getDirectoryHandle(MANAGED_FOLDER, { create });
-    if (this.#folder && !await folder.isSameEntry(this.#folder)) throw new Error("The Kobo book folder changed. Reconnect your Kobo before continuing.");
+    if (this.#folder && !await folder.isSameEntry(this.#folder)) throw new Error("The reader book folder changed. Reconnect your reader before continuing.");
     this.#folder = folder;
     return folder;
   }
 
   async scan(signal?: AbortSignal): Promise<KoboInventory> {
+    this.#coverFiles.clear();
     await this.#validate(signal);
     const entries: KoboInventoryEntry[] = [];
+    const coverFiles = new Map<string, { entry: KoboInventoryEntry; handle: KoboFileHandle }>();
+    const metadataBudget = { bytes: 0, files: 0 };
     let visited = 0;
     const visit = async (directory: KoboDirectoryHandle, prefix: string, depth: number): Promise<void> => {
-      if (depth > MAX_DEPTH) throw new Error("The Kobo has folders too deep to check safely. Keep books within eight folder levels.");
+      if (depth > MAX_DEPTH) throw new Error("The reader has folders too deep to check safely. Keep books within eight folder levels.");
       for await (const [name, handle] of directory.entries()) {
         aborted(signal);
-        if (this.#closed) throw new Error("Reconnect your Kobo to continue.");
-        if (++visited > KOBO_MAX_INVENTORY_ENTRIES) throw new Error("The Kobo has too many files to check safely (10,000 entry limit).");
-        if (!validPart(name) || handle.name !== name) throw new Error("A Kobo filename could not be checked safely.");
+        if (this.#closed) throw new Error("Reconnect your reader to continue.");
+        if (++visited > KOBO_MAX_INVENTORY_ENTRIES) throw new Error("The reader has too many files to check safely (10,000 entry limit).");
+        if (!validPart(name) || handle.name !== name) throw new Error("A reader filename could not be checked safely.");
         // Never traverse databases, hidden sidecars, or host operating-system metadata.
         if (name.startsWith(".") || /^(?:System Volume Information|\$RECYCLE\.BIN)$/iu.test(name)) continue;
+        if (this.reader === "kindle-drive" && handle.kind === "directory" && /\.sdr$/iu.test(name)) continue;
         const path = prefix ? `${prefix}/${name}` : name;
-        if (path.length > MAX_PATH) throw new Error("A Kobo folder path is too long to check safely.");
+        if (path.length > MAX_PATH) throw new Error("A reader folder path is too long to check safely.");
         if (handle.kind === "directory") await visit(handle, path, depth + 1);
-        else if (/\.epub$/iu.test(name)) {
+        else if ((this.reader === "kindle-drive" ? /\.(?:azw3|azw|mobi|prc|kfx|azw8|pdf|txt)$/iu : /\.epub$/iu).test(name)) {
           const file = await handle.getFile();
-          if (!Number.isSafeInteger(file.size) || file.size < 0) throw new Error("A Kobo file size could not be checked safely.");
-          const managed = prefix === MANAGED_FOLDER ? managedName(name) : undefined;
-          entries.push({ name, relativePath: path, size: file.size, lastModified: file.lastModified, ...(managed ? { managed } : {}) });
+          if (!Number.isSafeInteger(file.size) || file.size < 0) throw new Error("A reader file size could not be checked safely.");
+          const managed = prefix === this.#managedPrefix ? this.#managed(name) : undefined;
+          let metadata = this.reader === "kindle-drive" ? await readDriveMetadata(file, metadataBudget, signal) : undefined;
+          if (metadata) {
+            const current = await directory.getFileHandle(name);
+            const after = await current.getFile();
+            if (!await current.isSameEntry(handle) || after.size !== file.size || after.lastModified !== file.lastModified) metadata = undefined;
+          }
+          const entry = { name, relativePath: path, size: file.size, lastModified: file.lastModified, ...(managed ? { managed } : {}), ...(metadata ? { metadata } : {}) };
+          entries.push(entry);
+          if (this.reader === "kindle-drive") coverFiles.set(path, { entry, handle });
         }
       }
     };
-    try { await visit(this.#root, "", 0); }
+    try { await visit(this.#root, this.reader === "kindle-drive" ? "documents" : "", 0); }
     catch (error) { throw readableFilesystemError(error); }
     await this.#validate(signal);
+    this.#coverFiles = coverFiles;
     return { entries, complete: true, scannedAt: new Date().toISOString() };
+  }
+
+  async readCover(entry: KoboInventoryEntry, signal?: AbortSignal): Promise<KindleBookCover | undefined> {
+    const candidate = this.#coverFiles.get(entry.relativePath);
+    if (this.reader !== "kindle-drive" || this.#closed || this.#sending || this.#coverReading
+      || candidate?.entry !== entry || !/\.(?:azw3?|mobi|prc)$/iu.test(entry.name)
+      || entry.size <= 0 || entry.size > MAX_COVER_FILE_BYTES
+      || this.#coverReadBytes + entry.size > MAX_COVER_SESSION_BYTES) return undefined;
+    this.#coverReading = true;
+    const current = async (): Promise<KoboFileHandle | undefined> => {
+      await this.#validate(signal);
+      if (this.#sending || this.#coverFiles.get(entry.relativePath) !== candidate) return undefined;
+      const parts = entry.relativePath.split("/");
+      if (parts.shift() !== "documents" || parts.pop() !== entry.name) return undefined;
+      let folder = this.#root;
+      for (const part of parts) folder = await folder.getDirectoryHandle(part);
+      const handle = await folder.getFileHandle(entry.name);
+      if (!await handle.isSameEntry(candidate.handle)) return undefined;
+      const file = await handle.getFile();
+      return file.size === entry.size && file.lastModified === entry.lastModified ? handle : undefined;
+    };
+    try {
+      const handle = await current();
+      if (!handle) return undefined;
+      const file = await handle.getFile();
+      if (file.size !== entry.size || file.lastModified !== entry.lastModified) return undefined;
+      this.#coverReadBytes += file.size;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (bytes.byteLength !== entry.size || !await current()) return undefined;
+      return extractKindleBookCover(bytes);
+    } catch {
+      return undefined;
+    } finally {
+      this.#coverReading = false;
+    }
   }
 
   /** Full byte verification of a current managed candidate, without rescanning the drive. */
   async verifyEntry(entry: KoboInventoryEntry, signal?: AbortSignal): Promise<boolean> {
-    if (!entry.managed || entry.relativePath !== `${MANAGED_FOLDER}/${entry.name}`
-      || !MANAGED_NAME.test(entry.name) || entry.size > KOBO_MAX_FILE_BYTES) return false;
-    const parsed = managedName(entry.name)!;
+    if (!entry.managed || entry.relativePath !== `${this.#managedPrefix}/${entry.name}`
+      || !this.#managed(entry.name) || entry.size > KOBO_MAX_FILE_BYTES) return false;
+    const parsed = this.#managed(entry.name)!;
     if (parsed.identityHash !== entry.managed.identityHash || parsed.artifactHash !== entry.managed.artifactHash) return false;
     await this.#validate(signal);
     try {
@@ -245,7 +357,7 @@ export class KoboDevice {
   }
 
   async find(identity: KoboIdentity, signal?: AbortSignal): Promise<{ status: "present" | "absent" | "unknown"; entry?: KoboInventoryEntry }> {
-    const identityHash = await koboIdentityHash(identity);
+    const identityHash = await koboIdentityHash(identity, this.reader);
     const inventory = await this.scan(signal);
     const candidates = inventory.entries.filter((entry) => entry.managed?.identityHash === identityHash);
     if (!candidates.length) return { status: inventory.complete ? "absent" : "unknown" };
@@ -257,7 +369,7 @@ export class KoboDevice {
   }
 
   #saveRecovery(records: KoboRecoveryRecord[]): void {
-    if (records.length > MAX_RECOVERY_RECORDS) throw new Error("Too many interrupted Kobo transfers need inspection before sending.");
+    if (records.length > MAX_RECOVERY_RECORDS) throw new Error("Too many interrupted reader transfers need inspection before sending.");
     try {
       if (records.length) {
         const serialized = JSON.stringify(records);
@@ -272,7 +384,7 @@ export class KoboDevice {
       // A Storage implementation can persist and still throw. Do not trust the
       // old in-memory snapshot or start another write after an uncertain save.
       this.#invalidRecovery = true;
-      throw new Error("Browser recovery storage is unavailable. No further Kobo transfers can start until storage is working.");
+      throw new Error("Browser recovery storage is unavailable. No further transfers can start until storage is working.");
     }
   }
 
@@ -300,7 +412,7 @@ export class KoboDevice {
   }
 
   async send(blob: Blob, identity: KoboIdentity, options: KoboSendOptions = {}): Promise<KoboTransferResult> {
-    if (this.#sending) throw new Error("A Kobo transfer is already in progress.");
+    if (this.#sending) throw new Error("A reader transfer is already in progress.");
     this.#sending = true;
     let folder: KoboDirectoryHandle | undefined;
     let handle: KoboFileHandle | undefined;
@@ -313,16 +425,20 @@ export class KoboDevice {
       await this.#validate(options.signal);
       if (this.#invalidRecovery || this.#recovery.length) throw recoveryWarning();
       if (!Number.isSafeInteger(blob.size) || blob.size > KOBO_MAX_FILE_BYTES || blob.size < 4) {
-        throw new Error("Kobo accepts EPUB files up to 200 MiB.");
+        throw new Error(`This reader accepts prepared ${this.#extension.toUpperCase()} files up to 200 MiB.`);
       }
-      const header = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
-      if (header[0] !== 0x50 || header[1] !== 0x4b || header[2] !== 3 || header[3] !== 4) throw new Error("Only EPUB files can be sent to Kobo.");
-      const identityHash = await koboIdentityHash(identity);
+      const header = new Uint8Array(await blob.slice(0, 78).arrayBuffer());
+      if (this.reader === "kindle-drive") {
+        if (header.length < 78 || new TextDecoder().decode(header.subarray(60, 68)) !== "BOOKMOBI") {
+          throw new Error("Kindle USB-drive transfers require a prepared AZW3 file.");
+        }
+      } else if (header[0] !== 0x50 || header[1] !== 0x4b || header[2] !== 3 || header[3] !== 4) throw new Error("Only EPUB files can be sent to Kobo.");
+      const identityHash = await koboIdentityHash(identity, this.reader);
       const artifactHash = await digest(blob);
       const presence = await this.find(identity, options.signal);
-      if (presence.status === "unknown") throw new Error("An existing Kobo copy has changed or appears more than once. Inspect it before sending again.");
+      if (presence.status === "unknown") throw new Error("An existing reader copy has changed or appears more than once. Inspect it before sending again.");
       if (presence.status === "present" && presence.entry) {
-        if (presence.entry.managed?.artifactHash !== artifactHash) throw new Error("The prepared book differs from its existing Kobo copy. Refresh and inspect the copy before sending.");
+        if (presence.entry.managed?.artifactHash !== artifactHash) throw new Error("The prepared book differs from its existing reader copy. Refresh and inspect the copy before sending.");
         options.onProgress?.(100);
         return { filename: presence.entry.name, relativePath: presence.entry.relativePath, bytes: blob.size, sha256: artifactHash, alreadyPresent: true };
       }
@@ -330,24 +446,24 @@ export class KoboDevice {
       folder = await this.#getFolder(true, options.signal);
       const stem = identity.title.normalize("NFKD").replace(/[^a-zA-Z0-9]+/gu, "-").replace(/^-|-$/gu, "").slice(0, 32);
       for (let attempt = 0; attempt < 5; attempt++) {
-        const candidate = `${stem ? `${stem}-` : ""}ss-v1-${identityHash}-${artifactHash}-${crypto.randomUUID()}.epub`;
+        const candidate = `${stem ? `${stem}-` : ""}ss-v1-${identityHash}-${artifactHash}-${crypto.randomUUID()}.${this.#extension}`;
         try { await folder.getFileHandle(candidate); }
         catch (error) {
           if (notFound(error)) { filename = candidate; break; }
           if (!(error instanceof Error) || error.name !== "TypeMismatchError") throw error;
         }
       }
-      if (!filename) throw new Error("A new Kobo filename could not be reserved safely. Please try again.");
+      if (!filename) throw new Error("A new reader filename could not be reserved safely. Please try again.");
       await this.#validate(options.signal);
       this.#saveRecovery([{ filename, bytes: blob.size, sha256: artifactHash }]);
       journaled = true;
       handle = await folder.getFileHandle(filename, { create: true });
       const initial = await handle.getFile();
       // A racing existing nonempty file is never opened for writing or cleanup.
-      if (initial.size !== 0) throw new Error("That Kobo filename already exists. No existing file was changed.");
+      if (initial.size !== 0) throw new Error("That reader filename already exists. No existing file was changed.");
       ownsHandle = true;
       await this.#validate(options.signal);
-      if (!await (await folder.getFileHandle(filename)).isSameEntry(handle)) throw new Error("The Kobo file changed before transfer.");
+      if (!await (await folder.getFileHandle(filename)).isSameEntry(handle)) throw new Error("The reader file changed before transfer.");
       writer = await handle.createWritable({ keepExistingData: false, mode: "exclusive" });
       for (let offset = 0; offset < blob.size; offset += CHUNK_BYTES) {
         await this.#validate(options.signal);
@@ -364,10 +480,10 @@ export class KoboDevice {
       await this.#validate(options.signal);
       const file = await handle.getFile();
       const entry: KoboInventoryEntry = {
-        name: filename, relativePath: `${MANAGED_FOLDER}/${filename}`, size: file.size,
+        name: filename, relativePath: `${this.#managedPrefix}/${filename}`, size: file.size,
         lastModified: file.lastModified, managed: { identityHash, artifactHash },
       };
-      if (file.size !== blob.size || !await this.verifyEntry(entry, options.signal)) throw new Error("The Kobo copy could not be verified. Its bytes did not match the book.");
+      if (file.size !== blob.size || !await this.verifyEntry(entry, options.signal)) throw new Error("The reader copy could not be verified. Its bytes did not match the book.");
       aborted(options.signal);
       this.#saveRecovery([]);
       journaled = false;
@@ -384,10 +500,10 @@ export class KoboDevice {
         // a native writer might still complete against the same path.
         const cleaned = abortedWriter && ownsHandle && folder && handle && filename
           ? await this.#cleanup(folder, handle, filename) : false;
-        if (!cleaned) throw recoveryWarning(filename);
+        if (!cleaned) throw recoveryWarning(filename, this.#managedPrefix);
         this.#saveRecovery([]);
       }
-      if (committed) throw new Error("The Kobo copy was verified, but the display could not update. Refresh its inventory before sending again.");
+      if (committed) throw new Error("The reader copy was verified, but the display could not update. Refresh its inventory before sending again.");
       throw readableFilesystemError(error);
     } finally {
       this.#sending = false;

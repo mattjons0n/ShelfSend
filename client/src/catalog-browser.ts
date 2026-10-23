@@ -1,5 +1,5 @@
 import { AppError, toAppError } from "./app-error";
-import { isKoboReader, koboReady, readerComparisonComplete, readerCounts, readerName, readerStatuses, type CatalogKoboState } from "./reader-ui";
+import { isFolderReader, koboReady, readerComparisonComplete, readerCounts, readerName, readerStatuses, readerSupportsFormat, type CatalogKoboState } from "./reader-ui";
 import { hardcoverLookupIdentifiers } from "../../shared/hardcover-identifiers.js";
 import {
   CatalogApiError,
@@ -106,7 +106,7 @@ import { DEFAULT_KINDLE_READING_PRESENTATION_GATE, isKindleReadingPresentationEn
 import { retireKindleReadingEvidence, type KindleReadingEvidence, type KindleReadingStatus } from "./kindle/reading-state";
 
 export interface CatalogBrowserSnapshot {
-  readonly activeReader?: "kindle" | "kobo";
+  readonly activeReader?: "kindle" | "kobo" | "kindle-drive";
   readonly kobo?: CatalogKoboState;
   readonly readingEnabled?: boolean;
   readonly readingEvidence?: ReadonlyMap<string, KindleReadingEvidence>;
@@ -1069,7 +1069,7 @@ export class CatalogBrowser {
     const profile = this.#snapshot.profiles.find((candidate) => candidate.id === profileId && candidate.enabled);
     if (!profile) return;
     if (profile.id === this.#snapshot.filters.profileId) {
-      if (!isKoboReader(this.#snapshot) && this.#snapshot.filters.view === "on-kindle") await this.setView("all");
+      if (!isFolderReader(this.#snapshot) && this.#snapshot.filters.view === "on-kindle") await this.setView("all");
       return;
     }
     if (this.#snapshot.settingsSaving || this.#snapshot.settingsRefreshing) return;
@@ -1103,7 +1103,7 @@ export class CatalogBrowser {
       ...this.#snapshot,
       // Clicking a library leaves the device-wide inventory. Old saved
       // On Kindle contexts used to be a library comparison view.
-      filters: !isKoboReader(this.#snapshot) && browsingContext.filters.view === "on-kindle"
+      filters: !isFolderReader(this.#snapshot) && browsingContext.filters.view === "on-kindle"
         ? { ...browsingContext.filters, view: "all", kindle: "all", offset: 0 }
         : browsingContext.filters,
       kindleFilterStatuses: undefined,
@@ -1203,7 +1203,7 @@ export class CatalogBrowser {
     }
     const profileId = this.#snapshot.filters.profileId;
     const leavingKindleView = this.#snapshot.filters.view === "on-kindle" && view !== "on-kindle";
-    const standaloneKindleView = view === "on-kindle" && !isKoboReader(this.#snapshot);
+    const standaloneKindleView = view === "on-kindle" && !isFolderReader(this.#snapshot);
     if (standaloneKindleView) this.#restoredShelfId = undefined;
     this.#snapshot = {
       ...this.#snapshot,
@@ -1267,7 +1267,7 @@ export class CatalogBrowser {
     const priorFilters = this.#snapshot.filters;
     const priorLayout = this.#snapshot.layout;
     const priorSelection = this.#snapshot.selectedBookIds;
-    const standaloneKindleRoute = route.filters.view === "on-kindle" && !isKoboReader(this.#snapshot);
+    const standaloneKindleRoute = route.filters.view === "on-kindle" && !isFolderReader(this.#snapshot);
     // Legacy device links carry a library ID. It is irrelevant to the live
     // Kindle inventory and must not trigger a library load or block a link
     // when that library has since been removed or the catalog is offline.
@@ -1839,7 +1839,7 @@ export class CatalogBrowser {
       || !this.#snapshot.sendQueue
     ) return;
     const candidates = detail.books.items.filter((book) => {
-      if (!this.#bookSourceAvailable(book) || (isKoboReader(this.#snapshot) && book.format.toUpperCase() !== "EPUB")) return false;
+      if (!this.#bookSourceAvailable(book) || (isFolderReader(this.#snapshot) && !readerSupportsFormat(this.#snapshot, book.format))) return false;
       const status = readerStatuses(this.#snapshot).get(book.id);
       return complete ? status === "not-on-kindle" : status !== "confirmed" && status !== "possible";
     });
@@ -2262,7 +2262,7 @@ export class CatalogBrowser {
   updateFilter(key: keyof LibraryFilters, value: string | number): void {
     if (this.#kindleActionBusy()) return;
     if (key === "profileId" || key === "view" || key === "limit") return;
-    if (key === "query" && !isKoboReader(this.#snapshot) && this.#snapshot.filters.view === "on-kindle") {
+    if (key === "query" && !isFolderReader(this.#snapshot) && this.#snapshot.filters.view === "on-kindle") {
       this.updateKindleInventoryQuery(String(value));
       return;
     }
@@ -2367,7 +2367,7 @@ export class CatalogBrowser {
     background = false,
     parentOperation?: CatalogOperationLease,
   ): Promise<void> {
-    if (!isKoboReader(this.#snapshot) && this.#snapshot.filters.view === "on-kindle") {
+    if (this.#snapshot.activeReader !== "kobo" && this.#snapshot.filters.view === "on-kindle") {
       // This page is the browser's live device inventory, not a query for
       // matching catalog books. A scan or comparison change may revoke match
       // authority, but must not hide files that are still on the Kindle.
@@ -2390,7 +2390,7 @@ export class CatalogBrowser {
       // Keep filter membership stable while fresh matching is pending. These
       // IDs only query current catalog cards; they never restore match or write
       // authority, which is revoked immediately when a scan event arrives.
-      const filterStatuses = isKoboReader(this.#snapshot) ? readerStatuses(this.#snapshot) : this.#snapshot.kindleFilterStatuses ?? this.#snapshot.kindleStatus;
+      const filterStatuses = isFolderReader(this.#snapshot) ? readerStatuses(this.#snapshot) : this.#snapshot.kindleFilterStatuses ?? this.#snapshot.kindleStatus;
       const confirmed = [...filterStatuses].filter(([, status]) => status === "confirmed").map(([bookId]) => bookId);
       const possible = [...filterStatuses].filter(([, status]) => status === "possible").map(([bookId]) => bookId);
       const absent = [...filterStatuses].filter(([, status]) => status === "not-on-kindle").map(([bookId]) => bookId);
@@ -3149,7 +3149,7 @@ export class CatalogBrowser {
       const added = currentBooks.filter((book) => {
         const status = readerStatuses(this.#snapshot).get(book.id);
         return !existing.has(book.id)
-          && (!isKoboReader(this.#snapshot) || book.format.toUpperCase() === "EPUB")
+          && (!isFolderReader(this.#snapshot) || readerSupportsFormat(this.#snapshot, book.format))
           && this.#bookSourceAvailable(book)
           && status !== "confirmed"
           && status !== "possible";
@@ -3362,7 +3362,7 @@ export class CatalogBrowser {
     if (this.#snapshot.layout !== "list" || this.#kindleActionBusy()) return;
     const books = (await this.#hydrateBooks([...this.#snapshot.selectedBookIds])).filter((book) => (
       readerStatuses(this.#snapshot).get(book.id) === "not-on-kindle" && this.#bookSourceAvailable(book)
-      && (!isKoboReader(this.#snapshot) || book.format.toUpperCase() === "EPUB")
+      && (!isFolderReader(this.#snapshot) || readerSupportsFormat(this.#snapshot, book.format))
     ));
     await this.#sendBookBatch(books, false);
   }
@@ -3380,7 +3380,7 @@ export class CatalogBrowser {
     const books = queue.entries
       .filter((entry) => eligible.has(entry.bookId) && entry.book !== null)
       .map((entry) => entry.book!)
-      .filter((book) => !isKoboReader(this.#snapshot) || book.format.toUpperCase() === "EPUB");
+      .filter((book) => !isFolderReader(this.#snapshot) || readerSupportsFormat(this.#snapshot, book.format));
     if (books.length > 0) this.#set({ sendQueueOpen: false }, "all");
     await this.#sendBookBatch(books, true);
   }
@@ -3470,7 +3470,7 @@ export class CatalogBrowser {
           throw new Error("The read-only source is no longer available.");
         }
         if (readerStatuses(this.#snapshot).get(book.id) !== "not-on-kindle"
-          || (isKoboReader(this.#snapshot) && (!koboReady(this.#snapshot, book.profileId) || currentBook.format.toUpperCase() !== "EPUB"))) {
+          || (isFolderReader(this.#snapshot) && (!koboReady(this.#snapshot, book.profileId) || !readerSupportsFormat(this.#snapshot, currentBook.format)))) {
           throw new Error(`A current complete ${readerName(this.#snapshot)} comparison no longer proves this book can be sent.`);
         }
         book = currentBook;
@@ -3905,7 +3905,7 @@ export class CatalogBrowser {
   }
 
   async openMatchReview(itemId: string, requestedBookId?: string): Promise<void> {
-    if (isKoboReader(this.#snapshot)) return;
+    if (isFolderReader(this.#snapshot)) return;
     if (this.#kindleActionBusy()) return;
     const inventory = this.#snapshot.kindleInventory;
     const item = inventory?.items.find((candidate) => candidate.id === itemId);
@@ -4023,7 +4023,7 @@ export class CatalogBrowser {
   }
 
   async decideManualMatch(profileId: string, bookId: string, decision: CatalogManualMatchChoice): Promise<void> {
-    if (isKoboReader(this.#snapshot)) return;
+    if (isFolderReader(this.#snapshot)) return;
     const review = this.#snapshot.matchReview;
     const item = this.#snapshot.kindleInventory?.items.find(({ id }) => id === review?.itemId);
     if (!review || review.busy || !item || !this.#hooks.onManualMatchDecision) return;
@@ -4627,7 +4627,7 @@ export class CatalogBrowser {
   }
 
   requestBookUpdate(bookId: string): void {
-    if (isKoboReader(this.#snapshot)) return;
+    if (isFolderReader(this.#snapshot)) return;
     if (this.#kindleActionBusy()) return;
     const book = this.#snapshot.page?.items.find((candidate) => candidate.id === bookId)
       ?? (this.#snapshot.bookDetails?.bookId === bookId
@@ -4677,7 +4677,7 @@ export class CatalogBrowser {
   }
 
   async confirmBookUpdate(): Promise<void> {
-    if (isKoboReader(this.#snapshot)) return;
+    if (isFolderReader(this.#snapshot)) return;
     const pending = this.#snapshot.pendingUpdate;
     const book = pending?.book;
     if (!pending || !book || this.#kindleActionBusy()) return;
@@ -4774,7 +4774,7 @@ export class CatalogBrowser {
   }
 
   async requestSelectedBookRemoval(): Promise<void> {
-    if (isKoboReader(this.#snapshot) || this.#snapshot.layout !== "list") return;
+    if (isFolderReader(this.#snapshot) || this.#snapshot.layout !== "list") return;
     const bookIds = [...this.#snapshot.selectedBookIds];
     const books = await this.#hydrateBooks(bookIds);
     this.#requestRemoval(bookIds, books);
@@ -4786,7 +4786,7 @@ export class CatalogBrowser {
   }
 
   async confirmBookRemoval(): Promise<void> {
-    if (isKoboReader(this.#snapshot)) return;
+    if (isFolderReader(this.#snapshot)) return;
     const request = this.#snapshot.pendingRemoval;
     if (!request || request.targets.length === 0 || this.#kindleActionBusy()) return;
     if (!this.#hooks.onRemoveRequested) {
@@ -4865,10 +4865,10 @@ export class CatalogBrowser {
     const book = this.#snapshot.pendingBook;
     const profileId = book?.profileId;
     if (!profileId || !book || this.#kindleActionBusy()) return;
-    if (isKoboReader(this.#snapshot) && (!koboReady(this.#snapshot, profileId)
-      || book.format.toUpperCase() !== "EPUB" || readerStatuses(this.#snapshot).get(book.id) !== "not-on-kindle"
+    if (isFolderReader(this.#snapshot) && (!koboReady(this.#snapshot, profileId)
+      || !readerSupportsFormat(this.#snapshot, book.format) || readerStatuses(this.#snapshot).get(book.id) !== "not-on-kindle"
       || !this.#bookSourceAvailable(book))) {
-      this.#set({ announcement: "Connect and check your Kobo before sending an available EPUB that is not already on it." }, "all");
+      this.#set({ announcement: `Connect and check your ${readerName(this.#snapshot)} before sending an available book that is not already on it.` }, "all");
       return;
     }
     if (!this.#hooks.onSendRequested) {
@@ -4960,7 +4960,7 @@ export class CatalogBrowser {
   }
 
   async requestConnect(): Promise<void> {
-    if (isKoboReader(this.#snapshot) || this.#kindleActionBusy()) return;
+    if (isFolderReader(this.#snapshot) || this.#kindleActionBusy()) return;
     if (!this.#hooks.onConnectRequested) {
       this.#set({ announcement: "This build has no WebUSB connection hook configured." }, "all");
       return;
@@ -4992,7 +4992,7 @@ export class CatalogBrowser {
   }
 
   async requestDisconnect(): Promise<void> {
-    if (isKoboReader(this.#snapshot) || this.#kindleActionBusy()) return;
+    if (isFolderReader(this.#snapshot) || this.#kindleActionBusy()) return;
     await this.#hooks.onDisconnectRequested?.();
   }
 
@@ -5001,9 +5001,8 @@ export class CatalogBrowser {
   }
 
   setKoboState(kobo: CatalogKoboState | undefined): void {
-    const wasKobo = isKoboReader(this.#snapshot);
-    const activeReader = kobo && kobo.status !== "disconnected" ? "kobo" : "kindle";
-    const switching = wasKobo !== (activeReader === "kobo");
+    const activeReader = kobo && kobo.status !== "disconnected" ? kobo.reader ?? "kobo" : "kindle";
+    const switching = (this.#snapshot.activeReader ?? "kindle") !== activeReader;
     const previous = this.#snapshot.kobo;
     const previousStatuses = previous?.statuses ?? new Map<string, CatalogKindleStatus>();
     const nextStatuses = kobo?.statuses ?? new Map<string, CatalogKindleStatus>();
@@ -5292,7 +5291,7 @@ export class CatalogBrowser {
   }
 
   #requestRemoval(bookIds: readonly string[], hydratedBooks: readonly CatalogBook[] = []): void {
-    if (isKoboReader(this.#snapshot)) return;
+    if (isFolderReader(this.#snapshot)) return;
     if (this.#kindleActionBusy()) return;
     const profileId = this.#snapshot.filters.profileId;
     const inventory = this.#snapshot.kindleInventory;
@@ -5395,7 +5394,7 @@ export class CatalogBrowser {
   }
 
   #readingFilterQuery(): { includeBookIds?: string[]; excludeBookIds?: string[] } {
-    if (isKoboReader(this.#snapshot)) return {};
+    if (isFolderReader(this.#snapshot)) return {};
     const filter = this.#snapshot.readingFilter ?? "any";
     if (!this.#snapshot.readingEnabled || filter === "any") return {};
     const entries = [...(this.#snapshot.readingEvidence ?? new Map<string, KindleReadingEvidence>())];

@@ -8,18 +8,18 @@ ShelfSend sends books from your browser to the e-reader connected to that comput
 
 Use desktop Chrome or Edge on a trusted HTTPS origin, or localhost. Plug the reader into your browsing computer with a data-capable USB cable, then choose **Connect eReader**. Connect one reader at a time.
 
-| Capability | Kindle | Kobo |
-| --- | --- | --- |
-| Connection | Browser WebUSB chooser and MTP session | Browser folder picker for the mounted USB drive |
-| Source formats for sending | DRM-free EPUB; supported uncompressed/PalmDOC AZW3 | DRM-free EPUB |
-| Browser preparation | EPUB-to-AZW3 conversion and PDOC preparation | Prepared EPUB with any reviewed metadata/cover overlays |
-| Single and batch Send | Available | Available |
-| Send-later queue | Revalidated against the connected reader before sending | Revalidated against the connected reader before sending |
-| Confirmed device presence | Strong current managed-copy or supported metadata evidence | Verified current ShelfSend-managed copy only; other files may remain possible matches |
-| Update an existing copy | Guarded upload-first update for one exact stale managed EPUB presentation | Unavailable |
-| Remove an existing copy | Explicitly confirmed, freshly revalidated exact matches | Unavailable |
-| Reading information | Bounded recorded sidecar activity; automatic percentage and Read/Unread detection remain disabled | Reading-state synchronization unavailable |
-| Finish a transfer | Allow device indexing and check the transferred title | Safely eject through the OS, unplug, then allow device import |
+| Capability | Kindle (MTP) | Kindle USB drive | Kobo |
+| --- | --- | --- | --- |
+| Connection | Browser WebUSB chooser and MTP session | Browser folder picker for mounted Kindles, including Oasis | Browser folder picker for the mounted USB drive |
+| Source formats for sending | DRM-free EPUB; supported uncompressed/PalmDOC AZW3 | Same as Kindle MTP | DRM-free EPUB |
+| Browser preparation | EPUB-to-AZW3 conversion and PDOC preparation | Same as Kindle MTP | Prepared EPUB with reviewed metadata/cover overlays |
+| Single and batch Send | Available | Available | Available |
+| Send-later queue | Revalidated before sending | Revalidated before sending | Revalidated before sending |
+| Confirmed device presence | Strong current managed-copy or supported metadata evidence | Exact byte-verified current ShelfSend-managed copy only | Exact byte-verified current ShelfSend-managed copy only |
+| Update an existing copy | Guarded upload-first update for one exact stale managed EPUB presentation | Unavailable | Unavailable |
+| Remove an existing copy | Explicitly confirmed, freshly revalidated exact matches | Unavailable | Unavailable |
+| Reading information | Bounded recorded sidecar activity; automatic percentage and Read/Unread detection remain disabled | Unavailable | Unavailable |
+| Finish a transfer | Allow device indexing and check the transferred title | Safely eject through the OS, then unplug | Safely eject through the OS, then unplug |
 
 DRM-protected books are unsupported. Source downloads are bounded to 200 MiB. AZW3 HUFF/CDIC compression and embedding edited AZW3 metadata/covers are unsupported. Kobo does not currently receive KEPUB or AZW3 conversions.
 
@@ -35,9 +35,21 @@ The selected reader determines formats, matching, and available actions. A saved
 
 ## Kindle connection and recovery
 
-Choose **Connect eReader → Kindle**. On a clean connection, the browser runs an exact-byte write/read/delete self-test, reads the live MTP inventory, and compares it with the selected library. Pending cleanup permits read-only recovery inventory first; acknowledgement must be followed by a fresh self-test, inventory, and reconciliation before Send resumes.
+Choose **Connect eReader → Kindle (MTP)**. On a clean connection, the browser runs an exact-byte write/read/delete self-test, reads the live MTP inventory, and compares it with the selected library. Pending cleanup permits read-only recovery inventory first; acknowledgement must be followed by a fresh self-test, inventory, and reconciliation before Send resumes.
 
 Kindle-specific behavior includes PDOC preparation for embedded cover display, exact-handle removal/update, and bounded device-resident metadata caching. Prepared sideloads appear under **Documents**. See the [technical guide](technical-guide.md#kindle-workflow) for the detailed rules.
+
+## Kindle USB-drive connection
+
+Choose **Connect eReader > Kindle USB drive** for an Oasis or another Kindle that mounts as a disk. Select the main volume containing `documents` and `system/version.txt`, not the `documents` subfolder. Desktop Chrome or Edge supports this on trusted HTTPS or localhost. Brave may require enabling **File System Access API** at `brave://flags/#file-system-access-api` and relaunching; localhost does not require a certificate.
+
+**On Device** shows all supported files found under `documents`, including books outside the server catalog. The scan includes MOBI, AZW, AZW3, PRC, KFX, AZW8, PDF, and TXT, while skipping hidden files and `.sdr` folders. The scan is bounded to 10,000 entries and eight folder levels.
+
+Embedded PalmDB/MOBI titles and authors are displayed and searchable. Metadata reads use only the header and record-zero prefix: at most 1 MiB per prefix, 32 MiB total, and 2,000 candidates per scan. Missing, malformed, unsupported, or over-budget metadata falls back to the filename. Embedded covers load lazily for supported unencrypted MOBI/AZW/AZW3/PRC files, with 32 MiB per-file and 256 MiB per-connection read limits, plus the existing bounded thumbnail cache. Files and images stay in the browser; neither is uploaded to the catalog server. Cover or metadata availability does not establish a catalog match.
+
+Sending accepts EPUB and supported AZW3 sources, not arbitrary MOBI/AZW files. EPUB conversion and reviewed edits use the existing browser-local Kindle preparation. New AZW3 copies receive collision-resistant names under `documents/ShelfSend`, with SHA-256 read-back verification and separate interrupted-transfer recovery records. Existing device books, Calibre files, and system folders are never overwritten or broadly deleted. Exact failed-upload cleanup applies only to the newly created file; uncertain cleanup requires manual inspection.
+
+The folder connection does not use MTP self-tests, device-resident metadata cache slots, or MTP update/removal authority. Existing-copy update/removal and reading-state synchronization are unavailable. Safely eject through your operating system after sending; **Disconnect** is not an OS eject.
 
 ## Kobo connection and recovery
 
@@ -56,6 +68,8 @@ Device presence comes from the current reader integration. Keep uncertain matche
 ## Physical evidence
 
 The original Kindle transfer engine was physically tested on USB IDs `0x1949 / 0x9981`, including conversion, transfer, opening, chapter navigation, and cover display. Fresh acceptance of the expanded integrated workflow remains separate.
+
+The 2019 Oasis (`0x1949 / 0x0004`) has been connected through the USB-drive path, with 92 scanned files and real embedded covers visible in the browser. Physical acceptance of the new metadata display, sending, Kindle import/opening, and interrupted-transfer recovery is still pending. Browser-side cover display does not establish Kindle-side transfer success.
 
 Kobo's browser transfer implementation has automated and rendered-UI evidence. Physical transfer/import/opening/cover/navigation/cancellation/recovery acceptance remains pending. Neither a successful byte check nor an automated test establishes on-device reading behavior.
 

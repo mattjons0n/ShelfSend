@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { KoboCatalogSession, type KoboCatalogDevice } from "../../client/src/kobo/catalog-session";
+import type { PrepareCatalogArtifactOptions } from "../../client/src/catalog-transfer";
 import { koboIdentityHash } from "../../client/src/kobo/device";
 import type { CatalogApi, CatalogBook, CatalogBookMetadataState, CatalogBookSource, CatalogMatchIndex } from "../../client/src/catalog-client";
 import type { KoboIdentity, KoboInventory, KoboInventoryEntry, KoboRecoveryRecord, KoboSendOptions, KoboTransferResult } from "../../client/src/kobo/types";
@@ -48,11 +49,13 @@ async function managed(value: CatalogBook, patch: Partial<KoboInventoryEntry> = 
 }
 
 class Device implements KoboCatalogDevice {
+  reader: "kobo" | "kindle-drive" = "kobo";
   closed = false;
   recoveryRecords: readonly KoboRecoveryRecord[] = [];
   inventory: KoboInventory = { entries: [], complete: true, scannedAt: "2026-01-01" };
   scan = vi.fn(async (_signal?: AbortSignal) => this.inventory);
   verifyEntry = vi.fn(async (_entry: KoboInventoryEntry, _signal?: AbortSignal) => true);
+  readCover = vi.fn<NonNullable<KoboCatalogDevice["readCover"]>>();
   send = vi.fn(async (blob: Blob, _identity: KoboIdentity, options?: KoboSendOptions): Promise<KoboTransferResult> => {
     options?.onProgress?.(50);
     options?.onProgress?.(95);
@@ -62,8 +65,9 @@ class Device implements KoboCatalogDevice {
   disconnect = vi.fn(() => { this.closed = true; });
 }
 
-function setup(value = book()) {
+function setup(value = book(), reader: "kobo" | "kindle-drive" = "kobo") {
   const device = new Device();
+  device.reader = reader;
   const api = {
     getMatchIndex: vi.fn(async (_profile: string, _signal?: AbortSignal) => index([value])),
     getBook: vi.fn(async (_profile: string, _id: string, _signal?: AbortSignal) => value),
@@ -74,11 +78,121 @@ function setup(value = book()) {
     getBookCover: vi.fn(async (_profile: string, _id: string, _signal?: AbortSignal) => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], { type: "image/jpeg" })),
     createDelivery: vi.fn(),
   };
-  const hooks = { state: vi.fn(), progress: vi.fn() };
+  const convertEpub = vi.fn<PrepareCatalogArtifactOptions["convertEpub"]>(async (file) => {
+    const bytes = new Uint8Array(128);
+    bytes.set(new TextEncoder().encode("BOOKMOBI"), 60);
+    const blob = new Blob([bytes]);
+    return { filename: "converted.azw3", blob,
+      metadata: { title: "Converted", authors: [], language: "en", chapters: 1, toc_entries: 1 },
+      diagnostics: { engine: "boko-wasm", runsLocally: true, inputBytes: file.size, outputBytes: blob.size,
+        kindleDocumentType: "PDOC", embeddedCover: true } };
+  });
+  const hooks = { state: vi.fn(), progress: vi.fn(), convertEpub };
   const session = new KoboCatalogSession(api as unknown as CatalogApi, device, hooks);
   const request = { profileId: value.profileId, book: value };
   return { value, api, device, hooks, session, request };
 }
+
+describe("Kindle USB-drive catalog session", () => {
+  it("routes only current folder cover IDs and discards results after disconnect", async () => {
+    const s = setup(book(), "kindle-drive");
+    const entry = { name: "existing.mobi", relativePath: "documents/existing.mobi", size: 128, lastModified: 1 };
+    s.device.inventory = { ...s.device.inventory, entries: [entry] };
+    const cover = { bytes: new Uint8Array([1, 2, 3]), mediaType: "image/png" as const };
+    s.device.readCover.mockResolvedValue(cover);
+    await s.session.refresh(s.value.profileId);
+    await expect(s.session.readCover("mtp-00000001")).resolves.toBeUndefined();
+    expect(s.device.readCover).not.toHaveBeenCalled();
+    await expect(s.session.readCover(`drive:${entry.relativePath}`)).resolves.toBe(cover);
+    expect(s.device.readCover).toHaveBeenCalledWith(entry, expect.any(AbortSignal));
+    let resolveCover!: (value: typeof cover) => void;
+    const deferred = new Promise<typeof cover>(resolve => { resolveCover = resolve; });
+    s.device.readCover.mockReturnValue(deferred);
+    const pending = s.session.readCover(`drive:${entry.relativePath}`);
+    s.session.disconnect();
+    resolveCover(cover);
+    await expect(pending).resolves.toBeUndefined();
+    expect(s.api.createDelivery).not.toHaveBeenCalled();
+  });
+  it("converts an immutable EPUB with reviewed edits before sending only the prepared Kindle copy", async () => {
+    const s = setup(book({ metadataEdited: true, metadataRevision: 2, presentationVersion: "b".repeat(64) }), "kindle-drive");
+    await s.session.refresh(s.value.profileId);
+    await s.session.send(s.request);
+    expect(s.hooks.convertEpub).toHaveBeenCalledOnce();
+    const [input, signal, overrides] = s.hooks.convertEpub.mock.calls[0]!;
+    expect(input.name).toBe("book.epub");
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(overrides).toMatchObject({ title: "Reviewed title", series: "Reviewed series", seriesIndex: 2.5 });
+    expect(createHash("sha256").update(new Uint8Array(await input.arrayBuffer())).digest("hex")).toBe(sourceHash);
+    expect(createHash("sha256").update(new Uint8Array(await source.arrayBuffer())).digest("hex")).toBe(sourceHash);
+    const converted = await s.hooks.convertEpub.mock.results[0]!.value;
+    expect(s.device.send).toHaveBeenCalledWith(converted.blob, identity(s.value), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(s.hooks.progress).toHaveBeenLastCalledWith(expect.objectContaining({ phase: "complete", message: "Sent to Kindle" }));
+    expect(s.session.snapshot).toMatchObject({ reader: "kindle-drive", status: "ready" });
+    expect(s.api.createDelivery).not.toHaveBeenCalled();
+  });
+
+  it.each(["mobi", "azw", "azw3", "prc", "kfx", "azw8", "pdf", "txt"])("keeps an existing %s filename match uncertain and blocks duplicate sending", async (extension) => {
+    const s = setup(book(), "kindle-drive");
+    s.device.inventory = { ...s.device.inventory, entries: [{ name: `Original title.${extension}`, relativePath: `documents/Original title.${extension}`, size: 128, lastModified: 1 }] };
+    await s.session.refresh(s.value.profileId);
+    expect(s.session.snapshot.statuses.get(s.value.id)).toBe("possible");
+    expect(s.session.snapshot.inventory).toEqual(s.device.inventory);
+    await expect(s.session.send(s.request)).rejects.toThrow(/already on Kindle/u);
+    expect(s.hooks.convertEpub).not.toHaveBeenCalled();
+    expect(s.device.send).not.toHaveBeenCalled();
+  });
+
+  it("confirms only the Kindle identity namespace after verifying current managed bytes", async () => {
+    const s = setup(book(), "kindle-drive");
+    const entry = await managed(s.value, { name: "managed.azw3", relativePath: "documents/ShelfSend/managed.azw3" });
+    s.device.inventory = { ...s.device.inventory, entries: [entry] };
+    await s.session.refresh(s.value.profileId);
+    expect(s.session.snapshot.statuses.get(s.value.id)).toBe("not-on-kindle");
+    expect(s.device.verifyEntry).not.toHaveBeenCalled();
+    s.device.inventory = { ...s.device.inventory, entries: [{ ...entry, managed: { artifactHash: sourceHash, identityHash: await koboIdentityHash(identity(s.value), "kindle-drive") } }] };
+    await s.session.refresh(s.value.profileId);
+    expect(s.session.snapshot.statuses.get(s.value.id)).toBe("confirmed");
+    s.device.verifyEntry.mockResolvedValue(false);
+    await s.session.refresh(s.value.profileId);
+    expect(s.session.snapshot.statuses.get(s.value.id)).toBe("unknown");
+  });
+
+  it("does not write after cancellation during conversion or after presentation changes", async () => {
+    const s = setup(book(), "kindle-drive");
+    const abort = new AbortController();
+    const convert = s.hooks.convertEpub.getMockImplementation()!;
+    s.hooks.convertEpub.mockImplementation(async (...args) => { abort.abort(); return convert(...args); });
+    await s.session.refresh(s.value.profileId);
+    await expect(s.session.send({ ...s.request, cancelSignal: abort.signal })).rejects.toMatchObject({ code: "TRANSFER_CANCELLED" });
+    expect(s.device.send).not.toHaveBeenCalled();
+    s.hooks.convertEpub.mockImplementation(convert);
+    s.api.getBook.mockResolvedValueOnce(s.value).mockResolvedValueOnce({ ...s.value, presentationVersion: "c".repeat(64) });
+    await expect(s.session.send(s.request)).rejects.toThrow(/changed/u);
+    expect(s.device.send).not.toHaveBeenCalled();
+  });
+
+  it("rejects changed source bytes before invoking Kindle conversion", async () => {
+    const s = setup(book(), "kindle-drive");
+    const bytes = new Uint8Array(await source.arrayBuffer());
+    bytes[bytes.length - 1] ^= 1;
+    s.api.getBookSource.mockResolvedValue({ blob: new Blob([bytes]), contentLength: source.size, presentationVersion: s.value.presentationVersion });
+    await s.session.refresh(s.value.profileId);
+    await expect(s.session.send(s.request)).rejects.toThrow(/source bytes changed/u);
+    expect(s.hooks.convertEpub).not.toHaveBeenCalled();
+    expect(s.device.send).not.toHaveBeenCalled();
+  });
+
+  it("routes an AZW3 source to validation rather than converting or writing mislabeled EPUB bytes", async () => {
+    const s = setup(book({ format: "AZW3", sourceFilename: "book.azw3" }), "kindle-drive");
+    await s.session.refresh(s.value.profileId);
+    expect(s.session.snapshot.statuses.get(s.value.id)).toBe("not-on-kindle");
+    await expect(s.session.send(s.request)).rejects.toThrow(/format does not match/u);
+    expect(s.api.getBookSource).toHaveBeenCalledOnce();
+    expect(s.hooks.convertEpub).not.toHaveBeenCalled();
+    expect(s.device.send).not.toHaveBeenCalled();
+  });
+});
 
 describe("Kobo catalog session", () => {
   it("remains connected and idle when no library has been created or selected", async () => {

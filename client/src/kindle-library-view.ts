@@ -4,24 +4,26 @@ import { formatCatalogBytes } from "./library-prototype";
 import { normalizeLibraryCardSize } from "./library-display-preferences";
 import { renderLibraryLayoutControls } from "./library-layout-controls";
 import type { AppState } from "./state";
+import { kindleDriveItems } from "./reader-ui";
 
 const PAGE_SIZE = 100;
+type DisplayItem = Pick<CatalogKindleInventoryItem, "filename" | "path" | "size" | "title" | "author" | "authors" | "format"> & { readonly id?: string };
 
 function escapeHtml(value: unknown): string {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 
-function itemTitle(item: CatalogKindleInventoryItem): string {
+function itemTitle(item: DisplayItem): string {
   return item.title?.trim() || item.filename;
 }
 
-function itemAuthors(item: CatalogKindleInventoryItem): string {
+function itemAuthors(item: DisplayItem): string {
   return item.authors?.map((author) => author.trim()).filter(Boolean).join(", ")
     || item.author?.trim() || "Author unavailable";
 }
 
-function itemFormat(item: CatalogKindleInventoryItem): string {
+function itemFormat(item: DisplayItem): string {
   return item.format?.trim().toLocaleUpperCase()
     || item.filename.match(/\.([a-z\d]{1,8})$/i)?.[1]?.toLocaleUpperCase()
     || "File";
@@ -37,8 +39,8 @@ function scannedTime(value: string): string {
   return hours < 24 ? `Checked ${hours} hr ago` : `Checked ${Math.floor(hours / 24)} days ago`;
 }
 
-function renderItem(item: CatalogKindleInventoryItem): string {
-  return `<li class="kindle-library-item" data-kindle-object-id="${escapeHtml(item.id)}">
+function renderItem(item: DisplayItem, drive: boolean): string {
+  return `<li class="kindle-library-item"${item.id ? ` ${drive ? "data-reader-file-id" : "data-kindle-object-id"}="${escapeHtml(item.id)}"` : ""}>
     <span class="kindle-library-icon" data-kindle-cover aria-hidden="true">${libraryIcon("book")}</span>
     <div class="kindle-library-book"><h2>${escapeHtml(itemTitle(item))}</h2><p>${escapeHtml(itemAuthors(item))}</p><small>${escapeHtml(itemFormat(item))} · ${escapeHtml(formatCatalogBytes(item.size))}</small></div>
     <details class="kindle-library-file-details"><summary>File details<span class="sr-only"> for ${escapeHtml(itemTitle(item))}</span></summary><dl><div><dt>Filename</dt><dd>${escapeHtml(item.filename)}</dd></div>${item.path ? `<div><dt>Location on Kindle</dt><dd>${escapeHtml(item.path)}</dd></div>` : ""}</dl></details>
@@ -49,16 +51,23 @@ function renderItem(item: CatalogKindleInventoryItem): string {
 export function renderKindleLibraryView(state: AppState, snapshot: CatalogBrowserSnapshot): string {
   const layout = snapshot.layout === "list" ? "list" : "grid";
   const density = snapshot.density === "compact" ? "compact" : "comfortable";
-  const inventory = snapshot.kindleInventory;
-  const connected = state.device.kind === "ready" || state.device.kind === "transferring";
-  const disconnecting = state.device.kind === "recovering";
-  const disconnectBlocked = disconnecting || snapshot.sendBusy || snapshot.bulkActionBusy
-    || state.postConnectStage !== "idle" || state.selfTest.kind === "running" || state.device.kind === "transferring";
+  const drive = snapshot.activeReader === "kindle-drive";
+  const scanned = snapshot.kobo?.inventory;
+  const inventory = drive ? scanned && {
+    items: kindleDriveItems(scanned),
+    total: scanned.entries.length, scannedAt: scanned.scannedAt,
+    completeness: scanned.complete ? "complete" : "partial", truncated: false, metadata: undefined,
+  } : snapshot.kindleInventory;
+  const connected = drive ? snapshot.kobo?.status !== "disconnected" : state.device.kind === "ready" || state.device.kind === "transferring";
+  const disconnecting = !drive && state.device.kind === "recovering";
+  const disconnectBlocked = disconnecting || snapshot.sendBusy || snapshot.bulkActionBusy || (drive
+    ? snapshot.kobo?.status === "scanning"
+    : state.postConnectStage !== "idle" || state.selfTest.kind === "running" || state.device.kind === "transferring");
   const disconnectButton = connected || disconnecting
-    ? `<button type="button" data-ui-action="disconnect-catalog-device"${disconnectBlocked ? " disabled" : ""}>${disconnecting ? "Disconnecting…" : "Disconnect"}</button>`
+    ? `${drive ? `<button type="button" data-ui-action="refresh-kobo"${disconnectBlocked ? " disabled" : ""}>Check again</button>` : ""}<button type="button" data-ui-action="${drive ? "disconnect-kobo" : "disconnect-catalog-device"}"${disconnectBlocked ? " disabled" : ""}>${disconnecting ? "Disconnecting…" : "Disconnect"}</button>`
     : "";
-  const loading = connected && state.catalogInventoryState === "loading";
-  const failed = connected && state.catalogInventoryState === "failed";
+  const loading = connected && (drive ? snapshot.kobo?.status === "scanning" : state.catalogInventoryState === "loading");
+  const failed = connected && (drive ? snapshot.kobo?.status === "error" : state.catalogInventoryState === "failed");
   const lastSeen = Boolean(inventory && (!connected || inventory.completeness === "last-seen"));
   const partial = Boolean(inventory && (inventory.completeness === "partial" || inventory.truncated
     || inventory.total > inventory.items.length));
@@ -72,7 +81,7 @@ export function renderKindleLibraryView(state: AppState, snapshot: CatalogBrowse
     : connected ? "Waiting for Kindle contents" : "Kindle not connected";
   const query = snapshot.kindleInventoryQuery ?? "";
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const items = inventory?.items ?? [];
+  const items: readonly DisplayItem[] = inventory?.items ?? [];
   const matchingItems = items.filter((item) => !normalizedQuery || [item.title, item.author,
     ...(item.authors ?? []), item.filename, item.format, item.path]
     .filter(Boolean).join(" ").toLocaleLowerCase().includes(normalizedQuery));
@@ -108,12 +117,12 @@ export function renderKindleLibraryView(state: AppState, snapshot: CatalogBrowse
   const summary = normalizedQuery
     ? `${matchingItems.length.toLocaleString()} of ${items.length.toLocaleString()} files match your search`
     : `${items.length.toLocaleString()} ${items.length === 1 ? "book or document" : "books and documents"}${lastSeen || failed || loading ? " in the last available list" : partial ? " found so far" : ""}`;
-  return `<section class="kindle-library-view" data-layout="${layout}" data-density="${density}" aria-labelledby="kindle-library-heading">
+  return `<section class="kindle-library-view" data-layout="${layout}" data-density="${density}" aria-labelledby="kindle-library-heading"${drive ? ' aria-label="Kindle USB-drive files"' : ""}>
     <header class="kindle-library-heading"><div><span class="library-eyebrow">Device library</span><h1 id="kindle-library-heading">On Device</h1><p>Books and documents on your Kindle, including those outside your libraries.</p></div><div class="kindle-library-actions"><span class="kindle-library-status" data-state="${status}" role="status">${statusLabel}</span>${disconnectButton}</div></header>
     ${notices.map((notice) => `<p class="kindle-library-notice" role="status">${escapeHtml(notice)}</p>`).join("")}
     <div class="kindle-library-toolbar"><label class="kindle-library-search"><span class="sr-only">Search Kindle contents</span>${libraryIcon("search")}<input id="kindle-inventory-search" data-ui-action="search-kindle-inventory" type="search" value="${escapeHtml(query)}" placeholder="Search Kindle by title, author, or filename…" autocomplete="off" /></label>${renderLibraryLayoutControls(snapshot)}</div>
     ${inventory ? `<div class="kindle-library-summary"><span>${escapeHtml(summary)}</span><span>${escapeHtml(scannedTime(inventory.scannedAt))}</span></div>` : ""}
-    ${shown.length ? `<ul class="kindle-library-list library-book-grid" data-layout="${layout}" style="--library-card-min-width: ${normalizeLibraryCardSize(snapshot.cardSize)}px">${shown.map(renderItem).join("")}</ul>` : `<div class="kindle-library-empty"><span aria-hidden="true">${libraryIcon("device")}</span><h2>${emptyTitle}</h2><p>${emptyMessage}</p></div>`}
+    ${shown.length ? `<ul class="kindle-library-list library-book-grid" data-layout="${layout}" style="--library-card-min-width: ${normalizeLibraryCardSize(snapshot.cardSize)}px">${shown.map(item => renderItem(item, drive)).join("")}</ul>` : `<div class="kindle-library-empty"><span aria-hidden="true">${libraryIcon("device")}</span><h2>${emptyTitle}</h2><p>${emptyMessage}</p></div>`}
     ${matchingItems.length > PAGE_SIZE ? `<nav class="kindle-library-pagination" aria-label="Kindle content pages"><button type="button" data-ui-action="kindle-page" data-page-offset="${Math.max(0, offset - PAGE_SIZE)}"${offset === 0 ? " disabled" : ""}>Previous</button><span>${(offset + 1).toLocaleString()}–${Math.min(offset + PAGE_SIZE, matchingItems.length).toLocaleString()} of ${matchingItems.length.toLocaleString()}</span><button type="button" data-ui-action="kindle-page" data-page-offset="${Math.min(maxOffset, offset + PAGE_SIZE)}"${offset === maxOffset ? " disabled" : ""}>Next</button></nav>` : ""}
   </section>`;
 }

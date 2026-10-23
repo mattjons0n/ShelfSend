@@ -721,6 +721,7 @@ export class AppController {
       onCatalogConnectRequested: () => this.connect("catalog"),
       onCatalogDisconnectRequested: () => this.disconnect(),
       onKoboConnect: () => this.connectKobo(),
+      onKindleDriveConnect: () => this.connectKobo("kindle-drive"),
       onKoboDisconnect: () => this.disconnectKobo(),
       onKoboRefresh: () => this.#kobo ? this.#kobo.refresh(this.#view.activeCatalogProfileId) : this.connectKobo(),
       onKoboRecoveryAcknowledged: () => this.#kobo?.acknowledgeRecovery(),
@@ -1014,19 +1015,21 @@ export class AppController {
   }
 
   /** The folder chooser is called in this user-initiated stack, before any await. */
-  async connectKobo(): Promise<void> {
+  async connectKobo(reader: "kobo" | "kindle-drive" = "kobo"): Promise<void> {
     if (this.#kobo || this.#koboConnectAbort || this.#connection || this.#pendingDevice
       || this.#hardwareBusy || this.#conversionPipelineBusy || this.#disconnectPromise
       || this.#state.device.kind === "requesting-permission") return;
     const abort = new AbortController();
     this.#koboConnectAbort = abort;
-    this.#view.setKoboState({ status: "connecting", supported: this.koboSupported,
-      message: "Connect Kobo by USB, choose Connect on its screen, then select the main Kobo drive folder.",
+    this.#view.setKoboState({ status: "connecting", reader, supported: this.koboSupported,
+      message: reader === "kindle-drive" ? "Select the main Kindle USB drive containing documents and system."
+        : "Connect Kobo by USB, choose Connect on its screen, then select the main Kobo drive folder.",
       statuses: new Map(), countsByProfile: new Map() });
     try {
-      const device = await (this.#dependencies.connectKobo ?? ((options) => KoboDevice.connect(options)))({ signal: abort.signal });
+      const device = await (this.#dependencies.connectKobo ?? ((options) => KoboDevice.connect(options)))({ signal: abort.signal, reader });
       if (abort.signal.aborted || this.#koboConnectAbort !== abort) { device.disconnect(); return; }
       const session = new KoboCatalogSession(this.#catalogApi, device, {
+        convertEpub: this.#dependencies.convert,
         state: (state) => { if (this.#kobo === session) this.#view.setKoboState(state); },
         progress: (update) => { if (this.#kobo === session) this.#view.setCatalogTransferUpdate(update); },
       });
@@ -1036,8 +1039,8 @@ export class AppController {
     } catch (error) {
       if (this.#koboConnectAbort !== abort || abort.signal.aborted) return;
       if (error && typeof error === "object" && Reflect.get(error, "name") === "AbortError") this.#showKoboDisconnected();
-      else this.#view.setKoboState({ status: "error", supported: this.koboSupported,
-        message: error instanceof Error ? error.message : "Kobo could not connect. Check the USB cable and try again.",
+      else this.#view.setKoboState({ status: "error", reader, supported: this.koboSupported,
+        message: error instanceof Error ? error.message : "The reader could not connect. Check the USB cable and try again.",
         statuses: new Map(), countsByProfile: new Map() });
     } finally {
       if (this.#koboConnectAbort === abort) this.#koboConnectAbort = undefined;
@@ -1060,7 +1063,7 @@ export class AppController {
 
   async connect(mode: "catalog" | "poc" = "catalog"): Promise<void> {
     if (this.#kobo || this.#koboConnectAbort) {
-      this.#invalidState("Disconnect Kobo before connecting a Kindle.");
+      this.#invalidState("Disconnect the folder-connected reader before connecting through WebUSB.");
       return;
     }
     if (!this.#state.secureContext || !this.#state.webUsbAvailable) {
@@ -2034,8 +2037,8 @@ export class AppController {
   }
 
   async sendCatalogBook(request: CatalogSendRequest): Promise<void> {
-    if (this.#view.activeReader === "kobo") {
-      if (!this.#kobo) throw new AppError("INVALID_STATE", "Connect your Kobo before sending a book.");
+    if (this.#view.activeReader !== "kindle") {
+      if (!this.#kobo) throw new AppError("INVALID_STATE", "Connect your reader before sending a book.");
       return this.#kobo.send(request);
     }
     if (this.#hardwareBusy) {
@@ -2562,7 +2565,7 @@ export class AppController {
   }
 
   async finishCatalogSendBatch(result: CatalogSendBatchResult): Promise<void> {
-    if (this.#view.activeReader === "kobo") {
+    if (this.#view.activeReader !== "kindle") {
       await this.#kobo?.refresh(this.#view.activeCatalogProfileId);
       return;
     }
@@ -4131,6 +4134,7 @@ export class AppController {
 
   /** Presentation only: library availability and match authority are deliberately irrelevant. */
   async readKindleInventoryCover(itemId: string): Promise<KindleBookCover | undefined> {
+    if (this.#kobo) return this.#kobo.readCover(itemId);
     const connection = this.#connection;
     const epoch = this.#deviceEpoch;
     const inventory = this.#rawCatalogInventory;

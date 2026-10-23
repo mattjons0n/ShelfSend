@@ -30,6 +30,11 @@ class MemoryStorage implements Storage {
 // jsdom's origin-scoped implementation. Browser-facing tests need deterministic
 // Storage semantics, not filesystem persistence.
 if (typeof window !== "undefined") {
+  Object.defineProperty(window, "scrollTo", {
+    configurable: true,
+    writable: true,
+    value: () => undefined,
+  });
   Object.defineProperty(window, "localStorage", {
     configurable: true,
     value: new MemoryStorage(),

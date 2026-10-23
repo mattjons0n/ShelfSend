@@ -52,14 +52,14 @@ Run ShelfSend on your own server with Docker, then connect your e-reader to the 
 
 Browse covers or compact lists in light or dark mode. Organize household profiles, smart shelves, favorites, and reading wishlists. Edit metadata and covers without changing your original ebooks, and review missing metadata, duplicate choices, and source problems in **Needs attention**.
 
-For eligible Kindle copies, update an edited EPUB or explicitly confirm removal of exact matched books. These update/removal actions are Kindle-specific; Kobo currently supports adding EPUBs without replacing or removing existing books.
+For eligible MTP Kindle copies, update an edited EPUB or explicitly confirm removal of exact matched books. Kindle USB-drive and Kobo connections are add-only, without replacing or removing existing books.
 
 </details>
 
 <a id="quick-start"></a>
 ## 🚀 Quick start
 
-You need **Docker with Docker Compose**, a folder of DRM-free EPUB or supported AZW3 files, and **desktop Chrome or Edge** with WebUSB for Kindle or folder access for Kobo. Use a trusted HTTPS origin for remote access; localhost also works.
+You need **Docker with Docker Compose**, a folder of DRM-free EPUB or supported AZW3 files, and **desktop Chrome or Edge** with WebUSB for MTP Kindles or folder access for mounted Kindles (including Oasis) and Kobo. Use a trusted HTTPS origin for remote access; localhost also works. See the [device guide](docs/devices.md#kindle-usb-drive-connection) for Brave settings and USB-drive metadata/cover limits.
 
 ### 1. Start the library
 

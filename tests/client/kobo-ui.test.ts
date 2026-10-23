@@ -28,6 +28,65 @@ function rendered(value = snapshot()): HTMLElement {
 }
 
 describe("Kobo reader UI", () => {
+  it("updates folder inventory search and paging through real view handlers", () => {
+    const element = document.createElement("div");
+    document.body.append(element);
+    const noop = () => undefined;
+    const view = new AppView(element, initialAppState(), {
+      onTargetProfileSaved: noop, onEpubSelected: noop, onConvert: noop, onDownloadConverted: noop,
+      onConnect: noop, onDisconnect: noop, onSelfTest: noop, onSendIntegrated: noop,
+      onIntegratedOpenConfirmed: noop, onCleanupInspectionConfirmed: noop, onCopyLog: noop,
+    }, new DebugLog(), { autoStartCatalog: false, catalogApi: {} as CatalogApi });
+    view.setKoboState({ ...snapshot().kobo!, reader: "kindle-drive", inventory: {
+      complete: true, scannedAt: "2026-10-23", entries: Array.from({ length: 105 }, (_, index) => ({
+        name: `file-${index}.mobi`, relativePath: `documents/file-${index}.mobi`, size: 128, lastModified: 1,
+        metadata: { title: `Title ${index}`, authors: [`Author ${index}`], identifiers: [] },
+      })),
+    } });
+    element.querySelector<HTMLButtonElement>('[data-ui-view="on-kindle"]')!.click();
+    expect(element.querySelectorAll('.kindle-library-item')).toHaveLength(100);
+    element.querySelector<HTMLButtonElement>('[data-ui-action="kindle-page"][data-page-offset="100"]')!.click();
+    expect(element.querySelectorAll('.kindle-library-item')).toHaveLength(5);
+    const search = element.querySelector<HTMLInputElement>('#kindle-inventory-search')!;
+    search.value = "Author 104";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(element.querySelectorAll('.kindle-library-item')).toHaveLength(1);
+    expect(element.querySelector('.kindle-library-book h2')?.textContent).toBe("Title 104");
+    view.dispose();
+    element.remove();
+  });
+  it("shows all scanned Kindle-drive files even without server-library matches", () => {
+    const value = snapshot();
+    const el = rendered({ ...value, activeReader: "kindle-drive", filters: { ...value.filters, view: "on-kindle" },
+      page: { ...value.page!, items: [], total: 0 },
+      kobo: { ...value.kobo!, reader: "kindle-drive", inventory: { complete: true, scannedAt: "2026-10-23", entries: [
+        { name: "Existing.mobi", relativePath: "documents/Author/Existing.mobi", size: 128, lastModified: 1, metadata: { title: "Embedded title", authors: ["Embedded Author"], identifiers: [] } },
+        { name: "Other.azw", relativePath: "documents/Other.azw", size: 256, lastModified: 1 },
+      ] } } });
+    expect(el.querySelector('[aria-label="Kindle USB-drive files"]')?.textContent).toContain("2 books and documents");
+    expect(el.textContent).toContain("Existing.mobi");
+    expect(el.textContent).toContain("Other.azw");
+    expect(el.querySelector('.kindle-library-book h2')?.textContent).toBe("Embedded title");
+    expect(el.querySelector('.kindle-library-book p')?.textContent).toBe("Embedded Author");
+    expect(el.querySelector('[data-ui-view="on-kindle"] .library-nav-count')?.textContent).toBe("2");
+    expect(el.querySelector('[data-ui-action="remove-book-from-kindle"]')).toBeNull();
+    expect(el.querySelector('[data-ui-action="send-book"]')).toBeNull();
+    expect(el.querySelector('[data-kindle-object-id]')).toBeNull();
+    expect(el.querySelector('.library-stat-row')).toBeNull();
+    expect(el.querySelector('[data-ui-action="search-kindle-inventory"]')).not.toBeNull();
+  });
+  it("renders Kindle USB-drive presence without borrowing MTP permissions", () => {
+    const value: CatalogBrowserSnapshot = { ...snapshot(), activeReader: "kindle-drive", kobo: { ...snapshot().kobo!, reader: "kindle-drive" } };
+    const el = rendered(value);
+    expect(el.textContent).toContain("Kindle connected");
+    expect(el.textContent).not.toContain("Kobo");
+    expect(el.querySelector('[data-ui-action="send-book"]')?.textContent).toContain("Send to Kindle");
+    expect(bookActionCapabilities({ ...book, format: "AZW3" }, initialAppState(), value)).toMatchObject({
+      send: { enabled: true }, remove: { enabled: false }, update: { enabled: false }, exactKindleAssociation: false,
+    });
+    expect(el.querySelector('[data-ui-action="remove-book-from-kindle"]')).toBeNull();
+    expect(rendered({ ...value, activityOpen: true }).querySelector('[aria-labelledby="activity-center-title"]')?.textContent).not.toContain("Kobo");
+  });
   it("uses Kobo presence independently of retained Kindle evidence", () => {
     const value = snapshot();
     expect(bookActionCapabilities(book, initialAppState(), value)).toMatchObject({ send: { enabled: true, label: "Send to Kobo" }, exactKindleAssociation: false, update: { enabled: false }, remove: { enabled: false }, matchReview: { enabled: false, decisionEnabled: false } });
@@ -73,17 +132,19 @@ describe("Kobo reader UI", () => {
     const el = rendered({ ...value, activeReader: "kindle", kobo: { ...value.kobo!, status: "disconnected" } });
     expect(el.querySelector('[data-ui-action="connect-kobo"]')).not.toBeNull();
     expect(el.querySelector('[data-ui-action="connect-catalog-device"]')).not.toBeNull();
+    expect(el.querySelector('[data-ui-action="connect-kindle-drive"]')).not.toBeNull();
     expect(el.querySelector<HTMLElement>(".library-reader-options")?.hidden).toBe(true);
   });
   it("invokes the directory-connection hook synchronously only after a user click", () => {
     const element = document.createElement("div");
     document.body.append(element);
     const onKoboConnect = vi.fn();
+    const onKindleDriveConnect = vi.fn();
     const noop = () => undefined;
     const state = { ...initialAppState(), secureContext: true, webUsbAvailable: true };
     const view = new AppView(element, state, {
       onTargetProfileSaved: noop, onEpubSelected: noop, onConvert: noop, onDownloadConverted: noop,
-      onConnect: noop, onDisconnect: noop, onSelfTest: noop, onSendIntegrated: noop, onIntegratedOpenConfirmed: noop, onCleanupInspectionConfirmed: noop, onCopyLog: noop, onKoboConnect,
+      onConnect: noop, onDisconnect: noop, onSelfTest: noop, onSendIntegrated: noop, onIntegratedOpenConfirmed: noop, onCleanupInspectionConfirmed: noop, onCopyLog: noop, onKoboConnect, onKindleDriveConnect,
     }, new DebugLog(), { autoStartCatalog: false, catalogApi: {} as CatalogApi });
     view.setKoboState({ ...snapshot().kobo!, status: "disconnected", statuses: new Map(), countsByProfile: new Map() });
     expect(onKoboConnect).not.toHaveBeenCalled();
@@ -91,6 +152,9 @@ describe("Kobo reader UI", () => {
     expect(onKoboConnect).not.toHaveBeenCalled();
     element.querySelector<HTMLButtonElement>('[data-ui-action="connect-kobo"]')!.click();
     expect(onKoboConnect).toHaveBeenCalledOnce();
+    expect(onKindleDriveConnect).not.toHaveBeenCalled();
+    element.querySelector<HTMLButtonElement>('[data-ui-action="connect-kindle-drive"]')!.click();
+    expect(onKindleDriveConnect).toHaveBeenCalledOnce();
     view.render({ ...state, device: { kind: "ready", details: { vendorId: 0x1949, productId: 0x9981 } } });
     expect(element.querySelector('[data-ui-action="connect-kobo"]')).toBeNull();
     expect(element.querySelector(".library-reader-picker")).toBeNull();
@@ -106,7 +170,7 @@ describe("Kobo reader UI", () => {
   });
   it("blocks sends and shows only exact inspection filenames while recovery is pending", () => {
     const value = snapshot();
-    const pending = { ...value, kobo: { ...value.kobo!, recovery: [{ filename: "ShelfSend/book.epub", bytes: 1000, sha256: "a".repeat(64) }] } };
+    const pending = { ...value, kobo: { ...value.kobo!, recovery: [{ filename: "book.epub", bytes: 1000, sha256: "a".repeat(64) }] } };
     expect(bookActionCapabilities(book, initialAppState(), pending).send.enabled).toBe(false);
     const el = rendered(pending);
     expect(el.textContent).toContain("Check an interrupted transfer");
@@ -158,7 +222,7 @@ describe("Kobo catalog routing", () => {
     expect(browser.snapshot.page?.items.map((entry) => entry.id)).toEqual(["c"]);
     browser.dispose();
   });
-  it("routes an EPUB-only batch and never permits Kindle delete or update hooks", async () => {
+  it.each(["kobo", "kindle-drive"] as const)("routes a %s batch with its allowed formats and no MTP delete/update hooks", async (reader) => {
     const other = { ...book, id: "c", title: "Other book" };
     const azw3 = { ...book, id: "z", format: "AZW3" };
     const onSendRequested = vi.fn().mockResolvedValue(undefined);
@@ -167,13 +231,13 @@ describe("Kobo catalog routing", () => {
     const onUpdateRequested = vi.fn();
     const { browser } = browserFixture([book, other, azw3], { onSendRequested, onSendBatchFinished, onRemoveRequested, onUpdateRequested });
     await browser.start();
-    browser.setKoboState({ ...snapshot().kobo!, statuses: new Map([["b", "not-on-kindle"], ["c", "not-on-kindle"], ["z", "not-on-kindle"]]) });
+    browser.setKoboState({ ...snapshot().kobo!, reader, statuses: new Map([["b", "not-on-kindle"], ["c", "not-on-kindle"], ["z", "not-on-kindle"]]) });
     await vi.waitFor(() => expect(browser.snapshot.booksState).toBe("ready"));
     browser.setLayout("list");
     browser.toggleVisibleBookSelection();
     await browser.sendSelectedBooks();
-    expect(onSendRequested.mock.calls.map(([request]) => request.book.id)).toEqual(["b", "c"]);
-    expect(onSendRequested.mock.calls[1]?.[0].batch).toMatchObject({ position: 2, total: 2 });
+    expect(onSendRequested.mock.calls.map(([request]) => request.book.id)).toEqual(reader === "kobo" ? ["b", "c"] : ["b", "c", "z"]);
+    expect(onSendRequested.mock.calls[1]?.[0].batch).toMatchObject({ position: 2, total: reader === "kobo" ? 2 : 3 });
     expect(onSendBatchFinished).toHaveBeenCalledOnce();
     browser.requestBookRemoval("b");
     await browser.confirmBookRemoval();
@@ -181,7 +245,7 @@ describe("Kobo catalog routing", () => {
     await browser.confirmBookUpdate();
     expect(onRemoveRequested).not.toHaveBeenCalled();
     expect(onUpdateRequested).not.toHaveBeenCalled();
-    expect(browser.snapshot.activityEvents[0]?.title).toBe("Kobo batch verified");
+    expect(browser.snapshot.activityEvents[0]?.title).toBe(`${reader === "kobo" ? "Kobo" : "Kindle"} batch verified`);
     browser.dispose();
   });
 });

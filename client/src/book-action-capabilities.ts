@@ -2,7 +2,7 @@ import type { CatalogBrowserSnapshot } from "./catalog-browser";
 import type { CatalogBook, CatalogKindleStatus } from "./catalog-client";
 import { effectiveKindleStatus } from "./library-prototype";
 import type { AppState } from "./state";
-import { isKoboReader, koboReady, readerBookStatus, readerStatuses } from "./reader-ui";
+import { isFolderReader, koboReady, readerBookStatus, readerStatuses, readerName, readerSupportsFormat } from "./reader-ui";
 
 export interface BookActionCapability {
   readonly enabled: boolean;
@@ -79,7 +79,7 @@ export function hasExactCurrentKindleAssociation(bookId: string, snapshot: Catal
 }
 
 export function deviceReadyToRemove(state: AppState, snapshot: CatalogBrowserSnapshot): boolean {
-  return !isKoboReader(snapshot) && state.device.kind === "ready"
+  return !isFolderReader(snapshot) && state.device.kind === "ready"
     && state.selfTest.kind === "passed"
     && state.catalogInventoryState === "ready"
     && snapshot.kindleInventory?.completeness === "complete"
@@ -97,7 +97,7 @@ export function bookActionCapabilities(
   state: AppState,
   snapshot: CatalogBrowserSnapshot,
 ): BookActionCapabilities {
-  if (isKoboReader(snapshot)) return koboBookActionCapabilities(book, snapshot);
+  if (isFolderReader(snapshot)) return koboBookActionCapabilities(book, snapshot);
   const kindleStatus = effectiveKindleStatus(book, snapshot.kindleStatus);
   const comparison = currentKindleComparison(snapshot, book.profileId);
   const currentUnknown = kindleStatus === "unknown" && comparison;
@@ -266,29 +266,30 @@ export function bookActionCapabilities(
 }
 
 function koboBookActionCapabilities(book: CatalogBook, snapshot: CatalogBrowserSnapshot): BookActionCapabilities {
+  const name = readerName(snapshot);
   const status = readerBookStatus(book, snapshot);
   const busy = snapshot.sendBusy || snapshot.bulkActionBusy || snapshot.sendQueueBusy;
   const sourceAvailable = sourceBookAvailable(book, snapshot);
-  const epub = book.format.toUpperCase() === "EPUB";
+  const supported = readerSupportsFormat(snapshot, book.format);
   const ready = koboReady(snapshot, book.profileId);
   const queued = snapshot.sendQueue?.entries.some((entry) => entry.bookId === book.id) ?? false;
   const annotation = snapshot.annotations.get(book.id);
-  const sendReason = !epub ? "Kobo transfers support EPUB files. Kindle AZW3 files cannot be sent to Kobo."
+  const sendReason = !supported ? `${name} transfers support ${name === "Kobo" ? "EPUB" : "EPUB and AZW3"} files.`
     : busy ? "Another reader action is in progress"
     : !sourceAvailable ? "The read-only source file is unavailable"
-    : status === "confirmed" ? "This edition is already on your Kobo"
-    : !ready ? "Connect your Kobo and finish checking its books before sending"
-    : status !== "not-on-kindle" ? "Kobo presence is uncertain. Check the reader before sending another copy."
+    : status === "confirmed" ? `This edition is already on your ${name}`
+    : !ready ? `Connect your ${name} and finish checking its books before sending`
+    : status !== "not-on-kindle" ? `${name} presence is uncertain. Check the reader before sending another copy.`
     : undefined;
-  const queueEnabled = !busy && epub && sourceAvailable && !queued && status !== "confirmed" && status !== "possible" && snapshot.sendQueueState === "ready";
+  const queueEnabled = !busy && supported && sourceAvailable && !queued && status !== "confirmed" && status !== "possible" && snapshot.sendQueueState === "ready";
   return {
     kindleStatus: status, currentComparison: ready, sourceAvailable, exactKindleAssociation: false,
     select: { enabled: !busy }, edit: { enabled: !busy },
-    send: { enabled: sendReason === undefined, label: !epub ? "EPUB required" : status === "confirmed" ? "✓ On Kobo" : status === "possible" ? "Possible match" : !sourceAvailable ? "Source unavailable" : ready && status === "not-on-kindle" ? "Send to Kobo" : snapshot.kobo?.status === "scanning" ? "Checking Kobo…" : snapshot.kobo?.status === "connecting" ? "Connecting Kobo…" : "Connect to send", ...(sendReason ? { reason: sendReason } : {}) },
-    queue: { enabled: queueEnabled, queued, label: queued ? "Queued" : "Send later", ...(!queueEnabled ? { reason: !epub ? "Kobo transfers support EPUB files only" : "This book cannot be added to Send later right now" } : {}) },
-    update: { enabled: false, reason: "Updating existing Kobo copies is not supported" },
-    remove: { enabled: false, reason: "Remove books using your Kobo or file manager" },
-    matchReview: { enabled: false, decisionEnabled: false, reason: "Kobo matches cannot authorize Kindle actions" },
+    send: { enabled: sendReason === undefined, label: !supported ? name === "Kobo" ? "EPUB required" : "Unsupported format" : status === "confirmed" ? `✓ On ${name}` : status === "possible" ? "Possible match" : !sourceAvailable ? "Source unavailable" : ready && status === "not-on-kindle" ? `Send to ${name}` : snapshot.kobo?.status === "scanning" ? `Checking ${name}…` : snapshot.kobo?.status === "connecting" ? `Connecting ${name}…` : "Connect to send", ...(sendReason ? { reason: sendReason } : {}) },
+    queue: { enabled: queueEnabled, queued, label: queued ? "Queued" : "Send later", ...(!queueEnabled ? { reason: !supported ? sendReason : "This book cannot be added to Send later right now" } : {}) },
+    update: { enabled: false, reason: "Updating existing copies over folder access is not supported" },
+    remove: { enabled: false, reason: `Remove books using your ${name} or file manager` },
+    matchReview: { enabled: false, decisionEnabled: false, reason: "Folder matches cannot authorize MTP actions" },
     favorite: { enabled: !busy, active: annotation?.favorite ?? false },
     wantToRead: { enabled: !busy, active: annotation?.wantToRead ?? false },
   };
@@ -310,7 +311,7 @@ export function bulkBookActionCapabilities(
   const capabilities = selectedVisible.map((book) => bookActionCapabilities(book, state, snapshot));
   const busy = snapshot.sendBusy || snapshot.bulkActionBusy || snapshot.sendQueueBusy;
   const statuses = readerStatuses(snapshot);
-  const provisionalOffPageSendCount = !busy && (isKoboReader(snapshot) ? koboReady(snapshot) : deviceReadyToSend(state, snapshot))
+  const provisionalOffPageSendCount = !busy && (isFolderReader(snapshot) ? koboReady(snapshot) : deviceReadyToSend(state, snapshot))
     ? [...selectedBookIds].filter((bookId) => (
         !visibleIds.has(bookId) && statuses.get(bookId) === "not-on-kindle"
       )).length

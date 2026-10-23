@@ -1,3 +1,5 @@
+import type { KindleBookMetadata } from "../kindle/book-metadata";
+
 /** Browser-only mounted-drive contracts. Handles never leave this transport. */
 export interface KoboIdentity {
   readonly profileId: string;
@@ -17,6 +19,7 @@ export interface KoboInventoryEntry {
   readonly relativePath: string;
   readonly size: number;
   readonly lastModified: number;
+  readonly metadata?: KindleBookMetadata;
   readonly managed?: KoboManagedIdentity;
 }
 
@@ -68,6 +71,7 @@ export interface KoboDirectoryHandle {
 }
 
 export interface KoboConnectOptions {
+  readonly reader?: "kobo" | "kindle-drive";
   readonly picker?: (options: { mode: "readwrite"; id: string }) => Promise<KoboDirectoryHandle>;
   readonly signal?: AbortSignal;
   readonly storage?: Pick<Storage, "getItem" | "setItem" | "removeItem">;

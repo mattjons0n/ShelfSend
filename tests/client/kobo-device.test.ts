@@ -1,5 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { KoboDevice, KOBO_MAX_FILE_BYTES, KOBO_RECOVERY_STORAGE_KEY } from "../../client/src/kobo/device";
+import { readFile } from "node:fs/promises";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import initBoko, { convert } from "../../client/vendor/boko/boko.js";
+import { parseKindleBookMetadata } from "../../client/src/kindle/book-metadata";
+import { KoboDevice, KOBO_MAX_FILE_BYTES, KOBO_RECOVERY_STORAGE_KEY, KINDLE_DRIVE_RECOVERY_STORAGE_KEY } from "../../client/src/kobo/device";
 import type { KoboDirectoryHandle, KoboFileHandle, KoboHandle, KoboIdentity, KoboWritable } from "../../client/src/kobo/types";
 
 class MemoryStorage implements Pick<Storage, "getItem" | "setItem" | "removeItem"> {
@@ -94,6 +97,166 @@ function epub(size = 64): Blob {
   bytes.set([0x50, 0x4b, 0x03, 0x04]);
   return new Blob([bytes], { type: "application/epub+zip" });
 }
+
+describe("Kindle mounted-drive transport", () => {
+  let coverBook: Uint8Array<ArrayBuffer>;
+  beforeAll(async () => {
+    await initBoko(await readFile("client/vendor/boko/boko_bg.wasm"));
+    coverBook = Uint8Array.from(convert(await readFile("tests/fixtures/epictetus.epub"), "epub", "azw3"));
+  });
+  function fixture() {
+    const root = new MemoryDirectory("Kindle");
+    const documents = new MemoryDirectory("documents");
+    const system = new MemoryDirectory("system");
+    const version = new MemoryFile("version.txt");
+    version.bytes = new TextEncoder().encode("System Software Version: Kindle 5.16");
+    system.children.set(version.name, version);
+    root.children.set("system", system);
+    root.children.set("documents", documents);
+    const storage = new MemoryStorage();
+    const connect = () => KoboDevice.connect({ reader: "kindle-drive", picker: async () => root, storage, locks: null });
+    const bytes = new Uint8Array(128);
+    bytes.set(new TextEncoder().encode("BOOKMOBI"), 60);
+    return { root, documents, system, storage, connect, artifact: new Blob([bytes]) };
+  }
+
+  it("reads embedded metadata from bounded prefixes without reading whole books", async () => {
+    const { documents, connect } = fixture();
+    const handle = new MemoryFile("misleading-filename.mobi");
+    handle.bytes = coverBook.slice();
+    const file = await handle.getFile();
+    const fullRead = vi.spyOn(file, "arrayBuffer");
+    const slices = vi.spyOn(file, "slice");
+    vi.spyOn(handle, "getFile").mockResolvedValue(file);
+    documents.children.set(handle.name, handle);
+    const device = await connect();
+    const entry = (await device.scan()).entries[0]!;
+    expect(entry.metadata).toEqual(parseKindleBookMetadata(coverBook));
+    expect(entry.metadata?.title).toBeTruthy();
+    expect(entry.metadata?.authors.length).toBeGreaterThan(0);
+    expect(fullRead).not.toHaveBeenCalled();
+    expect(slices.mock.calls.every(([start, end]) => start === 0 && end! <= 1024 * 1024)).toBe(true);
+    expect(handle.bytes).toEqual(coverBook);
+  });
+
+  it("keeps malformed files visible without inventing metadata", async () => {
+    const { documents, connect } = fixture();
+    const handle = new MemoryFile("Broken.azw3");
+    handle.bytes = coverBook.slice();
+    new DataView(handle.bytes.buffer).setUint32(86, 2 * 1024 * 1024, false);
+    documents.children.set(handle.name, handle);
+    const device = await connect();
+    const entry = (await device.scan()).entries[0]!;
+    expect(entry.name).toBe(handle.name);
+    expect(entry.metadata).toBeUndefined();
+  });
+
+  it("extracts a real embedded cover without modifying the scanned book or creating files", async () => {
+    const { documents, connect } = fixture();
+    const file = new MemoryFile("Existing.mobi");
+    file.bytes = coverBook.slice();
+    documents.children.set(file.name, file);
+    const device = await connect();
+    const entry = (await device.scan()).entries[0]!;
+    const cover = await device.readCover(entry);
+    expect(cover?.mediaType).toBe("image/jpeg");
+    expect(cover?.bytes.byteLength).toBeGreaterThan(1000);
+    expect(file.bytes).toEqual(coverBook);
+    expect(file.writeSizes).toEqual([]);
+    expect(documents.removed).toEqual([]);
+    expect([...documents.children.keys()]).toEqual([file.name]);
+    await expect(device.readCover({ ...entry })).resolves.toBeUndefined();
+    await device.scan();
+    await expect(device.readCover(entry)).resolves.toBeUndefined();
+  });
+
+  it("does not read replaced, changed, revoked, unsupported, or disconnected cover candidates", async () => {
+    const { documents, connect } = fixture();
+    const file = new MemoryFile("Existing.azw3");
+    file.bytes = coverBook.slice();
+    documents.children.set(file.name, file);
+    const device = await connect();
+    const entry = (await device.scan()).entries[0]!;
+    documents.children.set(file.name, new MemoryFile(file.name));
+    await expect(device.readCover(entry)).resolves.toBeUndefined();
+    documents.children.set(file.name, file);
+    documents.permission = "denied";
+    await expect(device.readCover(entry)).resolves.toBeUndefined();
+    documents.permission = "granted";
+    file.bytes = new Uint8Array(16);
+    await expect(device.readCover(entry)).resolves.toBeUndefined();
+    file.bytes = coverBook.slice();
+    const kfx = new MemoryFile("Store.kfx");
+    kfx.bytes = coverBook.slice();
+    documents.children.set(kfx.name, kfx);
+    const unsupported = (await device.scan()).entries.find(item => item.name === kfx.name)!;
+    const read = vi.spyOn(kfx, "getFile");
+    await expect(device.readCover(unsupported)).resolves.toBeUndefined();
+    expect(read).not.toHaveBeenCalled();
+    const fresh = (await device.scan()).entries[0]!;
+    device.disconnect();
+    await expect(device.readCover(fresh)).resolves.toBeUndefined();
+  });
+
+  it("requires existing Kindle markers without creating directories", async () => {
+    const { root, connect } = fixture();
+    root.children.delete("system");
+    await expect(connect()).rejects.toThrow(/main Kindle drive/);
+    expect([...root.children.keys()]).toEqual(["documents"]);
+  });
+
+  it("scans documents only and skips Kindle sidecars", async () => {
+    const { root, documents, system, connect } = fixture();
+    documents.children.set("Book.azw3", new MemoryFile("Book.azw3"));
+    documents.children.set("Store.kfx", new MemoryFile("Store.kfx"));
+    const sidecar = new MemoryDirectory("Book.sdr");
+    sidecar.failAccess = true;
+    documents.children.set(sidecar.name, sidecar);
+    root.children.set("outside.azw3", new MemoryFile("outside.azw3"));
+    const device = await connect();
+    system.failAccess = true;
+    expect((await device.scan()).entries.map(entry => entry.relativePath)).toEqual(["documents/Book.azw3", "documents/Store.kfx"]);
+  });
+
+  it("writes and verifies AZW3 only in documents/ShelfSend with isolated identity and recovery", async () => {
+    const { documents, storage, connect, artifact } = fixture();
+    storage.setItem(KOBO_RECOVERY_STORAGE_KEY, "unrelated Kobo recovery");
+    const device = await connect();
+    await expect(device.send(epub(), identity)).rejects.toThrow(/AZW3/);
+    expect(documents.children.has("ShelfSend")).toBe(false);
+    const result = await device.send(artifact, identity);
+    expect(result.relativePath).toMatch(/^documents\/ShelfSend\/.*\.azw3$/);
+    expect((await device.find(identity)).status).toBe("present");
+    expect((await device.send(artifact, identity)).alreadyPresent).toBe(true);
+    expect(storage.getItem(KINDLE_DRIVE_RECOVERY_STORAGE_KEY)).toBeNull();
+    expect(storage.getItem(KOBO_RECOVERY_STORAGE_KEY)).toBe("unrelated Kobo recovery");
+    const folder = documents.children.get("ShelfSend") as MemoryDirectory;
+    (folder.children.get(result.filename) as MemoryFile).bytes[10] = 1;
+    expect((await device.find(identity)).status).toBe("unknown");
+  });
+
+  it("refuses a replaced documents directory and revoked permission", async () => {
+    const { root, documents, connect, artifact } = fixture();
+    const device = await connect();
+    documents.permission = "denied";
+    await expect(device.send(artifact, identity)).rejects.toThrow(/permission/);
+    documents.permission = "granted";
+    root.children.set("documents", new MemoryDirectory("documents"));
+    await expect(device.send(artifact, identity)).rejects.toThrow(/folder changed/);
+    expect(documents.children.size).toBe(0);
+  });
+
+  it("retains Kindle recovery after unplug without changing unrelated files", async () => {
+    const { root, documents, storage, connect, artifact } = fixture();
+    const device = await connect();
+    const folder = await documents.getDirectoryHandle("ShelfSend", { create: true }) as MemoryDirectory;
+    folder.onCreateFile = file => { file.onWrite = () => { root.failAccess = true; }; };
+    await expect(device.send(artifact, identity)).rejects.toThrow(/inspect/);
+    expect(storage.getItem(KINDLE_DRIVE_RECOVERY_STORAGE_KEY)).not.toBeNull();
+    expect(storage.getItem(KOBO_RECOVERY_STORAGE_KEY)).toBeNull();
+    expect(folder.removed).toEqual([]);
+  });
+});
 
 describe("Kobo mounted-drive transport", () => {
   let root: MemoryDirectory;

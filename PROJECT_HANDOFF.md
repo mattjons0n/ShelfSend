@@ -6,6 +6,12 @@ Last updated: 2026-09-14
 
 ShelfSend sends books from the browser to the selected e-reader. Kindle uses WebUSB/MTP and browser-local AZW3 preparation; Kobo uses browser folder access and prepared EPUB files on its mounted USB drive. The server owns the catalog and optional metadata lookup, never device access. See the [device guide](docs/devices.md) for shared features and per-reader limits. Historical milestone evidence below remains scoped to the reader actually tested.
 
+### Kindle USB drive - 2026-10-23
+
+Mounted Kindles, including the 2019 Oasis, now have an explicit folder-picker connection. The existing folder transport supports a separate `kindle-drive` mode, identity namespace, and recovery journal. Browser-local Kindle preparation writes new verified AZW3 copies only under `documents/ShelfSend`; no existing-copy updates/deletions are available. The device-owned inventory displays all scanned files with bounded embedded title/author parsing, search/paging, and lazy embedded covers. Folder display IDs never become MTP handles or matching/deletion authority. No device files, metadata, or covers are sent to the backend.
+
+The user confirmed the Oasis connection, 92-file scan, and real cover rendering. Fresh metadata-display and transfer/import/opening/recovery acceptance remain pending. Full private-HTTPS and household deployment acceptance remains separate. Limits and recovery instructions are maintained in [the device guide](docs/devices.md#kindle-usb-drive-connection).
+
 ## Status
 
 The platform-agnostic Docker household-library implementation now contains the complete software candidate for Milestones 0–13. Milestone 14 is the integrated release-and-evidence gate, not an additional product feature; its exact final Node 24 and container result must be recorded for the frozen candidate using the [release checklist](deploy/docker/RELEASE_CHECKLIST.md). Milestones 1–9 are integrated into the normal API-backed interface. The bounded partial-object probe, KFX sidecar reader, and reading-state foundation are implemented behind development/default-off gates pending their required physical evidence. The measured safe-write decision remains `always`.

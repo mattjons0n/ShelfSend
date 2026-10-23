@@ -1,24 +1,29 @@
 import { AppError } from "../app-error";
+import type { KindleBookCover } from "../kindle/book-cover";
 import type { ConversionOverrides } from "../api/conversion-overrides";
 import type { CatalogApi, CatalogBook, CatalogKindleStatus, CatalogKindleStatusCounts, CatalogMatchIndexEntry } from "../catalog-client";
 import type { CatalogSendRequest, CatalogTransferUpdate } from "../catalog-browser";
 import type { CatalogKoboState } from "../reader-ui";
 import { koboIdentityHash } from "./device";
 import { prepareKoboArtifact } from "./prepare";
+import { prepareCatalogArtifact, type PrepareCatalogArtifactOptions } from "../catalog-transfer";
 import type { KoboIdentity, KoboInventory, KoboInventoryEntry, KoboRecoveryRecord, KoboSendOptions, KoboTransferResult } from "./types";
 
 /** No raw reader files, handles, or inventory are sent to the catalog server. */
 export interface KoboCatalogDevice {
+  readonly reader?: "kobo" | "kindle-drive";
   readonly closed: boolean;
   readonly recoveryRecords: readonly KoboRecoveryRecord[];
   scan(signal?: AbortSignal): Promise<KoboInventory>;
   verifyEntry(entry: KoboInventoryEntry, signal?: AbortSignal): Promise<boolean>;
+  readCover?(entry: KoboInventoryEntry, signal?: AbortSignal): Promise<KindleBookCover | undefined>;
   send(blob: Blob, identity: KoboIdentity, options?: KoboSendOptions): Promise<KoboTransferResult>;
   acknowledgeRecovery(): void;
   disconnect(): void;
 }
 
 export interface KoboCatalogHooks {
+  readonly convertEpub?: PrepareCatalogArtifactOptions["convertEpub"];
   state(state: CatalogKoboState): void;
   progress(update: CatalogTransferUpdate): void;
 }
@@ -38,7 +43,7 @@ function identity(profileId: string, entry: CatalogMatchIndexEntry): KoboIdentit
 }
 
 function filenameKey(value: string): string {
-  return value.normalize("NFKC").toLowerCase().replace(/(?:\.kepub)?\.epub$/u, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return value.normalize("NFKC").toLowerCase().replace(/(?:\.kepub)?\.(?:epub|azw3|azw|mobi|prc|kfx|azw8|pdf|txt)$/u, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
 function counts(statuses: ReadonlyMap<string, CatalogKindleStatus>): CatalogKindleStatusCounts {
@@ -67,7 +72,19 @@ export class KoboCatalogSession {
   #requestedProfile?: string;
   #busy = false;
   #closed = false;
-  constructor(readonly api: CatalogApi, readonly device: KoboCatalogDevice, readonly hooks: KoboCatalogHooks) {}
+  constructor(readonly api: CatalogApi, readonly device: KoboCatalogDevice, readonly hooks: KoboCatalogHooks) {
+    this.#snapshot = { ...this.#snapshot, reader: device.reader ?? "kobo" };
+  }
+
+  get #name(): string { return this.device.reader === "kindle-drive" ? "Kindle" : "Kobo"; }
+
+  #supportsFormat(format: string): boolean {
+    return format.toLowerCase() === "epub" || (this.device.reader === "kindle-drive" && format.toLowerCase() === "azw3");
+  }
+
+  #isBook(name: string): boolean {
+    return (this.device.reader === "kindle-drive" ? /\.(?:azw3|azw|mobi|prc|kfx|azw8|pdf|txt)$/iu : /\.epub$/iu).test(name);
+  }
 
   get busy(): boolean { return this.#busy || this.#refreshing !== undefined; }
   get closed(): boolean { return this.#closed || this.device.closed; }
@@ -85,7 +102,7 @@ export class KoboCatalogSession {
         this.#profileId = undefined;
         this.#index.clear();
         this.#emit({ status: "ready", profileId: undefined, statuses: new Map(), countsByProfile: new Map(),
-          message: "Kobo connected. Choose or create a library to compare its books." });
+          message: `${this.#name} connected. Choose or create a library to compare its books.` });
       }
       return Promise.resolve();
     }
@@ -105,9 +122,9 @@ export class KoboCatalogSession {
   }
 
   async #refresh(profileId: string): Promise<void> {
-    this.#emit({ status: "scanning", message: "Checking books on Kobo…" });
+    this.#emit({ status: "scanning", inventory: undefined, message: `Checking books on ${this.#name}…` });
     const timer = new AbortController();
-    const timeout = setTimeout(() => timer.abort(new Error("Kobo comparison took too long. Try Refresh.")), OPERATION_TIMEOUT_MS);
+    const timeout = setTimeout(() => timer.abort(new Error(`${this.#name} comparison took too long. Try Refresh.`)), OPERATION_TIMEOUT_MS);
     const signal = AbortSignal.any([this.#abort.signal, timer.signal]);
     try {
       const index = await read(this.api.getMatchIndex(profileId, signal), signal);
@@ -115,19 +132,20 @@ export class KoboCatalogSession {
         throw new Error("The library could not be compared safely. Refresh the library and try again.");
       }
       const inventory = await read(this.device.scan(signal), signal);
+      this.#emit({ inventory });
       const managed = new Map<string, KoboInventoryEntry[]>();
       const unmanagedNames = new Set<string>();
       for (const entry of inventory.entries) {
         if (entry.managed) managed.set(entry.managed.identityHash, [...(managed.get(entry.managed.identityHash) ?? []), entry]);
-        else if (/\.epub$/iu.test(entry.name)) unmanagedNames.add(filenameKey(entry.name));
+        else if (this.#isBook(entry.name)) unmanagedNames.add(filenameKey(entry.name));
       }
       const statuses = new Map<string, CatalogKindleStatus>();
       let verifiedFiles = 0;
       let verifiedBytes = 0;
       for (const book of index.entries) {
         signal.throwIfAborted();
-        if (book.sourceFormat.toLowerCase() !== "epub") { statuses.set(book.bookId, "unknown"); continue; }
-        const matches = managed.get(await koboIdentityHash(identity(profileId, book))) ?? [];
+        if (!this.#supportsFormat(book.sourceFormat)) { statuses.set(book.bookId, "unknown"); continue; }
+        const matches = managed.get(await koboIdentityHash(identity(profileId, book), this.device.reader)) ?? [];
         let status: CatalogKindleStatus = inventory.complete ? "not-on-kindle" : "unknown";
         if (matches.length) {
           status = "unknown";
@@ -149,34 +167,34 @@ export class KoboCatalogSession {
       this.#index = new Map(index.entries.map((book) => [book.bookId, book]));
       this.#emit({ status: "ready", profileId, statuses, countsByProfile: new Map([[profileId, counts(statuses)]]),
         message: this.device.recoveryRecords.length ? "An interrupted transfer needs your review before sending."
-          : inventory.complete ? "Kobo connected. Safely eject it from your computer when you finish."
+          : inventory.complete ? `${this.#name} connected. Safely eject it from your computer when you finish.`
             : "Some folders could not be checked. Refresh before sending books with unknown status." });
     } catch (error) {
-      if (!this.closed) this.#emit({ status: "error", message: error instanceof Error ? error.message : "Kobo could not be checked. Reconnect and try again." });
+      if (!this.closed) this.#emit({ status: "error", message: error instanceof Error ? error.message : `${this.#name} could not be checked. Reconnect and try again.` });
     } finally { clearTimeout(timeout); }
   }
 
   async send(request: CatalogSendRequest): Promise<void> {
     if (this.closed || this.busy || this.#snapshot.status !== "ready" || this.device.recoveryRecords.length) {
-      throw new AppError("INVALID_STATE", "Connect Kobo and finish checking its books before sending.");
+      throw new AppError("INVALID_STATE", `Connect ${this.#name} and finish checking its books before sending.`);
     }
     const compared = this.#index.get(request.book.id);
     if (this.#profileId !== request.profileId || !compared || request.book.profileId !== request.profileId
       || version(request.book) !== version(compared)) {
-      throw new AppError("CATALOG_SOURCE_CHANGED", "This book changed. Refresh the Kobo comparison before sending.");
+      throw new AppError("CATALOG_SOURCE_CHANGED", `This book changed. Refresh the ${this.#name} comparison before sending.`);
     }
     const status = this.#snapshot.statuses.get(request.book.id);
     if (status !== "not-on-kindle" && status !== "confirmed") {
       throw new AppError("INVALID_STATE", status === "possible"
-        ? "A file with this name is already on Kobo. Check it on your computer before sending another copy."
-        : "Kobo presence is unknown for this book. Refresh the reader before sending.");
+        ? `A file with this name is already on ${this.#name}. Check it on your computer before sending another copy.`
+        : `${this.#name} presence is unknown for this book. Refresh the reader before sending.`);
     }
     this.#busy = true;
     const timeoutAbort = new AbortController();
-    const timeout = setTimeout(() => timeoutAbort.abort(new Error("Kobo transfer timed out.")), OPERATION_TIMEOUT_MS);
+    const timeout = setTimeout(() => timeoutAbort.abort(new Error(`${this.#name} transfer timed out.`)), OPERATION_TIMEOUT_MS);
     const signal = AbortSignal.any([this.#abort.signal, timeoutAbort.signal, ...(request.cancelSignal ? [request.cancelSignal] : [])]);
     const progress = this.hooks.progress;
-    progress({ phase: "preparing", progress: 0, message: "Preparing your EPUB…", cancellable: true });
+    progress({ phase: "preparing", progress: 0, message: "Preparing your book…", cancellable: true });
     let committed = false;
     try {
       signal.throwIfAborted();
@@ -208,38 +226,43 @@ export class KoboCatalogSession {
         || (source.presentationVersion && source.presentationVersion.toLowerCase() !== (compared.presentationVersion ?? compared.contentHash).toLowerCase())) {
         throw new Error("The source changed while loading. Refresh before sending.");
       }
-      const prepared = await prepareKoboArtifact(book, source.blob, { signal, overrides });
+      if (this.device.reader === "kindle-drive" && !this.hooks.convertEpub) throw new Error("Kindle conversion is unavailable.");
+      const prepared = this.device.reader === "kindle-drive"
+        ? await prepareCatalogArtifact(book, source.blob, { signal, overrides, convertEpub: this.hooks.convertEpub!,
+          onPhase: phase => progress({ phase: phase === "ready" ? "validating" : phase, progress: 10,
+            message: phase === "converting" ? "Converting EPUB for Kindle…" : "Preparing Kindle copy…", cancellable: true }) })
+        : await prepareKoboArtifact(book, source.blob, { signal, overrides });
       // A user may have copied a book to the mounted drive while the source
       // was downloading. Recheck hints before handing off to the transport's
       // exact identity/read-back checks; a filename is never strong evidence.
       const currentInventory = await read(this.device.scan(signal), signal);
-      const identityHash = await koboIdentityHash(identity(request.profileId, compared));
+      const identityHash = await koboIdentityHash(identity(request.profileId, compared), this.device.reader);
       const copies = currentInventory.entries.filter((entry) => entry.managed?.identityHash === identityHash);
       const currentPresence: CatalogKindleStatus | undefined = !currentInventory.complete || copies.length > 1 ? "unknown"
-        : copies.length === 0 && currentInventory.entries.some((entry) => !entry.managed && /\.epub$/iu.test(entry.name)
+        : copies.length === 0 && currentInventory.entries.some((entry) => !entry.managed && this.#isBook(entry.name)
           && [filenameKey(book.sourceFilename), filenameKey(book.title)].includes(filenameKey(entry.name))) ? "possible" : undefined;
       if (currentPresence) {
         const statuses = new Map(this.#snapshot.statuses).set(book.id, currentPresence);
         this.#emit({ statuses, countsByProfile: new Map([[request.profileId, counts(statuses)]]) });
         throw new Error(currentPresence === "possible"
-          ? "A file with this name appeared on Kobo. Check it on your computer before sending another copy."
-          : "The Kobo could not be compared completely, or contains duplicate copies. Refresh and inspect its books before sending.");
+          ? `A file with this name appeared on ${this.#name}. Check it on your computer before sending another copy.`
+          : `The ${this.#name} could not be compared completely, or contains duplicate copies. Refresh and inspect its books before sending.`);
       }
       // Also catch an initially unedited book gaining its first overlay while preparing.
       this.#assertBook(await read(this.api.getBook(request.profileId, book.id, signal), signal), compared, request.profileId);
       signal.throwIfAborted();
       const result = await this.device.send(prepared.blob, identity(request.profileId, compared), {
         signal, onProgress: (value) => progress({ phase: value >= 95 ? "verifying" : "sending",
-          progress: Math.min(99, 15 + value * 0.84), message: value >= 95 ? "Checking the copied book…" : "Sending to Kobo…", cancellable: true }),
+          progress: Math.min(99, 15 + value * 0.84), message: value >= 95 ? "Checking the copied book…" : `Sending to ${this.#name}…`, cancellable: true }),
       });
       committed = true;
       const statuses = new Map(this.#snapshot.statuses).set(book.id, "confirmed" as const);
       this.#emit({ statuses, countsByProfile: new Map([[request.profileId, counts(statuses)]]) });
-      progress({ phase: "complete", progress: 100, message: result.alreadyPresent ? "Already on Kobo" : "Sent to Kobo", cancellable: false });
+      progress({ phase: "complete", progress: 100, message: result.alreadyPresent ? `Already on ${this.#name}` : `Sent to ${this.#name}`, cancellable: false });
     } catch (error) {
       const cancelled = signal.aborted && !this.device.recoveryRecords.length && !committed;
-      const message = cancelled ? "Transfer cancelled. No new book was left on Kobo."
-        : error instanceof Error ? error.message : "The book could not be sent. Reconnect Kobo and try again.";
+      const message = cancelled ? `Transfer cancelled. No new book was left on ${this.#name}.`
+        : error instanceof Error ? error.message : `The book could not be sent. Reconnect ${this.#name} and try again.`;
       if (this.device.recoveryRecords.length || this.device.closed) this.#emit({ status: "error", message });
       progress({ phase: cancelled ? "cancelled" : "failed", message, cancellable: false });
       throw new AppError(cancelled ? "TRANSFER_CANCELLED" : "CATALOG_REQUEST_FAILED", message);
@@ -252,8 +275,8 @@ export class KoboCatalogSession {
 
   #assertBook(book: CatalogBook, compared: CatalogMatchIndexEntry, profileId: string): void {
     if (book.id !== compared.bookId || book.profileId !== profileId || book.available === false
-      || book.format.toLowerCase() !== "epub" || version(book) !== version(compared)) {
-      throw new AppError("CATALOG_SOURCE_CHANGED", "This book changed or is not an available EPUB. Refresh before sending to Kobo.");
+      || !this.#supportsFormat(book.format) || version(book) !== version(compared)) {
+      throw new AppError("CATALOG_SOURCE_CHANGED", `This book changed or has an unsupported format. Refresh before sending to ${this.#name}.`);
     }
   }
 
@@ -263,9 +286,19 @@ export class KoboCatalogSession {
     return this.refresh(this.#profileId);
   }
 
+  async readCover(itemId: string): Promise<KindleBookCover | undefined> {
+    const inventory = this.#snapshot.inventory;
+    if (this.closed || this.busy || this.device.reader !== "kindle-drive"
+      || this.#snapshot.status !== "ready" || !inventory?.complete || !this.device.readCover) return undefined;
+    const entry = inventory.entries.find(candidate => `drive:${candidate.relativePath}` === itemId);
+    if (!entry) return undefined;
+    const cover = await this.device.readCover(entry, this.#abort.signal);
+    return !this.closed && !this.busy && this.#snapshot.inventory === inventory ? cover : undefined;
+  }
+
   disconnect(): void {
     this.#closed = true;
-    this.#abort.abort(new DOMException("Kobo disconnected", "AbortError"));
+    this.#abort.abort(new DOMException(`${this.#name} disconnected`, "AbortError"));
     this.device.disconnect();
   }
 }

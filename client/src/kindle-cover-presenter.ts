@@ -1,5 +1,6 @@
 import type { CatalogKindleInventoryItem } from "./catalog-browser";
 import type { KindleBookCover } from "./kindle/book-cover";
+export type KindleCoverItem = Pick<CatalogKindleInventoryItem, "id" | "filename" | "title" | "authors" | "path" | "size" | "objectFormat" | "modificationDate">;
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_DIMENSION = 8192;
@@ -30,7 +31,7 @@ function boundedDecode<T>(operation: Promise<T>, releaseLate?: (result: T) => vo
 }
 
 /** These are exact live object facts, never a catalog identity or title match. */
-export function kindleCoverFingerprint(item: CatalogKindleInventoryItem): string {
+export function kindleCoverFingerprint(item: KindleCoverItem): string {
   return JSON.stringify([item.id, item.path ?? null, item.objectFormat ?? null,
     item.size, item.modificationDate ?? null]);
 }
@@ -96,7 +97,7 @@ export class KindleCoverPresenter {
   readonly #cache = new Map<string, CachedThumbnail>();
   readonly #missing = new Map<string, number>();
   #cachedBytes = 0;
-  #items = new Map<string, CatalogKindleInventoryItem>();
+  #items = new Map<string, KindleCoverItem>();
   #rows = new Map<string, HTMLElement>();
   #visible = new Set<string>();
   #attemptedOnPage = new Set<string>();
@@ -109,7 +110,7 @@ export class KindleCoverPresenter {
   #scheduled = false;
   #disposed = false;
   #fallbackListening = false;
-  #lastItems?: readonly CatalogKindleInventoryItem[];
+  #lastItems?: readonly KindleCoverItem[];
   #lastPage?: Element | null;
   readonly #fallbackChanged = () => this.#measureVisible();
 
@@ -120,7 +121,7 @@ export class KindleCoverPresenter {
     this.#prepare = prepare;
   }
 
-  update(items: readonly CatalogKindleInventoryItem[], enabled: boolean, pageKey: string): void {
+  update(items: readonly KindleCoverItem[], enabled: boolean, pageKey: string): void {
     if (this.#disposed) return;
     const page = this.#root.querySelector(".kindle-library-view");
     if (this.#lastItems === items && this.#lastPage === page && this.#enabled === enabled && this.#pageKey === pageKey) {
@@ -146,8 +147,8 @@ export class KindleCoverPresenter {
     this.#rows.clear();
     const observation = ++this.#observation;
     const byId = new Map(items.map((item) => [item.id, item]));
-    this.#root.querySelectorAll<HTMLElement>(".kindle-library-view [data-kindle-object-id]").forEach((row) => {
-      const item = byId.get(row.dataset.kindleObjectId ?? "");
+    this.#root.querySelectorAll<HTMLElement>(".kindle-library-view [data-kindle-object-id], .kindle-library-view [data-reader-file-id]").forEach((row) => {
+      const item = byId.get(row.dataset.kindleObjectId ?? row.dataset.readerFileId ?? "");
       if (!item) return;
       const key = kindleCoverFingerprint(item);
       this.#rows.set(key, row);
@@ -161,12 +162,15 @@ export class KindleCoverPresenter {
         if (observation !== this.#observation || !this.#enabled) return;
         for (const entry of entries) {
           const row = entry.target as HTMLElement;
-          const item = byId.get(row.dataset.kindleObjectId ?? "");
+          const item = byId.get(row.dataset.kindleObjectId ?? row.dataset.readerFileId ?? "");
           if (!item) continue;
           const key = kindleCoverFingerprint(item);
           if (this.#rows.get(key) !== row) continue;
           if (entry.isIntersecting) this.#visible.add(key);
-          else this.#visible.delete(key);
+          else {
+            this.#visible.delete(key);
+            this.#attemptedOnPage.delete(key);
+          }
         }
         this.#schedule();
       }, { rootMargin: "80px 0px" });
@@ -222,6 +226,7 @@ export class KindleCoverPresenter {
   }
 
   #measureVisible(): void {
+    const previouslyVisible = new Set(this.#visible);
     this.#visible.clear();
     if (!this.#enabled) return;
     for (const [key, row] of this.#rows) {
@@ -229,6 +234,7 @@ export class KindleCoverPresenter {
       if (bounds.height > 0 && bounds.bottom >= 0 && bounds.top <= window.innerHeight) this.#visible.add(key);
       if (this.#visible.size >= FALLBACK_VISIBLE_LIMIT) break;
     }
+    for (const key of previouslyVisible) if (!this.#visible.has(key)) this.#attemptedOnPage.delete(key);
     this.#schedule();
   }
 
@@ -329,6 +335,7 @@ export class KindleCoverPresenter {
     if (!cached) return;
     this.#cache.delete(key);
     this.#cachedBytes -= cached.bytes;
+    if (!this.#visible.has(key)) this.#attemptedOnPage.delete(key);
     URL.revokeObjectURL(cached.url);
     const row = this.#rows.get(key);
     if (row) this.#clearImage(row);

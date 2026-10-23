@@ -28,6 +28,9 @@ class Observer {
   show(...elements: Element[]) {
     this.callback(elements.map((target) => ({ target, isIntersecting: true } as IntersectionObserverEntry)), this as unknown as IntersectionObserver);
   }
+  hide(...elements: Element[]) {
+    this.callback(elements.map((target) => ({ target, isIntersecting: false } as IntersectionObserverEntry)), this as unknown as IntersectionObserver);
+  }
 }
 
 function render(root: HTMLElement, items: readonly CatalogKindleInventoryItem[], offset = 0): void {
@@ -74,6 +77,21 @@ afterEach(() => {
 });
 
 describe("device-owned cover presentation", () => {
+  it("lazily decorates a folder file without creating an MTP object attribute", async () => {
+    const item = { ...ITEM, id: "drive:documents/Existing.mobi" };
+    const { root, presenter, request } = mount([item]);
+    const fileRow = row(root) as HTMLElement;
+    fileRow.removeAttribute("data-kindle-object-id");
+    fileRow.dataset.readerFileId = item.id;
+    presenter.update([item], true, "folder");
+    expect(request).not.toHaveBeenCalled();
+    Observer.current.show(fileRow);
+    await vi.waitFor(() => expect(root.querySelector("img")).not.toBeNull());
+    expect(request).toHaveBeenCalledExactlyOnceWith(item.id);
+    expect(root.querySelector("[data-kindle-object-id]")).toBeNull();
+    presenter.reset();
+    expect(URL.revokeObjectURL).toHaveBeenCalled();
+  });
   it("reads only a visible file's embedded cover, decorates its existing row and preserves details focus", async () => {
     const { root, request } = mount();
     const details = root.querySelector("details")!;
@@ -232,6 +250,27 @@ describe("device-owned cover presentation", () => {
     expect(root.querySelector("img")?.src).toBe("blob:kindle-cover-3");
     await wait();
     expect(request).toHaveBeenCalledTimes(3);
+  });
+
+  it("reloads an evicted cover when scrolling back without rereading continuously visible files", async () => {
+    const items = Array.from({ length: 3 }, (_, index) => ({ ...ITEM, id: `file-${index}` }));
+    const prepare = vi.fn(async () => new Blob([new Uint8Array(5 * 1024 * 1024)]));
+    const { root, request } = mount(items, vi.fn(async () => COVER), prepare);
+    Observer.current.show(row(root));
+    await vi.waitFor(() => expect(row(root).querySelector("img")).not.toBeNull());
+    Observer.current.hide(row(root));
+    Observer.current.show(row(root, 1), row(root, 2));
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(3));
+    expect(row(root).querySelector("img")).toBeNull();
+    await wait();
+    expect(request).toHaveBeenCalledTimes(3);
+    Observer.current.hide(row(root, 1), row(root, 2));
+    Observer.current.show(row(root));
+    await vi.waitFor(() => expect(row(root).querySelector("img")).not.toBeNull());
+    expect(request).toHaveBeenCalledTimes(4);
+    expect(request).toHaveBeenLastCalledWith(items[0]!.id);
+    await wait();
+    expect(request).toHaveBeenCalledTimes(4);
   });
 
   it("keeps identical snapshot publications on the existing visibility observer", async () => {

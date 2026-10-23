@@ -1,5 +1,5 @@
 import type { DebugLog } from "./log";
-import { isKoboReader, type CatalogKoboState } from "./reader-ui";
+import { isFolderReader, kindleDriveItems, type CatalogKoboState } from "./reader-ui";
 import { bindReaderConnectionMenu } from "./reader-connection-menu";
 import type {
   AdvancedPartialObjectProbeRunRequest,
@@ -54,6 +54,7 @@ import {
 export interface AppViewHandlers {
   readonly onKindleCoverRequested?: (itemId: string) => Promise<KindleBookCover | undefined>;
   readonly onKoboConnect?: () => void | Promise<void>;
+  readonly onKindleDriveConnect?: () => void | Promise<void>;
   readonly onKoboDisconnect?: () => void | Promise<void>;
   readonly onKoboRefresh?: () => void | Promise<void>;
   readonly onKoboRecoveryAcknowledged?: () => void | Promise<void>;
@@ -504,7 +505,7 @@ export class AppView {
     }
     // Measured USB counts can arrive frequently. Keep the rest of the page,
     // open disclosures, focused controls and scroll position intact.
-    if (previous !== state && !isKoboReader(this.#catalog.snapshot)
+    if (previous !== state && !isFolderReader(this.#catalog.snapshot)
       && (Object.keys({ ...previous, ...state }) as (keyof AppState)[])
         .every((key) => key === "kindleIndexProgress" || previous[key] === state[key])) {
       const progress = kindleConnectionProgress(state);
@@ -545,7 +546,7 @@ export class AppView {
     const moreFiltersOpen = this.#root.querySelector<HTMLDetailsElement>(".library-more-filters")?.open ?? false;
     const openDiagnostics = new Set([...this.#root.querySelectorAll<HTMLDetailsElement>("details[data-diagnostic-panel][open]")]
       .map((details) => details.dataset.diagnosticPanel));
-    const globalAlerts = isKoboReader(this.#catalog.snapshot) ? "" : `${renderRecovery(state)}${renderError(state, this.#catalog.snapshot.sendBusy || this.#catalog.snapshot.bulkActionBusy)}`;
+    const globalAlerts = isFolderReader(this.#catalog.snapshot) ? "" : `${renderRecovery(state)}${renderError(state, this.#catalog.snapshot.sendBusy || this.#catalog.snapshot.bulkActionBusy)}`;
     const connected = state.device.kind === "ready" || state.device.kind === "transferring" || state.device.kind === "recovering";
     const diagnostics = this.#catalog.snapshot.filters.view === "settings" ? `
       <section class="poc-lab settings-diagnostics" aria-labelledby="poc-lab-title">
@@ -642,8 +643,14 @@ export class AppView {
   /** Restart lazy presentation after the device operation lane becomes idle. */
   refreshKindleCovers(): void {
     const snapshot = this.#catalog.snapshot;
-    if (!this.#handlers.onKindleCoverRequested || snapshot.filters.view !== "on-kindle" || isKoboReader(snapshot)) {
+    if (!this.#handlers.onKindleCoverRequested || snapshot.filters.view !== "on-kindle" || snapshot.activeReader === "kobo") {
       this.#kindleCovers.pause();
+      return;
+    }
+    if (snapshot.activeReader === "kindle-drive") {
+      this.#kindleCovers.update(kindleDriveItems(snapshot.kobo?.inventory), snapshot.kobo?.status === "ready"
+        && snapshot.kobo.inventory?.complete === true && !snapshot.sendBusy && !snapshot.bulkActionBusy,
+      JSON.stringify(["kindle-drive", snapshot.kindleInventoryQuery, snapshot.kindleInventoryOffset]));
       return;
     }
     const inventory = snapshot.kindleInventory;
@@ -794,6 +801,10 @@ export class AppView {
       // Invoke synchronously from this user gesture so the directory chooser
       // retains the browser's transient activation permission.
       void this.#handlers.onKoboConnect?.();
+    }));
+    this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="connect-kindle-drive"]').forEach((button) => button.addEventListener("click", () => {
+      if (this.#catalog.snapshot.sendBusy || this.#catalog.snapshot.bulkActionBusy || !["disconnected", "error"].includes(this.#state.device.kind)) return;
+      void this.#handlers.onKindleDriveConnect?.();
     }));
     this.#root.querySelectorAll<HTMLButtonElement>('button[data-ui-action="disconnect-kobo"]').forEach((button) => button.addEventListener("click", () => {
       if (!this.#catalog.snapshot.sendBusy && !this.#catalog.snapshot.bulkActionBusy) void this.#handlers.onKoboDisconnect?.();
@@ -2128,7 +2139,7 @@ export class AppView {
   }
 
   #refreshCatalogResults(): void {
-    if (this.#catalog.snapshot.filters.view === "on-kindle" && !isKoboReader(this.#catalog.snapshot)) {
+    if (this.#catalog.snapshot.filters.view === "on-kindle" && !isFolderReader(this.#catalog.snapshot)) {
       this.#refreshCatalogDeviceContents();
       return;
     }
@@ -2151,10 +2162,10 @@ export class AppView {
 
   #refreshCatalogDeviceContents(): void {
     const inventoryPage = this.#root.querySelector<HTMLElement>(".kindle-library-view");
-    if (inventoryPage && !isKoboReader(this.#catalog.snapshot)) {
+    if (inventoryPage && this.#catalog.snapshot.activeReader !== "kobo") {
       const restoreDisplayControl = captureLibraryDisplayControl(this.#root);
       const openFileDetails = new Set([...inventoryPage.querySelectorAll<HTMLDetailsElement>(".kindle-library-file-details[open]")]
-        .map((details) => details.closest<HTMLElement>("[data-kindle-object-id]")?.dataset.kindleObjectId));
+        .map((details) => details.closest<HTMLElement>("[data-kindle-object-id], [data-reader-file-id]")?.getAttribute(this.#catalog.snapshot.activeReader === "kindle-drive" ? "data-reader-file-id" : "data-kindle-object-id")));
       const active = document.activeElement;
       const focused = active instanceof HTMLInputElement && active.id === "kindle-inventory-search" && inventoryPage.contains(active)
         ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : undefined;
@@ -2166,7 +2177,7 @@ export class AppView {
       if (replacement) {
         this.#bindCatalogResultActions(replacement);
         replacement.querySelectorAll<HTMLDetailsElement>(".kindle-library-file-details").forEach((details) => {
-          const itemId = details.closest<HTMLElement>("[data-kindle-object-id]")?.dataset.kindleObjectId;
+          const itemId = details.closest<HTMLElement>("[data-kindle-object-id], [data-reader-file-id]")?.getAttribute(this.#catalog.snapshot.activeReader === "kindle-drive" ? "data-reader-file-id" : "data-kindle-object-id");
           if (itemId && openFileDetails.has(itemId)) details.open = true;
         });
         const input = replacement.querySelector<HTMLInputElement>("#kindle-inventory-search");
@@ -2238,11 +2249,12 @@ export class AppView {
   }
 
   setKoboState(state: CatalogKoboState | undefined): void {
+    if (!state || state.status === "connecting" || state.status === "disconnected") this.#kindleCovers.reset();
     this.#catalog.setKoboState(state);
   }
 
-  get activeReader(): "kindle" | "kobo" {
-    return isKoboReader(this.#catalog.snapshot) ? "kobo" : "kindle";
+  get activeReader(): "kindle" | "kobo" | "kindle-drive" {
+    return this.#catalog.snapshot.activeReader ?? "kindle";
   }
 
   setCatalogKindleBookStatus(profileId: string, bookId: string, status: CatalogKindleStatus): void {

@@ -116,16 +116,17 @@ describe("Kobo controller routing", () => {
     } satisfies KoboCatalogDevice;
   }
 
-  it("opens the folder chooser immediately, keeps Kindle USB separate, and routes send and batch completion to Kobo", async () => {
+  it.each(["kobo", "kindle-drive"] as const)("opens the %s chooser immediately and routes sends without MTP authority", async (reader) => {
     vi.spyOn(AppView.prototype, "activeCatalogProfileId", "get").mockReturnValue("profile-1");
-    const device = kobo();
+    const device = { ...kobo(), reader };
     const connectKobo = vi.fn(async () => device);
     const updates = vi.spyOn(AppView.prototype, "setKoboState");
     const app = harness(false, { connectKobo });
-    const connecting = app.controller.connectKobo();
+    const connecting = app.controller.connectKobo(reader);
     expect(connectKobo).toHaveBeenCalledTimes(1);
+    expect(connectKobo).toHaveBeenCalledWith(expect.objectContaining({ reader }));
     await connecting;
-    expect(updates.mock.calls.at(-1)?.[0]).toMatchObject({ status: "ready", profileId: "profile-1" });
+    expect(updates.mock.calls.at(-1)?.[0]).toMatchObject({ status: "ready", reader, profileId: "profile-1" });
     expect(app.requestDevice).not.toHaveBeenCalled();
     await app.controller.connect();
     expect(app.requestDevice).not.toHaveBeenCalled();
@@ -142,11 +143,11 @@ describe("Kobo controller routing", () => {
     expect(updates.mock.calls.at(-1)?.[0]?.status).toBe("disconnected");
   });
 
-  it("does not open a Kobo picker while Kindle is connected", async () => {
+  it.each(["kobo", "kindle-drive"] as const)("does not open a %s picker while an MTP Kindle is connected", async (reader) => {
     const connectKobo = vi.fn(async () => kobo());
     const app = harness(false, { connectKobo });
     await app.controller.connect();
-    await app.controller.connectKobo();
+    await app.controller.connectKobo(reader);
     expect(connectKobo).not.toHaveBeenCalled();
     await app.controller.disconnect();
   });
